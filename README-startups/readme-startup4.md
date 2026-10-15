@@ -13,7 +13,7 @@ Students miss events or put them on calendars with the wrong day, location, or t
 I am involved in university courses and student organizations where event information circulates in chat or email. I can invite organizers to contribute public/permissioned sample announcements and test whether the resulting events match the originals.
 
 ### 3. Familiar with the infrastructure
-The project uses Python/FastAPI, an LLM API, date/time parsing libraries, an iCalendar (`.ics`) generator/parser, an events database, and AWS/container hosting. Calendar formats and time-zone libraries are learnable within an MVP.
+The project uses Python/FastAPI, an LLM API, date/time parsing libraries, an iCalendar (`.ics`) generator/parser, an events database, and container hosting. Calendar formats and time-zone libraries are learnable within an MVP.
 
 ### 4. Significantly reimagines the problem
 Calendar tools usually expect a user to type event fields. Generic AI extraction sometimes invents missing details. EventSync introduces **evidence-backed calendar publishing**: every required field traces to words in the source, contradictions are flagged, and ambiguous dates are withheld, so automation is trustworthy enough for organizers.

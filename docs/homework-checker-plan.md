@@ -1,4 +1,4 @@
-# Teacher homework checker: task description and implementation plan
+# Teacher homework checker: task description and implementation status
 
 ## Objective
 
@@ -25,29 +25,32 @@ equations in one real variable, with a teacher-confirmed answer key and rubric.
 6. Export approved grades and inspect class and student summaries.
 7. Select a confirmed skill gap and approve a checked follow-up practice set.
 
-Planned state progression:
-`uploaded → extraction_draft → transcription_confirmed → grading_draft → approved`.
-Failures or unsupported content enter `needs_review` with a reason; they do not
-become zero scores. Changing a transcript or rubric invalidates dependent draft
-grades and requires rechecking. Changing an approved result requires an explicit
-revision and updates the associated analytics.
+Implemented submission states are `transcription_draft → grading_draft → approved`.
+Teacher confirmation creates the grading draft. A per-question `needs_review` flag
+marks unreadable/unsupported work; it is not a separate submission state. Such
+work has unset suggested scores. Re-extracting or reconfirming a transcript
+invalidates prior approval, removes the result from analytics/exports, and requires
+review again. Rubrics are immutable; create a replacement assignment for changes.
+Writes require a current revision so stale reviews cannot overwrite newer work.
 
-## Existing foundation versus required work
+## Implementation snapshot — 2026-10-20
 
-| Area | Current implementation | Required addition |
+| Area | Implemented in the MVP | Remaining validation or scope |
 | --- | --- | --- |
-| Input | Typed steps for fixed practice problems | Teacher-created assignments, rubric/key entry, image/PDF uploads |
-| Mathematics | Bounded linear/quadratic checker and first-error detection | Apply the checker to confirmed extracted work and teacher keys |
-| AI | Optional text-provider adapter and offline demo | Vision transcription, structured grading proposals, practice proposals |
-| Scoring | Correct/incomplete/incorrect/unsupported status | Rubric-level evidence, partial-credit decisions, deterministic totals |
-| Review | Student hint and revision interface | Teacher review queue, edits, approval history, finalized feedback |
-| Analytics | Optional local practice-outcome aggregates | Reviewed question/skill summaries and per-student progress |
-| Practice | Fixed developer-authored problem bank | Skill-targeted follow-up sets with validated keys |
-| Persistence | Optional anonymous attempt metrics | Private assignment, file, rubric, review, and export records |
-| Deployment | Docker and CI; no hosted app | Teacher access controls, private storage, lifecycle/deletion controls |
+| Input | Teacher assignments, checked keys/rubrics, JPG/PNG/PDF uploads, anonymous codes | Real worksheet layout/handwriting evaluation |
+| Mathematics | First invalid transition, full solution sets, bounded algebra | Instructor-reviewed independent cases |
+| AI | Optional vision transcription, text hints, checked practice; bounded retries | Credentialed live-model smoke test and measured accuracy |
+| Scoring | Criterion evidence, deterministic totals, partial-credit overrides | Educator rubric calibration and agreement measurement |
+| Review | Source/transcript view, explicit confirmation, grade approval, history | Pilot usability and total teacher-time measurement |
+| Analytics | Approved question/skill summaries, coverage, student progress, CSV | Teacher evaluation of instructional usefulness |
+| Practice | Checked template or model proposals and approval before download | Teacher assessment of difficulty and skill fit |
+| Persistence | Private SQLite records/source pages; cascading deletion | Managed backups and a pilot retention process |
+| Delivery | Accounts, teacher UI, Docker, Python/browser/container CI | Hosted pilot and production operations |
+| Data | Dataset guide and reproducible MathWriting preparation/scoring | Curated DrawEduMath subset and reference grading labels |
 
-Existing practice metrics cannot serve as the classroom grade database. Keep that
-workflow functional while the new assignment workflow is introduced.
+The preserved student practice flow is at `/practice`. Its optional metrics remain
+separate from the teacher database. All model calls are disabled by default;
+manual transcripts and checked templates make the full review workflow runnable.
 
 ## MVP requirements and acceptance criteria
 
@@ -63,7 +66,8 @@ workflow functional while the new assignment workflow is introduced.
 
 ### Handwriting extraction
 
-- Produce structured question IDs, ordered equation steps, and source locations.
+- Produce structured question IDs, ordered equation steps, and source page numbers.
+  Region bounding boxes are outside the current implementation.
 - Show the source and transcript together. Teachers confirm transcription before
   a proposed grade can be finalized.
 - Flag unreadable work and missing question mappings; never silently invent a
@@ -80,7 +84,8 @@ workflow functional while the new assignment workflow is introduced.
 - Link proposed credit to specific criteria and evidence. Compute totals in code.
   Criteria that cannot be checked deterministically require a teacher decision.
 - Keep draft scores and final approved scores distinct. Allow teacher overrides.
-- Release only approved feedback derived from validated claims and templates.
+- Release only approved feedback. Automated hints use validated claims and
+  templates; teachers may write their own reviewed feedback with a decision reason.
 - Retry invalid model candidates at most three total times, then require review.
 - Keep answer keys and hidden grading evidence out of student-facing exports.
 
@@ -93,7 +98,8 @@ workflow functional while the new assignment workflow is introduced.
   statistics. Update summaries after an approved grade is revised.
 - Provide per-student trends once multiple assignments exist; do not describe one
   worksheet as proof of mastery.
-- Export approved grades to CSV with assignment, student code, and point totals.
+- Export each assignment’s approved grades to CSV with student code, earned and
+  possible points, and percentage; the selected assignment supplies the context.
 
 ### Differentiated assessment
 
@@ -116,26 +122,21 @@ workflow functional while the new assignment workflow is introduced.
 - Pilot with synthetic or permitted, de-identified work. The current practice
   consent checkbox does not authorize storing handwritten assignments.
 
-## Implementation order and PR boundaries
+## Delivered PR boundaries and next work
 
-Start each feature from current `dev` and target `dev`. Preserve the existing
-practice flow until the new teacher flow has its own tests and a runnable demo.
+Feature PRs target `dev`. The implementation is split into the teacher backend
+(PR #6), uploads/model integration/teacher UI/browser CI (PR #7), and dataset
+support plus operating documentation. Both backend and interface are merged into
+`dev`; `main` remains the release target.
 
-1. **Assignments and rubrics:** domain records, validated teacher keys, rubric
-   criteria, anonymous student codes, and a typed submission path for testing.
-2. **Teacher access and handwriting intake:** protected image/PDF upload,
-   extraction provider, source/transcript review, and bounded processing.
-3. **Validated grading and review:** criterion-level proposals, deterministic
-   scores, approval/override records, retry/fallback behavior, and feedback.
-4. **Class analytics and export:** approved-result aggregation, review coverage,
-   question/skill summaries, student trends, and CSV export.
-5. **Differentiated practice:** checked problem generation, teacher approval,
-   and a small follow-up set for each selected gap.
-6. **Pilot and deployment:** complete workflow tests, private hosting,
-   independently labeled evaluation, and teacher time/quality measurement.
+The teacher workflow and original student flow pass browser checks, including
+mobile layout; Python tests cover isolation, revisions, scoring, analytics, upload
+processing, provider failures, and checked practice. CI also builds/runs Docker.
 
-This document defines the work; those features are not implemented by the
-description change. The existing offline demo is not an OCR or grading demo.
+Next work is validation and deployment: configure a model for a credentialed smoke
+test, curate permitted handwritten examples with independent grading references,
+measure full teacher effort, and deploy a private pilot. No hosting, measured time
+savings, or classroom grading accuracy is implied by passing developer tests.
 
 ## Definition of done for the teacher MVP
 

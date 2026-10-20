@@ -12,3 +12,6 @@ README-startups/
 *.egg-info
 build/
 dist/
+datasets/
+node_modules/
+test-results/

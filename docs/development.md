@@ -2,17 +2,9 @@
 
 ## Branch workflow
 
-`dev` contains the current runnable implementation and is the branch to test before release.
-`main` is the release target. The initial four PRs were retargeted and merged into
-`dev` in dependency order using merge commits:
-
-1. [#1](https://github.com/KemalGC/CS4501_Startup/pull/1): package foundation and independent equation checking.
-2. [#2](https://github.com/KemalGC/CS4501_Startup/pull/2): validated candidates, three-attempt retry loop, providers.
-3. [#3](https://github.com/KemalGC/CS4501_Startup/pull/3): FastAPI endpoints and student interface.
-4. [#4](https://github.com/KemalGC/CS4501_Startup/pull/4): practice bank, opt-in outcomes, evaluation, CI, Docker.
-
-For the next change, read [codex.md](../codex.md), start from current `dev`, and open
-a focused feature PR with `dev` as its base:
+`dev` contains the integrated teacher MVP. Feature PRs target `dev`; `main` is the
+release target and requires separate release authorization. There is no automatic
+hosting or promotion. Read [codex.md](../codex.md), preserve user changes, then:
 
 ```sh
 git fetch origin
@@ -21,79 +13,95 @@ git pull --ff-only origin dev
 git switch -c codex/your-change
 ```
 
-Run the checks relevant to the change and inspect the PR's CI before merging.
-CI also runs on pushes to `dev`, so the integrated branch is checked after merges.
-Run the combined app from `dev` using the [README setup](../README.md#development)
-or Docker instructions below. After the user accepts the tested release, open a
-release PR from `dev` to `main`; merge it only when that release is authorized.
-There is no automatic deployment or automatic promotion to `main`.
+PRs #1–#4 built the original practice flow; #5 updated product scope; #6 added the
+teacher backend; #7 added uploads, model adapters, the teacher interface, and
+browser CI. Use focused PRs for future changes and inspect exact-head CI before
+merging. Integrated `dev` also runs the checks after merges.
 
-## Local checks
+## Local setup and checks
+
+Follow [README setup](../README.md#development), including the teacher account
+command. `/` and `/teacher` open the teacher workspace; `/practice` is the original
+student interface. The default workflow needs no API key.
 
 ```sh
-python -m pip install -r requirements.lock
-python -m pip install -e '.[dev]'
 python -m pytest -q
 python -m proofgrade.evaluate --split all
 python -m proofgrade.demo
 node --check proofgrade/static/app.js
+node --check proofgrade/static/teacher.js
+npm ci
+npx playwright install chromium
+npm run test:browser
 ```
 
-`requirements.lock` records runtime versions used for local validation; development
-tests are installed by the `dev` extra. Current Starlette emits a deprecation
-warning for its httpx-backed TestClient. It does not fail the test suite.
+On Linux, Playwright may need `npx playwright install --with-deps chromium`.
+`npm run test:browser` creates a temporary account/database, starts and stops its
+own server, and checks both flows, including image upload, manual source review,
+partial credit, approval, exports, targeted practice, revision invalidation,
+mobile overflow, and browser errors. It writes screenshots to ignored
+`test-results/`. An already running student app can also be tested with
+`PROOFGRADE_TEST_URL=http://127.0.0.1:8000 node tests/browser-smoke.cjs`.
 
-For a browser smoke test, start the app and run `node tests/browser-smoke.cjs`
-with Playwright and its Chromium browser installed. The script checks a wrong
-step, a verified hint, successful revision, missing-root feedback, mobile overflow,
-and browser JavaScript errors. Browser execution could not be completed in the
-authoring environment because the Chromium download returned an invalid archive.
-Do not describe the UI as browser-verified until this check has run successfully.
+CI runs Python 3.11/3.12, regression evaluation, offline fault injection,
+JavaScript syntax, both Chromium flows, and a Docker runtime smoke check.
+Screenshots are uploaded as `teacher-browser-previews`. On 2026-10-20 these
+checks passed for the teacher workspace and the screenshots were inspected.
+Local Chromium launch is blocked in the authoring sandbox; CI provides the
+browser execution evidence. No API credentials are used in tests.
 
-The optional OpenAI adapter is tested with mocked HTTP responses. A credentialed
-live-model test, instructor review, the planned teacher workflow and pilot, and
-hosted deployment remain separate tasks. See the
-[homework-checker plan](homework-checker-plan.md) for the revised product scope. Model access is explicitly configured; tests never use an API key.
+`requirements.lock` pins runtime dependencies; `package-lock.json` pins browser
+test dependencies. Update pins intentionally. The current httpx-backed TestClient
+emits a Starlette deprecation warning; it does not fail the suite.
 
 ## Container
 
+Use the same persistent volume for account creation and the application:
+
 ```sh
 docker build -t proofgrade .
-docker run --rm -p 127.0.0.1:8000:8000 proofgrade
-```
-
-The image runs as a non-root user and checks `/health`. It starts in offline demo
-mode and does not save attempts. For an opt-in pilot, use a persistent volume:
-
-```sh
+docker run --rm -it -v proofgrade-data:/data \
+  proofgrade python -m proofgrade.teacher_cli kemal
 docker run --rm -p 127.0.0.1:8000:8000 \
-  -e PROOFGRADE_STORE_ATTEMPTS=true \
   -v proofgrade-data:/data proofgrade
 ```
 
-Set `PROOFGRADE_HINT_MODE=openai`, `OPENAI_API_KEY`, and `OPENAI_MODEL` through the
-hosting service's secret/environment settings for real model calls. Use a model
-that supports structured outputs. The example environment file is documentation;
-the local app does not automatically load `.env`. Use exported shell variables or
-a container `--env-file`. No real key belongs in git, frontend assets, or an image.
+The image runs as a non-root user. Both teacher records/source pages and optional
+student metrics use `/data`. Without the volume, recreating a container loses its
+accounts and assignments. `/health` is the health endpoint. Student practice
+collection remains off unless `PROOFGRADE_STORE_ATTEMPTS=true`; enabled collection
+still requires per-request consent.
 
-For initial hosted use, place the app behind the host's private access gate, TLS,
-request-size limits, and rate/concurrency limits, especially in paid model mode.
-The app has no accounts or application-level rate limiter. Keep it private until
-those controls are configured. Use one instance with SQLite or move to a shared
-database before scaling. The repository does not deploy or publish automatically;
-the container workflow only builds and smoke-checks the image in CI. Docker is not
-installed in the authoring environment. GitHub Actions successfully built and
-smoke-tested the combined MVP image on 2026-10-20; check the latest `dev` workflow
-result for subsequent changes.
+For real model calls configure `PROOFGRADE_TEACHER_AI=openai`, `OPENAI_API_KEY`,
+and a vision/Structured Outputs model in `PROOFGRADE_VISION_MODEL`. Model hints
+also need `PROOFGRADE_HINT_MODE=openai` and `OPENAI_MODEL`. See `.env.example`;
+local Python does not auto-load it. Use exported variables or a private Docker
+`--env-file`. Never commit secrets or put them in frontend assets or the image.
+
+## Pilot hosting and current boundaries
+
+For a hosted pilot use HTTPS and `PROOFGRADE_SECURE_COOKIES=true`. Accounts,
+ownership checks, bounded uploads, a login limiter, and teacher-model concurrency
+limits are implemented. Add host-level rate limits, appropriate request/time
+limits, access restrictions, and storage/backups for the intended pilot. In-process
+limits and SQLite support one instance; multiple workers/instances need shared
+limits and storage. Public registration, password recovery, school rosters,
+student portals, LMS posting, and production operations are outside this MVP.
+
+The app retains normalized pages and teacher records until deleted through the UI
+or API. Deletion cascades through dependent records; operator backups and external
+provider retention have separate lifecycles. Agree on a pilot deletion date.
+The repo does not publish automatically. Docker is verified in GitHub Actions;
+no hosted instance has been created.
+
+A credentialed model smoke test, independent instructor review, teacher-time
+measurement, and the [pilot](pilot-plan.md) are still outstanding. See
+[datasets.md](datasets.md) for licensed evaluation sources and preparation commands.
 
 ## Technical references
 
-- [SymPy parsing warning](https://docs.sympy.org/latest/modules/parsing.html):
-  this project uses a restricted parser instead of applying eval-based parsing to
-  raw student input.
-- [SymPy solveset](https://docs.sympy.org/latest/modules/solvers/solveset.html):
-  every equation is checked over the real domain explicitly.
-- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs):
-  schema-constrained responses still undergo independent mathematical validation.
+- [SymPy parsing warning](https://docs.sympy.org/latest/modules/parsing.html): raw input uses a restricted parser.
+- [SymPy solveset](https://docs.sympy.org/latest/modules/solvers/solveset.html): explicit real solution sets.
+- [OpenAI vision inputs](https://developers.openai.com/api/docs/guides/images-vision).
+- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 - [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/).

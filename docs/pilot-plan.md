@@ -6,8 +6,8 @@ Teachers can grade supported handwritten algebra assignments and prepare targete
 follow-up faster with ProofGrade, while retaining comparable grading quality and
 control over final results. Recruit 3–5 math teachers or algebra tutors. Begin
 with synthetic or permitted, de-identified short worksheets and anonymous student
-codes. This pilot has not been conducted, and the teacher workflow is not yet
-implemented.
+codes. The teacher workflow is implemented, but this pilot has not been conducted.
+Live handwriting/model performance has not yet been measured.
 
 The initial scope is linear and quadratic equations in one real variable on a
 known worksheet layout. The first feasibility study does not establish benefits
@@ -67,17 +67,19 @@ ambiguity, unsupported mathematics, and teacher rubric disagreements.
 
 ## Data collection and current implementation limits
 
-The teacher pilot will need assignment records, protected source files, confirmed
-transcripts, rubric versions, draft/final grades, approval history, timings, and
-override reasons. Define access and deletion behavior before collecting that data.
-Do not store identifying classroom work merely because the existing practice
-collection setting is enabled.
+The teacher SQLite store now records assignments, immutable rubrics, private
+normalized source pages, transcripts, draft/final grades, revision events, and
+override reasons. Ownership checks and deletion controls are implemented. These
+records do not measure active teacher effort: an approval timestamp is not grading
+time. Record per-stage active time and model usage/cost separately in the pilot,
+and align independent reference scores with the exported results. Define the
+sample permissions and deletion date before collecting classroom material.
 
-The current SQLite attempt store records anonymous practice outcomes only. Its
-`proofgrade.metrics` reports do not measure teacher grading time, score agreement,
-OCR correction, or classroom performance. Add dedicated pilot measurements when
-the assignment workflow is implemented. Keep offline demos and live-model runs
-separate, and report model usage costs alongside measured teacher time.
+The separate `proofgrade.metrics` reports cover optional student practice outcomes;
+they do not measure teacher time, score agreement, or OCR corrections. Keep manual,
+offline-template, and live-model conditions separate in any report. See
+[datasets.md](datasets.md) for DrawEduMath and MathWriting; neither replaces the
+instructor-labeled rubric dataset described above.
 
 ## Learning outcomes and demonstration
 
@@ -91,7 +93,9 @@ transcript review, a checked distribution error, a teacher score override, appro
 grade export, a class skill-gap summary, and a validated follow-up set. Include an
 unreadable response and an invalid model candidate to show review and retry paths.
 
-Until those features exist, the current demo remains the typed-algebra example
-`2(x+3)=10` followed by `2x+3=10`, with a checked hint and student revision.
-`python -m proofgrade.demo` demonstrates offline fault injection only; it does not
-demonstrate handwriting extraction, grading, or real model performance.
+The teacher workspace’s **Try a synthetic demo** creates an assignment and typed
+responses for the review/analytics/practice flow. Upload a permitted image or PDF
+to demonstrate source review. AI extraction requires server configuration and a
+credentialed test; manual transcription remains available.
+`python -m proofgrade.demo` demonstrates the original hint fault injection only,
+not handwriting recognition or real model quality.

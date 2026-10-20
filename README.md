@@ -1,24 +1,29 @@
 # ProofGrade
 
-ProofGrade's product goal is to help math teachers grade handwritten homework,
-review suggested scores and feedback, identify class learning gaps, and create
-targeted follow-up practice. See the
-[selected startup brief](README-startups/readme-startupSelected.md) and
-[homework-checker implementation plan](docs/homework-checker-plan.md).
+ProofGrade helps math teachers check handwritten algebra homework, review grades
+and feedback, identify class learning gaps, and prepare targeted practice.
+The integrated MVP is on **`dev`**. `main` is reserved for an approved release.
 
-## Current implementation
+## What works now
 
-The runnable app is the typed-algebra foundation: students select a practice
-problem, enter their steps, find the first invalid transition, and revise using a
-checked hint. Handwritten uploads, rubric scoring, teacher review, classroom
-analytics, and differentiated practice are planned features, not available yet.
-The default provider is an offline demo; it makes no real AI calls.
+- Private teacher accounts and assignments with checked answer keys and rubrics.
+- JPG/PNG and scanned PDF uploads, with source pages beside editable transcripts.
+- Optional AI transcription; manual entry works without an API key.
+- Suggested rubric scores, first invalid steps, checked hints, partial-credit
+  overrides, teacher approval, and versioned review history.
+- Approved-grade CSV and feedback exports, question/skill summaries, and student
+  progress across assignments in the same class.
+- Three-question practice sets for reviewed skill gaps, with independently checked
+  keys and teacher approval before student download.
+- The original student practice checker remains available at `/practice`.
+
+The first release supports short linear/quadratic algebra worksheets, not general
+math grading. Scores come from explicit rubric rules; teachers decide partial
+credit and subjective criteria. Every released result needs teacher approval.
 
 ## Development
 
-Use the `dev` branch for the integrated MVP; feature PRs target `dev`. Read
-[codex.md](codex.md) before the next adjustment for the project handoff and checks.
-Requires Python 3.11 or newer.
+Requires Python 3.11 or newer. Read [codex.md](codex.md) before changing the project.
 
 ```sh
 git clone --branch dev https://github.com/KemalGC/CS4501_Startup.git
@@ -27,97 +32,136 @@ python -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.lock
 python -m pip install -e '.[dev]'
-python -m pytest -q
+python -m proofgrade.teacher_cli kemal
 python -m uvicorn proofgrade.api:create_app --factory --reload
 ```
 
-On Windows PowerShell, activate the environment with `.\.venv\Scripts\Activate.ps1`
-instead of `. .venv/bin/activate`. For an existing clone, fetch and switch to `dev`
-before running the setup commands.
+The account command prompts for a password of at least 12 characters. There is no
+shared default password or public registration. On Windows PowerShell, activate
+with `.\.venv\Scripts\Activate.ps1`. For an existing clone, fetch and switch to
+`dev` first, preserving uncommitted changes.
 
-Open http://127.0.0.1:8000. Select a practice problem, enter equations one line at
-a time, and check your work. The default mode is explicitly labeled as a local
-demo. Use “Try an example mistake” on the first problem to demonstrate distribution
-feedback, then revise to `2x+6=10`, `2x=4`, `x=2` and check again.
+Open http://127.0.0.1:8000 and sign in. Create an assignment or choose **Try a
+synthetic demo** from the empty workspace. The demo creates typed, synthetic work;
+it does not pretend to recognize handwriting. Review a response, confirm its
+transcript, approve or override the suggested grades, and return to the dashboard
+to export grades and create practice for a reviewed skill gap.
 
-The browser calls `GET /api/problems`, `GET /api/config`, and `POST /api/check`.
-Only problem IDs and submitted steps are accepted; answer keys stay server-side.
-The UI renders submitted and returned text as text nodes, not HTML, and disables
-editing during a check to keep the highlighted step aligned with the request.
-The 30 practice exercises are developer fixtures awaiting instructor review.
+Use one file per student: an image up to 20 megapixels or a PDF up to 5 pages,
+8 MiB per file. The UI accepts batches of up to 20 files; assignments support
+1–5 questions and up to 200 student responses. Files become normalized PNG source
+pages stored privately with the assignment. Delete a response or assignment to
+remove its retained work and dependent records. Rubrics are immutable after
+creation; create a replacement assignment to change a rubric.
 
-## Supported algebra
+## AI configuration
 
-- One real variable, `x`; linear or quadratic expressions.
-- Exact integers, fractions, decimals, parentheses, implicit multiplication
-  (`2x`, `2(x+3)`), and powers `^` / `**` with exponents 0, 1, or 2.
-- `sqrt(number)` for nonnegative rational constants, including irrational roots.
-- State both roots on one line: `x = -2 or x = 2`.
-- Use `no real solutions` or `all real numbers` when appropriate.
-- Up to 20 submitted steps, 256 characters per step, and bounded expression complexity.
+By default, `PROOFGRADE_TEACHER_AI=disabled` and `PROOFGRADE_HINT_MODE=demo`:
+manual transcription, deterministic checking, checked hint templates, and varied
+practice from checked templates work offline. No API key is required.
 
-Variable denominators, inequalities, complex numbers, handwriting, arbitrary
-functions, and reasoning outside this grammar need manual review. Unsupported
-syntax is distinguished from a mathematical error. Step numbers start at 1 for
-the first submitted line after the original problem.
+To enable model transcription and model-proposed practice, set these variables in
+the server environment:
 
-The checker compares real solution sets. This detects lost and added roots; it
-does not certify every explanation or prove which operation the student intended.
-A valid sequence is only marked complete when the final line states all roots
-or the applicable special solution set. No AI-generated text is used by this layer.
+```text
+PROOFGRADE_TEACHER_AI=openai
+OPENAI_API_KEY=<your server-side secret>
+PROOFGRADE_VISION_MODEL=<a vision model supporting Structured Outputs>
+```
 
-## Teacher MVP acceptance goals
+For model-proposed hint candidates, also set `PROOFGRADE_HINT_MODE=openai` and
+`OPENAI_MODEL` to a model supporting Structured Outputs. The teacher model falls
+back to `OPENAI_MODEL` when `PROOFGRADE_VISION_MODEL` is empty. The app does not
+load `.env` automatically; export variables or use Docker's `--env-file`.
 
-The revised pilot will measure total teacher grading time, rubric-score agreement,
-transcription corrections, teacher overrides, class-summary correctness, and
-follow-up practice quality. Proposed targets include 30% lower median total grading
-time, 90% exact draft-score agreement on supported, legible work, and teacher
-approval for every released result. These are unmeasured targets for the planned
-teacher workflow. See the [pilot plan](docs/pilot-plan.md) for denominators,
-review coverage, and evaluation procedures.
+**Extract handwriting with AI** sends normalized source pages and question
+prompts to the configured OpenAI model. Keys are not included in transcription
+requests. Responses use `store=false`; this is not a claim of zero provider
+retention. The model must preserve mistakes and flag unreadable work. Teachers
+must confirm its transcript. Invalid candidates get at most three attempts;
+persistent failures are withheld and manual review remains available.
 
-The existing developer fixtures and practice metrics validate only the current
-typed-algebra foundation; they cannot establish handwriting or grading accuracy.
+Provider tests use mocked HTTP. A credentialed live-model smoke test and measured
+handwriting accuracy remain outstanding. See [OpenAI vision inputs](https://developers.openai.com/api/docs/guides/images-vision)
+and [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
-## Verified hints
+## Supported algebra and grading
 
-The checker supplies the first invalid transition. The candidate provider proposes
-a corrected transition, complete final answer, error category, and hint style.
-Pydantic checks the schema, and independent algebra checks validate the cited
-transition, correction, and final answer against a server-side answer key. Only
-approved templates matching a verified category are shown; candidate corrections,
-final answers, and arbitrary model prose never reach the student response.
+- One real variable `x`, linear or quadratic expressions.
+- Exact numbers, fractions, decimals, parentheses, implicit multiplication,
+  powers 0–2, and `sqrt(number)` for nonnegative rational constants.
+- Both roots on one line, for example `x=-2 or x=2`; also `no real solutions`
+  and `all real numbers`.
+- Up to 20 steps per question, 256 characters per step, bounded parser complexity.
 
-Candidates that fail validation are regenerated with the failure evidence, for at
-most three total attempts. Refusals, timeouts, incomplete responses, and persistent
-validation failures withhold the hint. Template usefulness still needs tutor review.
+The checker compares real solution sets and identifies the first invalid
+transition. It accepts valid alternative equation sequences, but cannot certify
+arbitrary prose or determine every operation the student intended. Variable
+denominators, inequalities, complex numbers, diagrams, and unsupported notation
+need a teacher decision. Unreadable/unsupported responses receive unset suggested
+scores, not silent zeros.
 
-`PROOFGRADE_HINT_MODE=demo` is the default: a deterministic offline provider,
-explicitly identified as a demo. It does not call or simulate a real LLM's quality.
-`disabled` turns hints off. For real model calls, set `PROOFGRADE_HINT_MODE=openai`,
-`OPENAI_API_KEY`, and `OPENAI_MODEL` in the server environment. Choose a model with
-Structured Outputs support. Never commit a key. The adapter sends only the selected
-problem and relevant transition to the Responses API, with `store=false`.
-The live provider has transport-mocked tests; a real API smoke test remains required.
+Final-answer criteria award full points for the complete correct solution set.
+Valid-work criteria award full points for equivalent transitions with a non-final
+intermediate equation distinct from the original. Teachers review partial credit
+and manual criteria, explaining overrides. Reconfirming a transcript invalidates
+its old approval and removes it from summaries and exports until reapproved.
+Only approved grades contribute to analytics; review coverage stays visible.
 
-Reference: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+Checked hints use validated categories and approved templates. Candidate answers,
+corrections, and arbitrary model prose are not exposed to students. Teacher-written
+feedback is explicitly a human decision. Student practice downloads omit keys.
 
-## Evaluation, pilot data, and deployment
+## Datasets and validation
 
-Run `python -m proofgrade.evaluate --split all` for the 42 labeled developer cases.
-Every case is marked pending instructor review. Run `python -m proofgrade.demo`
-to demonstrate fault injection and the bounded retry/fallback behavior offline.
+See [docs/datasets.md](docs/datasets.md) for **DrawEduMath**, a closer benchmark for
+interpreting real student work, and **MathWriting**, for expression transcription.
+Both datasets carry noncommercial licenses. They do not provide a drop-in
+reference rubric for this application's grading policy.
 
-Attempt storage is disabled by default. Set `PROOFGRADE_STORE_ATTEMPTS=true` to
-offer an unchecked opt-in box; only consenting requests are saved. SQLite records
-outcomes and optional ratings, not entered equations or personal details. Set
-`PROOFGRADE_DB_PATH` to choose the database file. Report results locally using
-`python -m proofgrade.metrics --mode demo` (or `--mode openai` for real model data).
+Prepare a small reproducible MathWriting evaluation sample:
 
-See [development and deployment](docs/development.md) for Docker commands,
-configuration, remaining validation, and the branch workflow. PRs #1–#4 are merged
-into `dev`, which contains the combined MVP. CI runs on `dev` pushes and pull
-requests, including Python tests, regression evaluation, fault-injection demos,
-JavaScript syntax checking, and a container smoke test. Run the app locally or in
-Docker from `dev` before proposing a release PR from `dev` to `main`. Creating the
-branch does not publish an application; hosted deployment is a separate step.
+```sh
+python -m proofgrade.mathwriting prepare --download --split valid --limit 20
+```
+
+This downloads a checksum-pinned excerpt, renders InkML to PNG, and preserves
+labels, split, source, and attribution. Dataset downloads stay out of git and
+application storage; this command does not train or call a model.
+
+```sh
+python -m pytest -q
+python -m proofgrade.evaluate --split all
+python -m proofgrade.demo
+npm ci
+npx playwright install chromium
+npm run test:browser
+```
+
+CI runs Python 3.11/3.12 tests, the 42 developer-labeled algebra cases, fault
+injection, teacher/student browser flows including mobile checks, and Docker smoke
+checks. The 30 practice exercises and 42 regression cases await instructor review.
+Synthetic tests do not establish grading quality or time savings.
+
+The [pilot plan](docs/pilot-plan.md) proposes measuring total teacher time,
+transcription corrections, draft-score agreement, overrides, and practice quality.
+The pilot has not been conducted. Teacher active-time measurement and independent
+reference grades still need to be collected.
+
+## Persistence and deployment
+
+Teacher records and normalized source pages use `PROOFGRADE_TEACHER_DB`
+(default `data/teachers.sqlite3`). Accounts use salted password hashes, expiring
+sessions, ownership checks, and cross-origin mutation protections. Retain only
+permitted work, use anonymous codes, and agree on a deletion date for a pilot.
+The separate student-practice metrics remain disabled by default and require
+per-request opt-in when enabled.
+
+See [development and deployment](docs/development.md) for persistent Docker
+volumes, HTTPS configuration, and the feature-PR-to-`dev` workflow. This is a
+single-instance pilot application; hosted deployment, recovery operations,
+rosters/LMS integration, and a public production release are not configured.
+
+Product scope: [selected startup brief](README-startups/readme-startupSelected.md),
+[implementation status](docs/homework-checker-plan.md), and
+[teacher API](docs/teacher-api.md).

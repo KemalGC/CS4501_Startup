@@ -10,3 +10,6 @@ dist/
 *.egg-info/
 .coverage
 htmlcov/
+node_modules/
+test-results/
+datasets/

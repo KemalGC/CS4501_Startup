@@ -18,3 +18,5 @@ sympy==1.14.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 uvicorn==0.54.0
+pillow==13.0.0
+pypdfium2==5.14.0

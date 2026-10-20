@@ -116,8 +116,8 @@ def analytics(assignment, submissions):
 def template_practice(skill):
     """Offline, varied equations; reference solutions are checked before returning."""
     result = []
-    for index in range(3):
-        root, factor, offset = secrets.randbelow(9) + 1, secrets.randbelow(6) + 2, secrets.randbelow(7) + 1
+    for index, root in enumerate(secrets.SystemRandom().sample(range(1, 10), 3)):
+        factor, offset = secrets.randbelow(6) + 2, secrets.randbelow(7) + 1
         if skill == "distribution":
             equation = f"{factor}(x+{offset})={factor * (root + offset)}"
         elif skill == "quadratic":

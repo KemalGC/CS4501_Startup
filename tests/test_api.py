@@ -54,8 +54,9 @@ def test_disabled_provider_preserves_checker():
 def test_frontend_assets_and_config(client):
     assert client.get("/health").json() == {"status": "ok"}
     assert client.get("/api/config").json()["provider_mode"] == "demo"
-    page = client.get("/")
+    page = client.get("/practice")
     assert page.status_code == 200 and "Check my work" in page.text
     assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/style.css").status_code == 200
+    assert "Teacher workspace" in client.get("/").text

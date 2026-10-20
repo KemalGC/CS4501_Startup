@@ -1,11 +1,12 @@
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 (async () => {
-  const browser = await chromium.launch({headless:true});
+  const browser = await chromium.launch({headless:true,
+    ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE} : {})});
   const page = await browser.newPage({viewport:{width:1280,height:1000}});
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('http://127.0.0.1:8000');
+  await page.goto((process.env.PROOFGRADE_TEST_URL || 'http://127.0.0.1:8000') + '/practice');
   await page.getByRole('button',{name:'Try an example mistake'}).click();
   await page.getByRole('button',{name:'Check my work'}).click();
   await page.getByText('One checked hint',{exact:true}).waitFor();

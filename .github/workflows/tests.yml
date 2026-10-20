@@ -18,6 +18,7 @@ jobs:
     env:
       PROOFGRADE_HINT_MODE: demo
       PROOFGRADE_STORE_ATTEMPTS: 'false'
+      PROOFGRADE_TEACHER_AI: disabled
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +32,30 @@ jobs:
       - run: python -m proofgrade.evaluate --split all
       - run: python -m proofgrade.demo
       - run: node --check proofgrade/static/app.js
+      - run: node --check proofgrade/static/teacher.js
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: python -m pip install -r requirements.lock
+      - run: python -m pip install -e '.[dev]'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: teacher-browser-previews
+          path: test-results/
+          if-no-files-found: ignore
 
   container:
     runs-on: ubuntu-latest

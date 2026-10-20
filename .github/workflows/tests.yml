@@ -40,7 +40,7 @@ jobs:
       PROOFGRADE_HINT_MODE: demo
       PROOFGRADE_TEACHER_AI: disabled
       PROOFGRADE_STORE_ATTEMPTS: 'false'
-      PROOFGRADE_TEACHER_DB: '${{ runner.temp }}/proofgrade-smoke.sqlite3'
+      PROOFGRADE_TEACHER_DB: data/teachers-ci.sqlite3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

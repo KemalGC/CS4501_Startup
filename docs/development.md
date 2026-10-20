@@ -98,6 +98,42 @@ A credentialed model smoke test, independent instructor review, teacher-time
 measurement, and the [pilot](pilot-plan.md) are still outstanding. See
 [datasets.md](datasets.md) for licensed evaluation sources and preparation commands.
 
+## Windows: a native library is blocked
+
+`ImportError: DLL load failed while importing _imaging: An Application Control
+policy has blocked this file` means the operating system refused to load Pillow's
+native image code. Installing the Python package can succeed even when loading
+one of its binaries is blocked. This message alone does not identify which policy
+or binary dependency caused the block; upgrading pip does not resolve that policy.
+
+The app loads image/PDF backends only when needed. If Pillow cannot load, it still
+starts and supports login, typed homework, grading, analytics, exports, and
+practice. The teacher workspace disables file selection and explains the limit.
+If only PDFium cannot load, JPG/PNG uploads still work. A rejected upload returns
+503 without creating a submission. Existing normalized source pages can still be
+viewed. These fallbacks do not change Windows security settings.
+
+After pulling the fix on `dev`, restart from the same project directory and
+virtual environment; an already created teacher account does not need recreation:
+
+```powershell
+git fetch origin
+git switch dev
+git pull --ff-only origin dev
+python -m uvicorn proofgrade.api:create_app --factory --reload
+```
+
+To restore file processing, review **Event Viewer → Applications and Services
+Logs → Microsoft → Windows → CodeIntegrity → Operational**. The App Control
+block event (commonly 3077) identifies the file and policy; related 3089 events
+describe signature information. Share those details with the policy administrator
+for an approved installation or policy correction. Do not assume a Python-version
+change will remove an Application Control restriction. See
+[Microsoft's troubleshooting guide](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/operations/appcontrol-debugging-and-troubleshooting).
+
+Windows/Python 3.14 CI covers startup, image/PDF intake, and simulated native
+import blocks. It cannot reproduce the specific policy installed on a user's PC.
+
 ## Technical references
 
 - [SymPy parsing warning](https://docs.sympy.org/latest/modules/parsing.html): raw input uses a restricted parser.

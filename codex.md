@@ -72,6 +72,7 @@ volume as the running server; see [development.md](docs/development.md).
 | `teacher_store.py` | SQLite accounts/sessions, ownership, revisions, audit history, deletion |
 | `teacher_grading.py` | Criterion evidence, checked draft scores, approved analytics, template practice |
 | `teacher_uploads.py` | Request-size middleware, image normalization, bounded PDF rendering |
+| `teacher_media.py` | Lazy native-library loading and upload availability; typed flow survives blocked DLLs |
 | `teacher_ai.py` | Optional vision transcription and checked model practice via Responses API |
 | `teacher_api.py` | Authenticated assignment, upload, review, export, analytics, practice routes |
 | `teacher_cli.py` | Local account provisioning; no public registration |
@@ -101,6 +102,11 @@ Paths after the first row are relative to `proofgrade/`, except `tests/`.
   The UI batches at most 20 files. PDFs render locally to normalized PNGs.
   Raw uploads are not retained. JSON body caps: 12 MiB for uploads, 256 KiB otherwise,
   including chunked requests. Never remove processing bounds to accept a file.
+- Do not import Pillow/PDFium at application module scope. Windows policies may
+  block their native code. Report upload capabilities in the authenticated session,
+  disable unavailable file selection, and return 503 without creating a response.
+  Preserve login, typed grading, existing page viewing, and other non-media paths.
+  PDFium failure alone must not disable JPG/PNG. Do not change OS policies in code.
 - States: `transcription_draft`, `grading_draft`, `approved`. `needs_review` is a
   per-question flag, not a stored submission state. Missing answers must be
   represented explicitly. Every transcript confirmation computes a fresh draft.
@@ -200,6 +206,9 @@ Run focused regressions for behavioral bugs; don't add tests for prose edits.
 Before merging inspect the workflow for the exact head and integrated branch.
 Python 3.11/3.12, 42/42 regression cases, both browser flows, and Docker checks pass
 for the teacher workspace. Final dataset changes add preparation/scoring tests.
+Windows/Python 3.14 CI also covers startup, upload handling, and cold-process
+simulations of blocked Pillow/PDFium imports. Browser coverage includes typed
+submission when uploads are unavailable.
 
 Remaining validation: credentialed vision/text smoke tests, instructor review and
 independent handwritten/rubric labels, teacher active-time instrumentation and

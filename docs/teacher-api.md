@@ -84,8 +84,12 @@ independently checks every equation, complete key, and skill constraint. Invalid
 sets are withheld. The source (`checked_templates` or `openai_checked`) is recorded;
 review and `/practice/{id}/approve` are required for the key-free student export.
 
-The session response exposes `vision_mode` and `hint_mode` to identify configured
-behavior. The UI at `/teacher` implements these operations; API details need not
+The authenticated session response exposes `vision_mode`, `hint_mode`, and
+`uploads: {images, pdf, message}`. Native-library load failures disable only the
+affected upload formats; uploads return 503 without creating a record. Typed
+submissions and existing source-page reads remain available. The unauthenticated
+session has `uploads: null` and does not probe native libraries.
+The UI at `/teacher` implements these operations; API details need not
 be entered by teachers. Provider tests mock transport; live validation remains.
 
 ## Storage lifecycle

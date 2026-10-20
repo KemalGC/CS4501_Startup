@@ -7,13 +7,12 @@ import math
 import warnings
 
 from fastapi import Depends, HTTPException, Response
-from PIL import Image, ImageOps, UnidentifiedImageError
-import pypdfium2 as pdfium
 from pydantic import Field
 
 from proofgrade.feedback import ProviderUnavailable
 from proofgrade.teacher_api import record_data
 from proofgrade.teacher_models import RevisionInput, StrictModel, SubmissionInput
+from proofgrade.teacher_media import MediaUnavailable, image_backend, pdf_backend
 from proofgrade.teacher_store import RevisionConflict
 
 MAX_BYTES = 8 * 1024 * 1024
@@ -27,6 +26,7 @@ class UploadInput(SubmissionInput):
 
 
 def normalized_png(image):
+    Image, _, _ = image_backend()
     image.thumbnail((MAX_SIDE, MAX_SIDE))
     if image.mode in ("RGBA", "LA") or "transparency" in image.info:
         rgba = image.convert("RGBA")
@@ -47,7 +47,9 @@ def render_upload(encoded):
         raise ValueError("Upload a valid image or scanned PDF.") from error
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError("Each upload must be at most 8 MiB.")
+    Image, ImageOps, UnidentifiedImageError = image_backend()
     if raw.startswith(b"%PDF-"):
+        pdfium = pdf_backend()
         try:
             with pdfium.PdfDocument(raw) as pdf:
                 if not 1 <= len(pdf) <= MAX_PAGES:
@@ -87,7 +89,10 @@ def add_upload_routes(router, teacher, store, model):
     @router.post("/assignments/{assignment_id}/uploads", status_code=201)
     def upload(assignment_id: str, body: UploadInput, owner=Depends(teacher)):
         store.assignment(owner, assignment_id)
-        pages = render_upload(body.file_base64)
+        try:
+            pages = render_upload(body.file_base64)
+        except MediaUnavailable as error:
+            raise HTTPException(503, str(error)) from error
         return store.create_submission(owner, assignment_id, body.student_code, pages)
 
     @router.get("/submissions/{submission_id}/pages/{number}")

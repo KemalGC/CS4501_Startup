@@ -104,9 +104,9 @@ function frame(content) {
       type: 'button', class: 'assignment-item' + (state.assignment?.id === a.id ? ' active' : ''),
       onclick: () => run(() => home(a.id))
     }, a.title, el('small', {}, a.class_name)))),
-    el('p', {class: 'sidebar-note'}, state.session.vision_mode === 'openai'
+    el('p', {class: 'sidebar-note'}, state.session.uploads?.message || (state.session.vision_mode === 'openai'
       ? 'AI transcription is available. Uploaded pages are sent to the configured model only when you request extraction. Always review the draft.'
-      : 'Manual transcription mode. Image and PDF uploads work; enter the equations beside each source page. AI extraction requires server configuration.'));
+      : 'Manual transcription mode. Image and PDF uploads work; enter the equations beside each source page. AI extraction requires server configuration.')));
   app.replaceChildren(el('div', {class: 'layout'}, sidebar, el('section', {}, content)));
 }
 
@@ -180,8 +180,10 @@ async function dashboard() {
 }
 
 function uploadCard(a) {
+  const uploads = state.session.uploads || {images: true, pdf: true, message: ''};
   const code = input('student-code', '', {required: true, pattern: '[A-Za-z0-9_-]{1,40}', maxLength: 40, placeholder: 'student-01'});
-  const files = input('homework-files', '', {type: 'file', multiple: true, accept: 'image/jpeg,image/png,application/pdf'});
+  const files = input('homework-files', '', {type: 'file', multiple: true, disabled: !uploads.images,
+    accept: uploads.pdf ? 'image/jpeg,image/png,application/pdf' : 'image/jpeg,image/png'});
   const form = el('form', {onsubmit: event => {
     event.preventDefault();
     run(async () => {
@@ -213,6 +215,7 @@ function uploadCard(a) {
     el('p', {class: 'footnote'}, 'One file per student. JPG/PNG up to 20 megapixels or PDF up to 5 pages; 8 MiB per file. Batch codes end in -01, -02, and so on. Leave files empty to enter a typed response.'),
     el('button', {type: 'submit'}, 'Add student work'));
   return el('div', {class: 'card'}, el('h2', {}, 'Add homework'), el('div', {class: 'upload-box'}, form),
+    uploads.message ? el('p', {class: 'subtle-box warning-box', role: 'status'}, uploads.message) : null,
     el('p', {class: 'footnote'}, 'Use anonymous codes and work you have permission to upload. Normalized source pages are retained until you delete the submission or assignment.'));
 }
 

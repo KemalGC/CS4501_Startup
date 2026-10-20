@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183c36">
+  <title>ProofGrade · Algebra practice</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="ProofGrade home"><span class="brand-mark">p<span>✓</span></span>ProofGrade</a>
+    <span class="mode" id="mode">Connecting…</span>
+  </header>
+  <main>
+    <section class="intro">
+      <p class="eyebrow">A little guidance. Your own understanding.</p>
+      <h1>Find your next<br><em>right step.</em></h1>
+      <p class="lead">Bring your thinking. Find the first mistake.<br>Get one checked hint, then try again.</p>
+    </section>
+    <form id="practice-form" class="workspace">
+      <section class="work-card" aria-labelledby="work-heading">
+        <div class="card-heading"><span class="section-number">01</span><h2 id="work-heading">Your work</h2><span class="domain">x ∈ ℝ</span></div>
+        <label for="problem">Choose a practice problem</label>
+        <select id="problem" required disabled><option value="">Loading practice problems…</option></select>
+        <div class="problem-box"><span class="eyebrow">Solve for x</span><p id="equation">…</p></div>
+        <div class="steps-heading"><label>Your solution steps</label><button type="button" id="example" class="text-button" disabled>Try an example mistake</button></div>
+        <p class="help" id="notation">One equation per line. Start after the original equation. Use <code>2x</code>, <code>x^2</code>, or <code>x=2 or x=-2</code>.</p>
+        <div id="steps"></div>
+        <button type="button" id="add-step" class="add-step" disabled>+ Add a step</button>
+        <div class="actions"><button id="check" type="submit" class="primary" disabled>Check my work <span aria-hidden="true">↗</span></button><button type="button" id="reset" class="text-button" disabled>Start over</button></div>
+        <p class="help">Practice only. Use the notation guide below for fractions and square roots.</p>
+      </section>
+      <aside class="feedback-card" aria-labelledby="feedback-heading">
+        <div class="card-heading"><span class="section-number">02</span><h2 id="feedback-heading">Your next step</h2></div>
+        <div id="feedback" role="status" aria-live="polite" aria-atomic="true">
+          <span class="feedback-symbol" aria-hidden="true">↳</span>
+          <h3>Make room for a mistake.</h3>
+          <p>Enter your steps and we’ll check where the equations first stop agreeing.</p>
+          <p class="quiet">Your answer stays yours to find.</p>
+        </div>
+        <div class="feedback-footer"><span aria-hidden="true">✓</span> Mathematical checks before a hint is shown</div>
+      </aside>
+    </form>
+    <details class="notation-guide"><summary>What notation can I use?</summary>
+      <p>Use one variable, <code>x</code>, and linear or quadratic equations. Multiplication can be written as <code>2x</code> or <code>2*x</code>. Fractions use <code>/</code>; division by a variable is outside this version’s scope.</p>
+      <p>Write square roots as <code>sqrt(2)</code>. Put both quadratic roots on the same line: <code>x=-sqrt(2) or x=sqrt(2)</code>. You can also enter <code>no real solutions</code> or <code>all real numbers</code>.</p>
+      <p>Up to 20 steps and 256 characters per step. Unsupported notation will be flagged for revision or manual review.</p>
+    </details>
+    <footer>ProofGrade <span>Small steps. Clearer thinking.</span></footer>
+  </main>
+</body>
+</html>

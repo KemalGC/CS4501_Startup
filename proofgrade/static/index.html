@@ -29,8 +29,13 @@
         <p class="help" id="notation">One equation per line. Start after the original equation. Use <code>2x</code>, <code>x^2</code>, or <code>x=2 or x=-2</code>.</p>
         <div id="steps"></div>
         <button type="button" id="add-step" class="add-step" disabled>+ Add a step</button>
+        <div id="consent-panel" hidden>
+          <label class="consent"><input type="checkbox" id="consent">Share anonymous practice results for this pilot</label>
+          <p class="help">Saves the problem ID, outcomes, timing, and optional hint rating. Your name and entered equations are not saved.</p>
+        </div>
         <div class="actions"><button id="check" type="submit" class="primary" disabled>Check my work <span aria-hidden="true">↗</span></button><button type="button" id="reset" class="text-button" disabled>Start over</button></div>
         <p class="help">Practice only. Use the notation guide below for fractions and square roots.</p>
+        <p class="help" id="model-notice" hidden>AI mode sends the selected problem and relevant equation steps to OpenAI to generate a hint. Only checked feedback is displayed.</p>
       </section>
       <aside class="feedback-card" aria-labelledby="feedback-heading">
         <div class="card-heading"><span class="section-number">02</span><h2 id="feedback-heading">Your next step</h2></div>

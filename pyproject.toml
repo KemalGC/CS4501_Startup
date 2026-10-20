@@ -22,7 +22,7 @@ dev = ["pytest>=8,<10"]
 include = ["proofgrade*"]
 
 [tool.setuptools.package-data]
-proofgrade = ["static/*"]
+proofgrade = ["static/*", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

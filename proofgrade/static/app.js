@@ -6,6 +6,8 @@ const checkButton = document.querySelector('#check');
 const exampleButton = document.querySelector('#example');
 let problems = [];
 let busy = false;
+let lastAttemptId = null;
+let collectionEnabled = false;
 const initialFeedback = feedbackElement.cloneNode(true);
 
 function element(tag, text, className) {
@@ -63,6 +65,7 @@ function addStep(value = '') {
 }
 
 function selectProblem() {
+  lastAttemptId = null;
   const selected = problems.find(problem => problem.id === problemSelect.value);
   document.querySelector('#equation').textContent = selected.equation;
   stepsElement.replaceChildren();
@@ -101,22 +104,62 @@ function showResult(result) {
     const box = element('div', undefined, 'hint-box');
     box.append(element('span', 'One checked hint', 'eyebrow'), element('p', result.hint));
     feedbackElement.append(box, element('p', 'Revise your steps and check again.', 'quiet'));
+    if (result.attempt_id) addRating(result.attempt_id);
   } else if (['manual_review', 'unavailable'].includes(result.hint_status)) {
     feedbackElement.append(element('p', 'This solution needs manual review. No verified hint is available; ask a tutor to review the highlighted step.'));
   }
+}
+
+function addRating(attemptId) {
+  const panel = element('div', undefined, 'rating-panel');
+  const label = element('label', 'How helpful was this hint?');
+  label.htmlFor = 'hint-rating';
+  const select = element('select');
+  select.id = 'hint-rating';
+  const placeholder = element('option', 'Choose a rating (optional)');
+  placeholder.value = '';
+  select.append(placeholder);
+  for (let rating = 1; rating <= 5; rating += 1) {
+    const option = element('option', `${rating} / 5${rating === 1 ? ' · not helpful' : rating === 5 ? ' · very helpful' : ''}`);
+    option.value = String(rating);
+    select.append(option);
+  }
+  const button = element('button', 'Save rating', 'text-button');
+  button.type = 'button';
+  button.addEventListener('click', async () => {
+    if (!select.value) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/attempts/${encodeURIComponent(attemptId)}/rating`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rating: Number(select.value)})
+      });
+      if (!response.ok) throw new Error('Rating could not be saved. Try again.');
+      panel.replaceChildren(element('p', 'Thanks—your rating has been saved.', 'help'));
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = error.message;
+    }
+  });
+  panel.append(label, select, button);
+  feedbackElement.append(panel);
 }
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
   if (busy || !form.reportValidity()) return;
   const payload = {problem_id: problemSelect.value,
-    steps: Array.from(stepsElement.querySelectorAll('input'), input => input.value.trim())};
+    steps: Array.from(stepsElement.querySelectorAll('input'), input => input.value.trim()),
+    consent: collectionEnabled && document.querySelector('#consent').checked,
+    previous_attempt_id: lastAttemptId};
   clearFeedback();
   setBusy(true);
   try {
     const response = await fetch('/api/check', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     if (!response.ok) throw new Error('We couldn’t check these steps. Check that each line contains an equation, then try again.');
-    showResult(await response.json());
+    const result = await response.json();
+    lastAttemptId = result.attempt_id;
+    showResult(result);
   } catch (error) {
     feedbackElement.replaceChildren(element('h3', 'Something interrupted the check.'), element('p', error.message));
   } finally {
@@ -125,6 +168,10 @@ form.addEventListener('submit', async event => {
 });
 
 problemSelect.addEventListener('change', selectProblem);
+document.querySelector('#consent').addEventListener('change', () => {
+  lastAttemptId = null;
+  clearFeedback();
+});
 document.querySelector('#add-step').addEventListener('click', () => {
   addStep();
   clearFeedback();
@@ -132,6 +179,7 @@ document.querySelector('#add-step').addEventListener('click', () => {
 });
 document.querySelector('#reset').addEventListener('click', selectProblem);
 exampleButton.addEventListener('click', () => {
+  lastAttemptId = null;
   stepsElement.replaceChildren();
   ['2x+3=10', '2x=7'].forEach(addStep);
   clearFeedback();
@@ -143,6 +191,9 @@ async function start() {
     if (!problemResponse.ok || !configResponse.ok) throw new Error('Could not load practice problems. Refresh to try again.');
     problems = await problemResponse.json();
     const config = await configResponse.json();
+    collectionEnabled = config.collection_enabled;
+    document.querySelector('#consent-panel').hidden = !collectionEnabled;
+    document.querySelector('#model-notice').hidden = config.provider_mode !== 'openai';
     const modeLabels = {demo: 'Local demo · no AI calls', openai: 'AI hints · checked before display', disabled: 'Algebra checks · hints off'};
     document.querySelector('#mode').textContent = modeLabels[config.provider_mode] || 'Practice mode';
     problemSelect.replaceChildren(...problems.map(problem => {

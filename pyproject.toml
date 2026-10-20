@@ -7,7 +7,7 @@ name = "proofgrade"
 version = "0.1.0"
 description = "Verified feedback on typed algebra practice"
 requires-python = ">=3.11"
-dependencies = ["sympy==1.14.0"]
+dependencies = ["sympy==1.14.0", "pydantic>=2.9,<3", "httpx>=0.28,<0.29"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]

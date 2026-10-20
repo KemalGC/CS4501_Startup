@@ -13,7 +13,19 @@ python -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m pytest -q
+python -m uvicorn proofgrade.api:create_app --factory --reload
 ```
+
+Open http://127.0.0.1:8000. Select a practice problem, enter equations one line at
+a time, and check your work. The default mode is explicitly labeled as a local
+demo. Use “Try an example mistake” on the first problem to demonstrate distribution
+feedback, then revise to `2x+6=10`, `2x=4`, `x=2` and check again.
+
+The browser calls `GET /api/problems`, `GET /api/config`, and `POST /api/check`.
+Only problem IDs and submitted steps are accepted; answer keys stay server-side.
+The UI renders submitted and returned text as text nodes, not HTML, and disables
+editing during a check to keep the highlighted step aligned with the request.
+The six seed exercises are developer fixtures awaiting instructor review.
 
 ## Supported algebra
 

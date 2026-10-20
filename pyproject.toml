@@ -7,13 +7,22 @@ name = "proofgrade"
 version = "0.1.0"
 description = "Verified feedback on typed algebra practice"
 requires-python = ">=3.11"
-dependencies = ["sympy==1.14.0", "pydantic>=2.9,<3", "httpx>=0.28,<0.29"]
+dependencies = [
+    "sympy==1.14.0",
+    "pydantic>=2.9,<3",
+    "httpx>=0.28,<0.29",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
 
 [tool.setuptools.packages.find]
 include = ["proofgrade*"]
+
+[tool.setuptools.package-data]
+proofgrade = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PROOFGRADE_HINT_MODE=demo \
     PROOFGRADE_STORE_ATTEMPTS=false \
-    PROOFGRADE_DB_PATH=/data/proofgrade.sqlite3
+    PROOFGRADE_DB_PATH=/data/proofgrade.sqlite3 \
+    PROOFGRADE_TEACHER_DB=/data/teachers.sqlite3
 
 WORKDIR /app
 COPY requirements.lock pyproject.toml README.md ./

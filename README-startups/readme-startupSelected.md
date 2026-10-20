@@ -8,7 +8,7 @@
 
 **Initial scope:** One class or tutoring group, linear and quadratic algebra in one real variable, and short worksheets using a known question layout. The teacher is the primary user; students receive teacher-approved feedback and practice.
 
-**Implementation status:** This is the revised product direction. The current code checks typed algebra from a fixed practice bank and produces verified hints. Handwriting extraction, assignment uploads, rubric scoring, teacher review, classroom dashboards, and differentiated assessment still need to be built. See the [implementation plan](../docs/homework-checker-plan.md).
+**Implementation status:** The teacher MVP is implemented on `dev`: private accounts, image/PDF uploads, optional AI transcription, rubric scoring, source/grade review, approved class analytics, exports, and checked targeted practice. Manual transcription and template practice work without an API key. Browser/Python/container checks pass; live-model accuracy, instructor validation, and teacher time savings remain unmeasured. See the [implementation status](../docs/homework-checker-plan.md).
 
 ## How this idea meets all eight criteria
 
@@ -22,7 +22,7 @@ Recruit math teachers, algebra tutors, and teaching assistants through universit
 
 ### 3. Familiar with the infrastructure
 
-Reuse the Python/FastAPI backend, bounded SymPy checker, Pydantic validation, web interface, and Docker packaging. Add a vision-capable model for handwriting transcription, private file storage, assignment/submission records, rubric scoring, a teacher review interface, and class-level reporting. Model credentials stay on the server. Upload processing and the teacher workflow are new engineering work.
+The implementation uses Python/FastAPI, a bounded SymPy checker, Pydantic schemas, SQLite records/private source pages, a plain web interface, and Docker. An optional vision-capable model transcribes handwriting; the teacher interface supports rubric review and class reporting. Model credentials stay on the server. Hosting and live-provider evaluation remain separate work.
 
 ### 4. Significantly reimagines the problem
 
@@ -30,13 +30,13 @@ An assignment becomes an input to a continuous instructional workflow: question-
 
 ### 5. An LLM/generative model is core
 
-A vision-capable model transcribes handwritten equations and associates them with worksheet questions. A model proposes structured error categories, feedback, and follow-up practice tied to reviewed learning gaps. Deterministic code checks mathematical claims, score arithmetic, and schema validity. Teachers approve ambiguous interpretations and final grading decisions.
+A vision-capable model transcribes handwritten equations and associates them with worksheet questions. The hint model proposes structured categories and corrections that select checked feedback templates; another model path proposes follow-up practice tied to reviewed learning gaps. Deterministic rubric rules suggest scores and independently check mathematical claims, totals, and schemas. Teachers approve ambiguous interpretations and final grading decisions.
 
 ### 6. Validation guardrail: no unchecked final grading or feedback is released
 
 Before a result can be finalized:
 
-- Validate the extraction schema and associate every extracted step with a question and source region.
+- Validate the extraction schema and associate every extracted response with a question and source page. Region-level boxes are outside this MVP.
 - Show the original image beside its transcription for teacher confirmation or correction. Symbolic correctness cannot establish that handwriting was read accurately.
 - Validate the teacher's answer key within the supported grammar and flag inconsistent keys.
 - Check equation transitions, complete solution sets, and proposed corrections over the real-number domain.
@@ -55,7 +55,7 @@ When a candidate violates the schema, cites a missing step, exceeds rubric limit
 
 Package the backend and teacher interface in Docker for a private pilot. Support teacher sign-in, restricted assignment uploads, persistent assignment/review records, and deletion of uploaded work. Begin with 3–5-question worksheets and 30–50 instructor-reviewed examples, including synthetic handwriting and errors. Provide a review queue, a class summary, CSV export of approved grades, and one small follow-up practice set for each confirmed skill gap.
 
-The repository currently provides a runnable typed-algebra foundation and CI checks; the proposed teacher application and its hosting are not yet implemented.
+The repository provides the runnable teacher application, preserved student practice, and automated browser/Python/container checks on `dev`. Hosted deployment and the independent instructor pilot have not been completed.
 
 ## Concrete MVP demonstration
 
@@ -73,3 +73,5 @@ The repository currently provides a runnable typed-algebra foundation and CI che
 **Boundaries:** Start with supported algebra on short, known-layout worksheets. General proofs, diagrams, arbitrary notation, essays, other subjects, LMS integration, and automatic gradebook posting are outside the first release. Teachers control final grading. No time-saving or learning claim is made until it is measured.
 
 See the [teacher pilot plan](../docs/pilot-plan.md) for the evaluation procedure.
+
+**Evaluation data:** [DrawEduMath and MathWriting](../docs/datasets.md) support student-work interpretation and expression-transcription research. Respect their noncommercial licenses. The repo includes MathWriting preparation/scoring commands; teacher-agreed reference rubrics are still required to validate grades.

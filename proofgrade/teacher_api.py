@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 from proofgrade.teacher_grading import analytics, approve_results, grade_question, template_practice, validate_answers
 from proofgrade.teacher_models import AssignmentInput, ApprovalInput, LoginInput, PracticeInput, SubmissionInput, TranscriptInput
 from proofgrade.teacher_store import MissingRecord, RevisionConflict
+from proofgrade.teacher_media import upload_capabilities
 from proofgrade.feedback import ProviderUnavailable
 
 COOKIE = "proofgrade_teacher"
@@ -49,7 +50,8 @@ def build_teacher_router(store, hint_provider, model=None):
     def session(request: Request):
         user = store.session(request.cookies.get(COOKIE))
         return {"authenticated": bool(user), "username": user["username"] if user else None,
-                "hint_mode": hint_provider.mode, "vision_mode": "openai" if model else "disabled"}
+                "hint_mode": hint_provider.mode, "vision_mode": "openai" if model else "disabled",
+                "uploads": upload_capabilities() if user else None}
 
     @router.post("/login")
     def login(body: LoginInput, request: Request, response: Response):

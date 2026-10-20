@@ -54,6 +54,10 @@ pages stored privately with the assignment. Delete a response or assignment to
 remove its retained work and dependent records. Rubrics are immutable after
 creation; create a replacement assignment to change a rubric.
 
+If Windows blocks an image/PDF DLL, the app still starts and supports typed
+homework. The workspace explains which upload formats are unavailable. See the
+[Windows troubleshooting steps](docs/development.md#windows-a-native-library-is-blocked).
+
 ## AI configuration
 
 By default, `PROOFGRADE_TEACHER_AI=disabled` and `PROOFGRADE_HINT_MODE=demo`:

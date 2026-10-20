@@ -90,6 +90,23 @@ const net = require('node:net');
     await page.getByRole('button', {name: '← Back to assignment', exact: true}).click();
     const cleared = await page.request.get(base + await page.getByRole('link', {name: 'Export grades'}).getAttribute('href'));
     assert(!(await cleared.text()).includes('student-01'));
+    await page.route('**/api/teacher/session', async route => {
+      const response = await route.fetch();
+      const session = await response.json();
+      await route.fulfill({response, json: {...session, uploads: {
+        images: false, pdf: false, message: 'Uploads unavailable. You can still add typed student work.'
+      }}});
+    });
+    await page.reload();
+    await page.getByLabel('Anonymous student code / batch prefix').fill('typed-fallback');
+    assert(await page.getByLabel('Homework files (optional)').isDisabled());
+    await page.getByRole('button', {name: 'Add student work', exact: true}).click();
+    await page.getByLabel('Student steps Q1', {exact: true}).fill('x+3=5\nx=2');
+    await page.getByLabel('I checked these equations against the source or entered the typed response.').check();
+    await page.getByRole('button', {name: 'Confirm transcription & check', exact: true}).click();
+    await page.getByRole('heading', {name: '2. Review suggested grades', exact: true}).waitFor();
+    assert.equal(await page.getByLabel('Q1 answer / 3', {exact: true}).inputValue(), '3');
+    await page.unroute('**/api/teacher/session');
     await page.getByRole('button', {name: 'Sign out', exact: true}).click();
     await page.getByRole('button', {name: 'Sign in', exact: true}).waitFor();
     assert.deepEqual(errors, []);

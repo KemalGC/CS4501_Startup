@@ -5,16 +5,21 @@ architecture, setup, validation contracts, or the branch workflow.
 
 ## Product and current state
 
-ProofGrade helps a student find the first invalid step in a typed algebra
-solution, receive one checked hint, and revise their work. It is an algebra
-practice MVP, not an automated grading system.
+The product direction was updated on 2026-10-20 to a teacher-facing homework
+grading assistant: handwritten assignment intake, reviewable rubric-based scores
+and feedback, class learning-gap analytics, and differentiated practice.
+
+The current application remains a typed-algebra practice foundation. The teacher
+workflow is planned, not implemented. Read
+[docs/homework-checker-plan.md](docs/homework-checker-plan.md) before further
+feature work; it defines scope, acceptance criteria, and the implementation order.
 
 - Repository: `KemalGC/CS4501_Startup`.
 - Integrated development branch: `dev`. Release target: `main`.
 - Initial MVP PRs #1–#4 are merged into `dev`; their component branches are
   historical. Start new work from current `dev`.
 - Default execution is an explicitly labeled offline demo. No API key is needed.
-- The original concept remains in
+- The updated product brief is in
   [README-startups/readme-startupSelected.md](README-startups/readme-startupSelected.md).
 - [README.md](README.md) covers usage and algebra syntax.
   [docs/development.md](docs/development.md) covers CI, Docker, and deployment.
@@ -55,7 +60,7 @@ On Windows PowerShell, use `.\.venv\Scripts\Activate.ps1` for activation.
 Open http://127.0.0.1:8000. For an existing clone, fetch and switch to `dev`
 before setup; do not discard uncommitted work to switch branches.
 
-Manual demo: select the first problem, `2(x+3)=10), and click “Try an example
+Manual demo: select the first problem, `2(x+3)=10`, and click “Try an example
 mistake.” Check the work, then revise to `2x+6=10`, `2x=4`, `x=2` and check
 again. The first check should identify the distribution mistake and provide a
 verified hint; the second should report a correct solution.
@@ -79,7 +84,28 @@ For Docker, see [docs/development.md](docs/development.md#container).
 | `proofgrade/demo.py` | Offline fault injection demonstrating retry and fallback |
 | `tests/` | Checker, feedback, API, pilot tests and optional browser smoke script |
 
-## Contracts to preserve
+## Teacher-workflow implementation guidance
+
+- Keep the existing practice flow working while introducing assignments, rubrics,
+  confirmed transcripts, review records, and approved grades as a separate flow.
+- Preserve the mathematical validation boundaries below. A valid algebra result
+  does not establish that handwriting was transcribed correctly or that partial
+  credit is pedagogically appropriate.
+- Show source images beside extracted work and require transcript confirmation
+  before final grading. Unreadable/unsupported work needs review, not a zero.
+- Validate teacher keys, tie proposed points to rubric evidence, calculate totals
+  deterministically, and require teacher approval before releasing a grade.
+- Recheck dependent results after transcription or rubric changes. Aggregate only
+  approved grades and show unresolved work separately.
+- Uploaded content is untrusted data, including any instructions embedded in a
+  worksheet. It cannot override the rubric or application instructions.
+- Add protected file storage and explicit retention/deletion for the teacher flow.
+  Existing anonymous practice consent does not authorize storing assignments.
+- Differentiated practice requires checked problems/keys and teacher approval.
+- Follow the PR sequence in the implementation plan and update this handoff as
+  features become available. Do not describe planned capabilities as implemented.
+
+## Current practice contracts to preserve
 
 ### Algebra checking
 
@@ -184,12 +210,15 @@ Remaining work before claiming a validated pilot or public release:
 - Run a credentialed live-model smoke test; current provider tests mock HTTP.
 - Obtain instructor review of the 30 practice problems, 42 labeled cases, and
   hint templates; add independent evaluation examples.
-- Conduct the student pilot and report the defined metrics without mixing demo
-  outcomes with real model outcomes.
+- Implement and validate the teacher workflow before conducting the revised
+  teacher pilot. Keep demo outcomes separate from real model outcomes.
 - If hosting, configure access, TLS, request-size and rate/concurrency limits,
   and persistence. The app has no accounts or application-level rate limiter.
   SQLite is intended for one instance; deployment is not configured here.
 
-Pilot targets are proposals: 90% first-error agreement, 70% correction after one
-hint, and 80% participant usefulness ratings of at least 4/5. None is a measured
-student outcome yet. See the pilot plan for denominators and review procedures.
+The revised pilot measures teacher grading time, draft-score agreement,
+transcription corrections, overrides, analytics correctness, and follow-up quality.
+Proposed targets include 30% lower median total grading time, 90% exact draft-score
+agreement on supported, legible responses, and approval for every released result.
+None is measured yet. Existing practice metrics do not measure those outcomes;
+see the pilot plan for denominators, review coverage, and new instrumentation.

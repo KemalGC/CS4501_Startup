@@ -1,71 +1,97 @@
-# ProofGrade pilot
+# ProofGrade teacher homework-grading pilot
 
 ## Hypothesis and participants
 
-With the first invalid algebra step identified and one checked hint, students can
-correct that step independently. Recruit 10–15 consenting university students for
-practice exercises and ask a tutor or instructor to review the materials. Do not
-use confidential graded submissions. This pilot has not been conducted.
+Teachers can grade supported handwritten algebra assignments and prepare targeted
+follow-up faster with ProofGrade, while retaining comparable grading quality and
+control over final results. Recruit 3–5 math teachers or algebra tutors. Begin
+with synthetic or permitted, de-identified short worksheets and anonymous student
+codes. This pilot has not been conducted, and the teacher workflow is not yet
+implemented.
+
+The initial scope is linear and quadratic equations in one real variable on a
+known worksheet layout. The first feasibility study does not establish benefits
+for other subjects, arbitrary handwriting, or school-wide deployment.
 
 ## Review the materials first
 
-The repository contains 30 developer-authored practice problems and 42 regression
-cases. Every record is marked `review_status: pending`. They are not instructor
-reviewed, and passing these cases is not evidence of general accuracy or learning.
-Have a reviewer check each answer, error label, and template, then record their
-approval before changing the status to `reviewed`. Ten problem IDs are reserved
-for the evaluation split, but the current labels were still written during
-development. Add independently labeled unseen examples for a credible accuracy
-estimate. Do not tune the prompt on those held-out examples.
+Prepare 30–50 instructor-reviewed question responses with source images,
+transcripts, answer keys, rubric criteria, reference scores, and error labels.
+Include correct alternative methods, partial work, missing roots, unreadable
+writing, and unsupported notation. Resolve reviewer disagreements before using
+a reference score. Keep an unseen evaluation set separate from prompt development.
+
+The current repository's 30 practice problems and 42 regression cases remain
+developer-authored fixtures with review status pending. They test the typed
+checker; they do not evaluate handwriting recognition or teacher grading. Review
+and extend them, and add independent handwritten examples before the pilot.
 
 ## Session procedure
 
-1. Explain the practice-only scope and optional outcome collection. Let the
-   participant choose whether to opt in. Test demo usability separately from live
-   model quality; record which provider mode was used.
-2. Give each participant 3–5 suitable problems, including a quadratic with two
-   roots. Ask them to enter their own steps and think aloud about the interface.
-3. After a verified hint, ask them to revise without revealing the solution. Record
-   task completion and confusion; do not intervene until the first revision is done.
-4. Collect one end-of-session usefulness rating (1–5) per participant and a brief
-   explanation. Keep participant survey results separate from per-attempt ratings.
-5. Ask the tutor to assess hint correctness, relevance, and clarity. Review cases
-   where the system withholds a hint or gives a generic hint.
+1. Agree on the assignment scope, rubric, permitted samples, anonymous identifiers,
+   and deletion date. Explain where model processing occurs.
+2. Have each teacher grade matched worksheet batches manually and with ProofGrade.
+   Counterbalance the order across teachers and use different but comparable work
+   to reduce recall effects.
+3. Measure the complete workflow: assignment setup, uploads, transcript correction,
+   grade review, overrides, export, and follow-up preparation. Record inference
+   time separately; model latency is not the teacher's total grading time.
+4. Use independent reference judgments to evaluate both draft suggestions and
+   final teacher-approved grades. Record the frequency and reason for overrides.
+5. Ask teachers to inspect the class summary and identify one reteaching priority.
+   Check the displayed aggregates against approved source records.
+6. Ask each teacher to review a generated practice set for that priority, checking
+   mathematical correctness, skill fit, and difficulty.
+7. Collect a 1–5 usefulness rating, willingness to reuse, and examples of extra work
+   or confusion. Report individual outcomes and counts given the small sample.
 
 ## Proposed success criteria
 
+These are feasibility targets to test, not measured results or universal quality
+thresholds. Report raw counts, unresolved items, and uncertainty.
+
 | Goal | Measurement | Proposed target |
 | --- | --- | --- |
-| Locate first error | Correct first-error location / instructor-labeled incorrect cases | At least 90% |
-| Preserve correct work | Correct and incomplete submissions falsely flagged / reviewed valid submissions | Report separately; aim for zero in the small reviewed set |
-| Support revision | Initial hinted attempts whose first revision fixes the flagged step / all initial attempts with a verified hint | At least 70%; missing revisions count as not corrected |
-| Participant usefulness | Participants rating usefulness 4 or 5 / participants answering the end survey | At least 80%; also report response count |
-| Feedback validation | Accepted candidates / (accepted + rejected candidates) | Report alongside withheld-hint and retry rates; never bypass validation |
+| Reduce grading effort | Total teacher minutes per matched batch, including setup, extraction fixes, and grade review | At least 30% lower median time than manual grading |
+| Accurate draft scores | Exact rubric-score agreement with independent references among supported, legible responses | At least 90%; report score differences and teacher override rate |
+| Correct extraction | Extracted equation steps matching the reviewed transcript / all labeled steps | Report accuracy and correction time; keep unreadable items separate |
+| Find invalid steps | Correct first-error location / independently labeled incorrect solutions | At least 90%; separately report false flags on valid work |
+| Preserve teacher control | Released grade/feedback records with an approval / all released records | 100%; no unresolved item silently becomes a zero |
+| Reliable class summaries | Displayed aggregates reconciled to approved records | Exact match, with reviewed and unresolved counts visible |
+| Useful follow-up | Proposed practice sets teachers accept as skill-appropriate, with only minor edits / sets reviewed | At least 80%; no mathematically invalid item released |
+| Teacher usefulness | Teachers rating usefulness 4 or 5 / teachers answering | At least 80%; report the count and specific reasons |
 
-Use a brief matched comparison with wrong-answer-only feedback if practical;
-otherwise describe the pilot as a usability/feasibility study, not proof that the
-product caused better learning. Report denominators and the small sample size.
+Report draft coverage and abstention as well as agreement. A system can appear
+accurate by declining difficult responses. Separate model failures, handwriting
+ambiguity, unsupported mathematics, and teacher rubric disagreements.
 
-## Data collection and limits
+## Data collection and current implementation limits
 
-Collection is off by default. When enabled on the server, each participant must
-also tick the consent box. SQLite stores random attempt tokens, problem IDs,
-outcomes, timings, retry counts, revision links, and optional ratings. It does not
-store submitted equations, names, emails, or model text. The application has no
-public metrics endpoint. In live AI mode, the relevant equation steps are sent to
-OpenAI; the interface discloses that separately from local data collection.
+The teacher pilot will need assignment records, protected source files, confirmed
+transcripts, rubric versions, draft/final grades, approval history, timings, and
+override reasons. Define access and deletion behavior before collecting that data.
+Do not store identifying classroom work merely because the existing practice
+collection setting is enabled.
 
-Use `python -m proofgrade.metrics --db data/proofgrade.sqlite3 --mode openai` for
-live-mode aggregates, or `--mode demo` for demo records. The first revision of an
-initial hinted attempt is the only revision counted for the one-hint metric;
-removing the flagged line is not counted as fixing it. Duplicate revisions are
-not double-counted. Attempt ratings are not unique-participant ratings. Provider
-modes are never silently mixed. Agree on a deletion date for pilot data.
+The current SQLite attempt store records anonymous practice outcomes only. Its
+`proofgrade.metrics` reports do not measure teacher grading time, score agreement,
+OCR correction, or classroom performance. Add dedicated pilot measurements when
+the assignment workflow is implemented. Keep offline demos and live-model runs
+separate, and report model usage costs alongside measured teacher time.
 
-## Product demonstration
+## Learning outcomes and demonstration
 
-Show `2(x+3)=10` followed by `2x+3=10`. Check the hint, revise to `2x+6=10`,
-`2x=4`, `x=2`, and show completion. Next demonstrate a missing quadratic root.
-Run `python -m proofgrade.demo` to show a deliberately wrong candidate rejected,
-a valid second candidate accepted, and three bad candidates withheld. This
-command is explicitly a simulated provider demonstration, not a live model test.
+After grading feasibility is established, optionally compare performance on an
+independent, similar problem before and after teacher-approved targeted practice.
+Track whether it is solved without further hints. Treat a small uncontrolled
+study as exploratory evidence, not proof of learning gains.
+
+The teacher MVP demonstration should show a short worksheet batch, source versus
+transcript review, a checked distribution error, a teacher score override, approved
+grade export, a class skill-gap summary, and a validated follow-up set. Include an
+unreadable response and an invalid model candidate to show review and retry paths.
+
+Until those features exist, the current demo remains the typed-algebra example
+`2(x+3)=10` followed by `2x+3=10`, with a checked hint and student revision.
+`python -m proofgrade.demo` demonstrates offline fault injection only; it does not
+demonstrate handwriting extraction, grading, or real model performance.

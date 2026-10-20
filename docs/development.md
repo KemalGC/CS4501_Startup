@@ -2,7 +2,7 @@
 
 ## Branch workflow
 
-`dev` contains the integrated MVP and is the branch to run before release.
+`dev` contains the current runnable implementation and is the branch to test before release.
 `main` is the release target. The initial four PRs were retargeted and merged into
 `dev` in dependency order using merge commits:
 
@@ -51,8 +51,9 @@ authoring environment because the Chromium download returned an invalid archive.
 Do not describe the UI as browser-verified until this check has run successfully.
 
 The optional OpenAI adapter is tested with mocked HTTP responses. A credentialed
-live-model test, instructor review, student pilot, and hosted deployment remain
-separate tasks. Model access is explicitly configured; tests never use an API key.
+live-model test, instructor review, the planned teacher workflow and pilot, and
+hosted deployment remain separate tasks. See the
+[homework-checker plan](homework-checker-plan.md) for the revised product scope. Model access is explicitly configured; tests never use an API key.
 
 ## Container
 

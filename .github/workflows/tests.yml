@@ -2,7 +2,7 @@ name: ProofGrade checks
 
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, dev, 'codex/**']
   pull_request:
   workflow_dispatch:
 

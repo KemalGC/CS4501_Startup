@@ -1,17 +1,32 @@
 # Development and review
 
-## Pull request stack
+## Branch workflow
 
-1. `codex/algebra-checker`: package foundation and independent equation checking.
-2. `codex/verified-hints`: validated candidates, three-attempt retry loop, providers.
-3. `codex/student-web-app`: FastAPI endpoints and student interface.
-4. `codex/pilot-deployment`: practice bank, opt-in outcomes, evaluation, CI, Docker.
+`dev` contains the integrated MVP and is the branch to run before release.
+`main` is the release target. The initial four PRs were retargeted and merged into
+`dev` in dependency order using merge commits:
 
-Each PR targets the preceding branch so the diff isolates its component. Review
-and merge in order. After merging a predecessor, retarget the next PR to `main`.
-Using merge commits preserves the stack's ancestry; squash/rebase merges require
-rebasing the remaining branches to avoid replaying predecessor commits. The last
-branch contains the whole application and can be checked out for a combined demo.
+1. [#1](https://github.com/KemalGC/CS4501_Startup/pull/1): package foundation and independent equation checking.
+2. [#2](https://github.com/KemalGC/CS4501_Startup/pull/2): validated candidates, three-attempt retry loop, providers.
+3. [#3](https://github.com/KemalGC/CS4501_Startup/pull/3): FastAPI endpoints and student interface.
+4. [#4](https://github.com/KemalGC/CS4501_Startup/pull/4): practice bank, opt-in outcomes, evaluation, CI, Docker.
+
+For the next change, read [codex.md](../codex.md), start from current `dev`, and open
+a focused feature PR with `dev` as its base:
+
+```sh
+git fetch origin
+git switch dev
+git pull --ff-only origin dev
+git switch -c codex/your-change
+```
+
+Run the checks relevant to the change and inspect the PR's CI before merging.
+CI also runs on pushes to `dev`, so the integrated branch is checked after merges.
+Run the combined app from `dev` using the [README setup](../README.md#development)
+or Docker instructions below. After the user accepts the tested release, open a
+release PR from `dev` to `main`; merge it only when that release is authorized.
+There is no automatic deployment or automatic promotion to `main`.
 
 ## Local checks
 
@@ -67,8 +82,9 @@ The app has no accounts or application-level rate limiter. Keep it private until
 those controls are configured. Use one instance with SQLite or move to a shared
 database before scaling. The repository does not deploy or publish automatically;
 the container workflow only builds and smoke-checks the image in CI. Docker is not
-installed in the authoring environment, so the image build must be verified by CI
-or on a machine with Docker before deployment.
+installed in the authoring environment. GitHub Actions successfully built and
+smoke-tested the combined MVP image on 2026-10-20; check the latest `dev` workflow
+result for subsequent changes.
 
 ## Technical references
 

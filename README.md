@@ -6,15 +6,24 @@ and revise their work using a checked hint. The selected startup brief is in
 
 ## Development
 
+Use the `dev` branch for the integrated MVP; feature PRs target `dev`. Read
+[codex.md](codex.md) before the next adjustment for the project handoff and checks.
 Requires Python 3.11 or newer.
 
 ```sh
+git clone --branch dev https://github.com/KemalGC/CS4501_Startup.git
+cd CS4501_Startup
 python -m venv .venv
 . .venv/bin/activate
+python -m pip install -r requirements.lock
 python -m pip install -e '.[dev]'
 python -m pytest -q
 python -m uvicorn proofgrade.api:create_app --factory --reload
 ```
+
+On Windows PowerShell, activate the environment with `.\.venv\Scripts\Activate.ps1`
+instead of `. .venv/bin/activate`. For an existing clone, fetch and switch to `dev`
+before running the setup commands.
 
 Open http://127.0.0.1:8000. Select a practice problem, enter equations one line at
 a time, and check your work. The default mode is explicitly labeled as a local
@@ -91,7 +100,9 @@ outcomes and optional ratings, not entered equations or personal details. Set
 `python -m proofgrade.metrics --mode demo` (or `--mode openai` for real model data).
 
 See [development and deployment](docs/development.md) for Docker commands,
-configuration, remaining validation, and the PR merge order. The final branch
-`codex/pilot-deployment` contains the combined MVP. CI runs Python tests, regression
-evaluation, fault-injection demos, JavaScript syntax checking, and a container smoke
-test. It does not publish an application.
+configuration, remaining validation, and the branch workflow. PRs #1–#4 are merged
+into `dev`, which contains the combined MVP. CI runs on `dev` pushes and pull
+requests, including Python tests, regression evaluation, fault-injection demos,
+JavaScript syntax checking, and a container smoke test. Run the app locally or in
+Docker from `dev` before proposing a release PR from `dev` to `main`. Creating the
+branch does not publish an application; hosted deployment is a separate step.

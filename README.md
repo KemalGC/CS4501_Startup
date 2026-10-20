@@ -42,3 +42,26 @@ examples, 70% correction after one hint, and 80% usefulness ratings of 4/5 or hi
 These are targets, not measured results. Human review and student testing are still
 required before claiming learning benefits. The next changes add validated hints,
 the student interface, and pilot/deployment support.
+
+## Verified hints
+
+The checker supplies the first invalid transition. The candidate provider proposes
+a corrected transition, complete final answer, error category, and hint style.
+Pydantic checks the schema, and independent algebra checks validate the cited
+transition, correction, and final answer against a server-side answer key. Only
+approved templates matching a verified category are shown; candidate corrections,
+final answers, and arbitrary model prose never reach the student response.
+
+Candidates that fail validation are regenerated with the failure evidence, for at
+most three total attempts. Refusals, timeouts, incomplete responses, and persistent
+validation failures withhold the hint. Template usefulness still needs tutor review.
+
+`PROOFGRADE_HINT_MODE=demo` is the default: a deterministic offline provider,
+explicitly identified as a demo. It does not call or simulate a real LLM's quality.
+`disabled` turns hints off. For real model calls, set `PROOFGRADE_HINT_MODE=openai`,
+`OPENAI_API_KEY`, and `OPENAI_MODEL` in the server environment. Choose a model with
+Structured Outputs support. Never commit a key. The adapter sends only the selected
+problem and relevant transition to the Responses API, with `store=false`.
+The live provider has transport-mocked tests; a real API smoke test remains required.
+
+Reference: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).

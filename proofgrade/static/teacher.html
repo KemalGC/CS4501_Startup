@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ProofGrade · Teacher workspace</title>
+  <link rel="stylesheet" href="/static/teacher.css">
+  <script src="/static/teacher.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/teacher"><span class="brand-mark">P<span>✓</span></span>ProofGrade<span class="brand-label">TEACHER WORKSPACE</span></a>
+    <nav><a href="/practice">Student practice</a><span id="account"></span><button id="logout" class="quiet" hidden>Sign out</button></nav>
+  </header>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <main id="app" aria-busy="false"><p class="loading">Opening your workspace…</p></main>
+  <footer>Review the work. Understand the gaps. Decide what comes next.</footer>
+</body>
+</html>

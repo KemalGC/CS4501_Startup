@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 from proofgrade.teacher_grading import analytics, approve_results, grade_question, template_practice, validate_answers
 from proofgrade.teacher_models import AssignmentInput, ApprovalInput, LoginInput, PracticeInput, SubmissionInput, TranscriptInput
 from proofgrade.teacher_store import MissingRecord, RevisionConflict
+from proofgrade.feedback import ProviderUnavailable
 
 COOKIE = "proofgrade_teacher"
 DATA_KEYS = ("answers", "results", "page_count", "extraction", "message", "approved_at")
@@ -24,7 +25,7 @@ def record_data(record):
     return {k: record[k] for k in DATA_KEYS if k in record}
 
 
-def build_teacher_router(store, hint_provider):
+def build_teacher_router(store, hint_provider, model=None):
     async def csrf(request: Request):
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             if request.headers.get("x-proofgrade-request") != "1":
@@ -48,7 +49,7 @@ def build_teacher_router(store, hint_provider):
     def session(request: Request):
         user = store.session(request.cookies.get(COOKIE))
         return {"authenticated": bool(user), "username": user["username"] if user else None,
-                "hint_mode": hint_provider.mode}
+                "hint_mode": hint_provider.mode, "vision_mode": "openai" if model else "disabled"}
 
     @router.post("/login")
     def login(body: LoginInput, request: Request, response: Response):
@@ -190,7 +191,11 @@ def build_teacher_router(store, hint_provider):
         summary = analytics(assignment, store.submissions(owner, assignment_id))
         if body.skill not in {g["skill"] for g in summary["gaps"]}:
             raise HTTPException(409, "Approve a result with a gap in this skill before creating targeted practice.")
-        return store.create_practice(owner, assignment_id, template_practice(body.skill))
+        try:
+            practice = model.practice(body.skill) if model else template_practice(body.skill)
+        except ProviderUnavailable as error:
+            raise HTTPException(503, str(error)) from error
+        return store.create_practice(owner, assignment_id, practice)
 
     @router.get("/assignments/{assignment_id}/practice")
     def practices(assignment_id: str, owner=Depends(teacher)):

@@ -15,6 +15,8 @@ from proofgrade.providers import configured_provider
 from proofgrade.storage import AttemptStore
 from proofgrade.teacher_api import build_teacher_router, register_teacher_errors
 from proofgrade.teacher_store import TeacherStore
+from proofgrade.teacher_ai import configured_teacher_model
+from proofgrade.teacher_uploads import BoundedRequestBody, add_upload_routes
 
 STATIC = Path(__file__).parent / "static"
 Step = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=256)]
@@ -44,12 +46,14 @@ class RatingRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
 
 
-def create_app(provider=None, store=None, teacher_store=None):
-    app = FastAPI(title="ProofGrade", version="0.1.0")
+def create_app(provider=None, store=None, teacher_store=None, teacher_model=None):
+    app = FastAPI(title="ProofGrade", version="0.2.0")
     provider = provider if provider is not None else configured_provider()
     teacher_store = teacher_store if teacher_store is not None else TeacherStore(
         os.getenv("PROOFGRADE_TEACHER_DB", "data/teachers.sqlite3"))
-    teacher_router, teacher_auth = build_teacher_router(teacher_store, provider)
+    teacher_model = teacher_model if teacher_model is not None else configured_teacher_model()
+    teacher_router, teacher_auth = build_teacher_router(teacher_store, provider, teacher_model)
+    add_upload_routes(teacher_router, teacher_auth, teacher_store, teacher_model)
     app.include_router(teacher_router)
     register_teacher_errors(app)
     if store is None and os.getenv("PROOFGRADE_STORE_ATTEMPTS", "false").lower() == "true":
@@ -111,9 +115,15 @@ def create_app(provider=None, store=None, teacher_store=None):
             raise HTTPException(404, "A saved, verified hint was not found.")
         return {"saved": True}
 
-    @app.get("/", include_in_schema=False)
+    @app.get("/practice", include_in_schema=False)
     def index():
         return FileResponse(STATIC / "index.html")
 
+    @app.get("/", include_in_schema=False)
+    @app.get("/teacher", include_in_schema=False)
+    def teacher_index():
+        return FileResponse(STATIC / "teacher.html")
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.add_middleware(BoundedRequestBody)
     return app

@@ -25,7 +25,7 @@ The browser calls `GET /api/problems`, `GET /api/config`, and `POST /api/check`.
 Only problem IDs and submitted steps are accepted; answer keys stay server-side.
 The UI renders submitted and returned text as text nodes, not HTML, and disables
 editing during a check to keep the highlighted step aligned with the request.
-The six seed exercises are developer fixtures awaiting instructor review.
+The 30 practice exercises are developer fixtures awaiting instructor review.
 
 ## Supported algebra
 
@@ -52,8 +52,8 @@ or the applicable special solution set. No AI-generated text is used by this lay
 Proposed pilot targets: at least 90% first-error agreement on instructor-reviewed
 examples, 70% correction after one hint, and 80% usefulness ratings of 4/5 or higher.
 These are targets, not measured results. Human review and student testing are still
-required before claiming learning benefits. The next changes add validated hints,
-the student interface, and pilot/deployment support.
+required before claiming learning benefits. See the [pilot plan](docs/pilot-plan.md)
+for the procedure, metric definitions, and limitations of the initial data.
 
 ## Verified hints
 
@@ -77,3 +77,21 @@ problem and relevant transition to the Responses API, with `store=false`.
 The live provider has transport-mocked tests; a real API smoke test remains required.
 
 Reference: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+## Evaluation, pilot data, and deployment
+
+Run `python -m proofgrade.evaluate --split all` for the 42 labeled developer cases.
+Every case is marked pending instructor review. Run `python -m proofgrade.demo`
+to demonstrate fault injection and the bounded retry/fallback behavior offline.
+
+Attempt storage is disabled by default. Set `PROOFGRADE_STORE_ATTEMPTS=true` to
+offer an unchecked opt-in box; only consenting requests are saved. SQLite records
+outcomes and optional ratings, not entered equations or personal details. Set
+`PROOFGRADE_DB_PATH` to choose the database file. Report results locally using
+`python -m proofgrade.metrics --mode demo` (or `--mode openai` for real model data).
+
+See [development and deployment](docs/development.md) for Docker commands,
+configuration, remaining validation, and the PR merge order. The final branch
+`codex/pilot-deployment` contains the combined MVP. CI runs Python tests, regression
+evaluation, fault-injection demos, JavaScript syntax checking, and a container smoke
+test. It does not publish an application.

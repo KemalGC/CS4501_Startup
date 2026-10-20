@@ -1,0 +1,473 @@
+[
+  {
+    "id": "linear-distribution-correct",
+    "problem_id": "linear-distribution",
+    "steps": [
+      "2x+6=10",
+      "2x=4",
+      "x=2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-balance-correct",
+    "problem_id": "linear-balance",
+    "steps": [
+      "x=5"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-fractions-correct",
+    "problem_id": "linear-fractions",
+    "steps": [
+      "x=8"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-two-roots-correct",
+    "problem_id": "quadratic-two-roots",
+    "steps": [
+      "x=-3 or x=3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-factoring-correct",
+    "problem_id": "quadratic-factoring",
+    "steps": [
+      "(x-2)(x-3)=0",
+      "x=2 or x=3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-no-real-roots-correct",
+    "problem_id": "quadratic-no-real-roots",
+    "steps": [
+      "no real solutions"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-negative-correct",
+    "problem_id": "linear-negative",
+    "steps": [
+      "x=-3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-two-sides-correct",
+    "problem_id": "linear-two-sides",
+    "steps": [
+      "x=3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-decimal-correct",
+    "problem_id": "linear-decimal",
+    "steps": [
+      "x=5"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-negative-distribution-correct",
+    "problem_id": "linear-negative-distribution",
+    "steps": [
+      "x=-2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-grouped-fraction-correct",
+    "problem_id": "linear-grouped-fraction",
+    "steps": [
+      "x=11"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-parentheses-correct",
+    "problem_id": "linear-parentheses",
+    "steps": [
+      "x=5"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-identity-correct",
+    "problem_id": "linear-identity",
+    "steps": [
+      "all real numbers"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-contradiction-correct",
+    "problem_id": "linear-contradiction",
+    "steps": [
+      "no real solutions"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-zero-correct",
+    "problem_id": "linear-zero",
+    "steps": [
+      "x=0"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-rational-correct",
+    "problem_id": "linear-rational",
+    "steps": [
+      "x=1/3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-opposite-correct",
+    "problem_id": "linear-opposite",
+    "steps": [
+      "x=-4"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "linear-zero-product-correct",
+    "problem_id": "linear-zero-product",
+    "steps": [
+      "x=-2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-double-root-correct",
+    "problem_id": "quadratic-double-root",
+    "steps": [
+      "x=2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-zero-correct",
+    "problem_id": "quadratic-zero",
+    "steps": [
+      "x=0"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-root-zero-correct",
+    "problem_id": "quadratic-root-zero",
+    "steps": [
+      "x=0 or x=4"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-negative-roots-correct",
+    "problem_id": "quadratic-negative-roots",
+    "steps": [
+      "x=-2 or x=-3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-leading-correct",
+    "problem_id": "quadratic-leading",
+    "steps": [
+      "x=-2 or x=2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-shifted-square-correct",
+    "problem_id": "quadratic-shifted-square",
+    "steps": [
+      "x=-1 or x=3"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-radical-correct",
+    "problem_id": "quadratic-radical",
+    "steps": [
+      "x=-sqrt(2) or x=sqrt(2)"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-completing-square-correct",
+    "problem_id": "quadratic-completing-square",
+    "steps": [
+      "x=1-sqrt(2) or x=1+sqrt(2)"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-factored-correct",
+    "problem_id": "quadratic-factored",
+    "steps": [
+      "x=5 or x=-1"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-no-roots-shifted-correct",
+    "problem_id": "quadratic-no-roots-shifted",
+    "steps": [
+      "no real solutions"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-fraction-correct",
+    "problem_id": "quadratic-fraction",
+    "steps": [
+      "x=-2 or x=2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "quadratic-cancel-correct",
+    "problem_id": "quadratic-cancel",
+    "steps": [
+      "x=2"
+    ],
+    "expected_status": "correct",
+    "expected_first_error": null,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "distribution-mistake",
+    "problem_id": "linear-distribution",
+    "steps": [
+      "2x+3=10",
+      "2x=7"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "later-sign-mistake",
+    "problem_id": "linear-distribution",
+    "steps": [
+      "2x+6=10",
+      "2x=16"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 2,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "division-mistake",
+    "problem_id": "linear-balance",
+    "steps": [
+      "3x=15",
+      "x=3"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 2,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "fraction-mistake",
+    "problem_id": "linear-fractions",
+    "steps": [
+      "x+3=14"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "missing-positive-square-root",
+    "problem_id": "quadratic-two-roots",
+    "steps": [
+      "x=3"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "wrong-factor",
+    "problem_id": "quadratic-factoring",
+    "steps": [
+      "(x-2)(x+3)=0"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "lost-zero-root",
+    "problem_id": "quadratic-root-zero",
+    "steps": [
+      "x-4=0",
+      "x=4"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "lost-radical-root",
+    "problem_id": "quadratic-radical",
+    "steps": [
+      "x=sqrt(2)"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "lost-shifted-root",
+    "problem_id": "quadratic-shifted-square",
+    "steps": [
+      "x-1=2",
+      "x=3"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 1,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "later-completing-square-mistake",
+    "problem_id": "quadratic-completing-square",
+    "steps": [
+      "(x-1)^2=2",
+      "x=1+sqrt(2)"
+    ],
+    "expected_status": "incorrect",
+    "expected_first_error": 2,
+    "split": "evaluation",
+    "review_status": "pending"
+  },
+  {
+    "id": "unfinished-valid-work",
+    "problem_id": "linear-two-sides",
+    "steps": [
+      "3x=9"
+    ],
+    "expected_status": "incomplete",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  },
+  {
+    "id": "outside-grammar",
+    "problem_id": "linear-balance",
+    "steps": [
+      "sqrt(x)=2"
+    ],
+    "expected_status": "unsupported",
+    "expected_first_error": null,
+    "split": "development",
+    "review_status": "pending"
+  }
+]

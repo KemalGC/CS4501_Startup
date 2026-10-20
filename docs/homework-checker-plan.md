@@ -18,7 +18,8 @@ The initial scope is short worksheets containing 3–5 linear or quadratic
 equations in one real variable, with a teacher-confirmed answer key and rubric.
 
 1. Create an assignment with questions, skill tags, point values, and a rubric.
-2. Upload a batch of JPG/PNG images or scanned PDFs using anonymous student codes.
+2. Upload a batch of JPG/PNG homework photos using anonymous student codes.
+   PDFs are optional and need server media libraries; photos use browser decoding.
 3. Review the extracted work beside the original source and correct transcription.
 4. Review proposed per-question points, cited evidence, and checked feedback.
 5. Approve or override results, retaining a record of the decision.
@@ -37,7 +38,7 @@ Writes require a current revision so stale reviews cannot overwrite newer work.
 
 | Area | Implemented in the MVP | Remaining validation or scope |
 | --- | --- | --- |
-| Input | Teacher assignments, checked keys/rubrics, JPG/PNG/PDF uploads, anonymous codes | Real worksheet layout/handwriting evaluation |
+| Input | Teacher assignments, checked keys/rubrics, browser-prepared JPG/PNG photos, optional PDFs, anonymous codes | Real worksheet layout/handwriting evaluation |
 | Mathematics | First invalid transition, full solution sets, bounded algebra | Instructor-reviewed independent cases |
 | AI | Optional vision transcription, text hints, checked practice; bounded retries | Credentialed live-model smoke test and measured accuracy |
 | Scoring | Criterion evidence, deterministic totals, partial-credit overrides | Educator rubric calibration and agreement measurement |
@@ -60,6 +61,11 @@ manual transcripts and checked templates make the full review workflow runnable.
   point rubric. Flag unsupported or inconsistent keys before grading.
 - Accept JPG/PNG and scanned PDF submissions for the known worksheet layout.
   Configure file-size, page-count, and processing limits; reject unsupported files.
+- JPG/PNG photo intake must work without Pillow or PDFium. Browser decoding
+  preserves orientation, flattens transparency, and bounds resolution; the server
+  independently validates raw RGB dimensions/byte counts and creates a clean PNG.
+  Keep optional PDF processing off unless its native libraries are installed and
+  allowed. Do not change operating-system policies to make photo uploads work.
 - Associate each submission with an assignment and anonymous student code.
 - Allow teachers to inspect source pages, retry a failed extraction, and delete
   a submission and its retained files.
@@ -132,6 +138,9 @@ support plus operating documentation. Both backend and interface are merged into
 The teacher workflow and original student flow pass browser checks, including
 mobile layout; Python tests cover isolation, revisions, scoring, analytics, upload
 processing, provider failures, and checked practice. CI also builds/runs Docker.
+The photo path is covered on Windows/Python 3.14 without image libraries, and the
+browser flow deliberately blocks native media imports. Its AI response is a
+synthetic fixture, not evidence of handwriting accuracy.
 
 Next work is validation and deployment: configure a model for a credentialed smoke
 test, curate permitted handwritten examples with independent grading references,

@@ -6,7 +6,7 @@ validation contracts, setup, and branch changes.
 ## Product and state
 
 As of 2026-10-20 the teacher-facing MVP is implemented: private accounts,
-assignments/rubrics, protected homework images/PDFs, optional AI transcription,
+assignments/rubrics, protected homework photos, optional PDFs/AI transcription,
 source review, suggested scores, teacher overrides/approval, exports, approved
 class analytics, student progress, and checked differentiated practice.
 The original student flow is preserved at `/practice`; `/` and `/teacher` serve
@@ -57,7 +57,11 @@ creates a three-question assignment and two typed student responses. Review the
 transcripts, approve/override grades, inspect the dashboard, export results,
 and approve targeted practice. It is explicitly synthetic, not an OCR demo.
 
-For source review, upload one permitted image/PDF per anonymous student code.
+For source review, upload one permitted JPG/PNG photo per anonymous student code.
+The browser prepares photos; Python constructs PNGs without Pillow/PDFium. PDFs
+need `requirements-media.lock` and `PROOFGRADE_PDF_UPLOADS=true`. Keep PDFs off on
+computers that block native media libraries; photos still work. No database
+migration or account recreation is needed for this change.
 Default mode requires entering equations beside the source; configure the model
 before using AI extraction. Docker account setup must share the same persistent
 volume as the running server; see [development.md](docs/development.md).
@@ -71,13 +75,15 @@ volume as the running server; see [development.md](docs/development.md).
 | `teacher_models.py` | Strict assignment, rubric, transcript, approval schemas and key validation |
 | `teacher_store.py` | SQLite accounts/sessions, ownership, revisions, audit history, deletion |
 | `teacher_grading.py` | Criterion evidence, checked draft scores, approved analytics, template practice |
-| `teacher_uploads.py` | Request-size middleware, image normalization, bounded PDF rendering |
-| `teacher_media.py` | Lazy native-library loading and upload availability; typed flow survives blocked DLLs |
+| `teacher_uploads.py` | Request-size middleware, browser RGB intake, optional native file/PDF rendering |
+| `image_pages.py` | Bounded RGB-to-PNG encoding with stdlib only; no image decoder |
+| `teacher_media.py` | Optional native-library loading, PDF opt-in, browser image capability |
 | `teacher_ai.py` | Optional vision transcription and checked model practice via Responses API |
 | `teacher_api.py` | Authenticated assignment, upload, review, export, analytics, practice routes |
 | `teacher_cli.py` | Local account provisioning; no public registration |
 | `api.py` | App factory, shared headers, teacher routes, student API, static pages |
 | `static/teacher.*` | Teacher workspace, plain DOM/CSS/JS; accessible labels |
+| `static/image-upload.js` | Browser JPG/PNG decoding, EXIF orientation, white alpha composite, bounded RGB |
 | `static/index.html`, `static/app.*` | Preserved student practice UI |
 | `problems.py`, `data/` | Server-side practice bank and developer regression fixtures |
 | `storage.py`, `metrics.py` | Separate, opt-in student practice outcome metrics |
@@ -98,15 +104,21 @@ Paths after the first row are relative to `proofgrade/`, except `tests/`.
 - Assignment: 1–5 questions; each has a validated complete answer, skill tag, and
   1–5 criteria of 1–20 integer points. Rubrics are immutable; replace an assignment
   to change its rubric. At most 200 responses/assignment; anonymous codes unique.
-- Upload: one file/student, JPG/PNG up to 20 MP or PDF 1–5 pages, 8 MiB/file.
-  The UI batches at most 20 files. PDFs render locally to normalized PNGs.
-  Raw uploads are not retained. JSON body caps: 12 MiB for uploads, 256 KiB otherwise,
-  including chunked requests. Never remove processing bounds to accept a file.
+- Upload: one file/student, JPG/PNG up to 20 MP and 8 MiB in the browser.
+  Browser preparation preserves EXIF orientation, composites onto white, never
+  upscales, and fits 2400 pixels/side and 3,000,000 pixels. `/image-uploads` accepts
+  strict dimensions plus base64 raw RGB, validates exact byte count and dimensions,
+  and creates PNG IHDR/IDAT/IEND with stdlib CRC/compression. No encoded client file
+  is trusted as normalized. Preserve these independent server-side bounds.
+  The UI batches at most 20 students. Optional PDFs allow 1–5 pages, 8 MiB/file.
+  Original files are not retained. JSON caps: 12 MiB for `/uploads` and
+  `/image-uploads`, 256 KiB otherwise, including chunked requests.
 - Do not import Pillow/PDFium at application module scope. Windows policies may
-  block their native code. Report upload capabilities in the authenticated session,
-  disable unavailable file selection, and return 503 without creating a response.
-  Preserve login, typed grading, existing page viewing, and other non-media paths.
-  PDFium failure alone must not disable JPG/PNG. Do not change OS policies in code.
+  block their native code. The default startup/session/photo upload must not even
+  attempt these imports. `uploads.images` remains true with
+  `image_transport: browser_rgb`. Only opt-in PDFs probe native libraries; report
+  PDF failures and return 503 without creating a response. Never disable photos
+  because Pillow or PDFium is blocked. Do not change OS policies in code.
 - States: `transcription_draft`, `grading_draft`, `approved`. `needs_review` is a
   per-question flag, not a stored submission state. Missing answers must be
   represented explicitly. Every transcript confirmation computes a fresh draft.
@@ -170,6 +182,7 @@ fixtures pending instructor review, not independent accuracy evidence.
 | --- | --- |
 | `PROOFGRADE_TEACHER_DB` | `data/teachers.sqlite3`; Docker `/data/teachers.sqlite3` |
 | `PROOFGRADE_TEACHER_AI` | `disabled`; `openai` enables vision and model practice |
+| `PROOFGRADE_PDF_UPLOADS` | `false`; `true` enables PDF intake if optional media libraries work |
 | `PROOFGRADE_VISION_MODEL` | Vision + Structured Outputs model; fallback `OPENAI_MODEL` |
 | `PROOFGRADE_SECURE_COOKIES` | `false` for local HTTP; `true` behind HTTPS |
 | `PROOFGRADE_HINT_MODE` | `demo`; alternatives `disabled`, `openai` |
@@ -184,18 +197,22 @@ SQLite and in-process limits target one instance, not horizontal scaling.
 ## Validation and remaining work
 
 ```sh
+python -m pip install -r requirements-media.lock
 python -m pytest -q
 python -m proofgrade.evaluate --split all
 python -m proofgrade.demo
 node --check proofgrade/static/app.js
 node --check proofgrade/static/teacher.js
+node --check proofgrade/static/image-upload.js
 npm ci
 npx playwright install chromium
 npm run test:browser
 ```
 
 The browser command provisions a temporary account/database, starts its own app,
-checks upload/manual transcription/override/approval/export/practice/revision,
+blocks native image imports and checks RGB upload, PNG/JPEG preparation,
+orientation/resizing/transparency, source viewing, mocked model transcription,
+confirmation/override/approval/export/practice/revision,
 checks mobile overflow, and runs the preserved student flow. CI installs Chromium
 with Linux dependencies and saves screenshots as `teacher-browser-previews`.
 The authoring sandbox cannot launch Chromium; GitHub Actions browser checks passed
@@ -206,9 +223,11 @@ Run focused regressions for behavioral bugs; don't add tests for prose edits.
 Before merging inspect the workflow for the exact head and integrated branch.
 Python 3.11/3.12, 42/42 regression cases, both browser flows, and Docker checks pass
 for the teacher workspace. Final dataset changes add preparation/scoring tests.
-Windows/Python 3.14 CI also covers startup, upload handling, and cold-process
-simulations of blocked Pillow/PDFium imports. Browser coverage includes typed
-submission when uploads are unavailable.
+Windows/Python 3.14 CI installs only the base dependencies and asserts that neither
+Pillow nor PDFium is installed; it checks startup, image intake, teacher grading,
+and cold-process import blocks. Linux full-suite CI installs the media extra for
+legacy PDF and dataset tests. The browser server uses a synthetic model transport
+in `tests/browser_server.py` only; never ship or select that fixture in the app.
 
 Remaining validation: credentialed vision/text smoke tests, instructor review and
 independent handwritten/rubric labels, teacher active-time instrumentation and

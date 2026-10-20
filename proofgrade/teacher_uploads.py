@@ -10,9 +10,10 @@ from fastapi import Depends, HTTPException, Response
 from pydantic import Field
 
 from proofgrade.feedback import ProviderUnavailable
+from proofgrade.image_pages import BrowserImageInput, rgb_png
 from proofgrade.teacher_api import record_data
-from proofgrade.teacher_models import RevisionInput, StrictModel, SubmissionInput
-from proofgrade.teacher_media import MediaUnavailable, image_backend, pdf_backend
+from proofgrade.teacher_models import RevisionInput, SubmissionInput
+from proofgrade.teacher_media import MediaUnavailable, image_backend, pdf_backend, pdf_uploads_enabled
 from proofgrade.teacher_store import RevisionConflict
 
 MAX_BYTES = 8 * 1024 * 1024
@@ -47,8 +48,10 @@ def render_upload(encoded):
         raise ValueError("Upload a valid image or scanned PDF.") from error
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError("Each upload must be at most 8 MiB.")
-    Image, ImageOps, UnidentifiedImageError = image_backend()
     if raw.startswith(b"%PDF-"):
+        if not pdf_uploads_enabled():
+            raise MediaUnavailable("PDF uploads are turned off. Upload a JPG/PNG photo in the teacher workspace instead.")
+        image_backend()
         pdfium = pdf_backend()
         try:
             with pdfium.PdfDocument(raw) as pdf:
@@ -71,6 +74,7 @@ def render_upload(encoded):
                 return pages
         except pdfium.PdfiumError as error:
             raise ValueError("Could not read this PDF. Use an unencrypted scanned worksheet.") from error
+    Image, ImageOps, UnidentifiedImageError = image_backend()
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -86,6 +90,12 @@ def render_upload(encoded):
 
 
 def add_upload_routes(router, teacher, store, model):
+    @router.post("/assignments/{assignment_id}/image-uploads", status_code=201)
+    def upload_pixels(assignment_id: str, body: BrowserImageInput, owner=Depends(teacher)):
+        store.assignment(owner, assignment_id)
+        page = rgb_png(body.width, body.height, body.pixels_base64)
+        return store.create_submission(owner, assignment_id, body.student_code, [page])
+
     @router.post("/assignments/{assignment_id}/uploads", status_code=201)
     def upload(assignment_id: str, body: UploadInput, owner=Depends(teacher)):
         store.assignment(owner, assignment_id)
@@ -130,7 +140,7 @@ class BoundedRequestBody:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] not in ("POST", "PUT", "PATCH"):
             return await self.app(scope, receive, send)
-        limit = 12 * 1024 * 1024 if scope["path"].endswith("/uploads") else 256 * 1024
+        limit = 12 * 1024 * 1024 if scope["path"].endswith(("/uploads", "/image-uploads")) else 256 * 1024
         chunks, size = [], 0
         while True:
             message = await receive()

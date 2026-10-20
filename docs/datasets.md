@@ -36,9 +36,14 @@ LaTeX labels. These are individual expressions, often outside the MVP algebra
 grammar, not photographs of entire assignments or teacher-assigned grades.
 
 ```sh
+python -m pip install -r requirements-media.lock
 python -m proofgrade.mathwriting prepare --download \
   --out datasets/mathwriting-valid --split valid --limit 20
 ```
+
+Dataset rendering uses the optional Pillow library. Run preparation on a machine
+where that library is allowed. Homework photo upload and the scoring command do
+not require it; the app's browser image path is independent of this tooling.
 
 Or use a previously downloaded official excerpt:
 

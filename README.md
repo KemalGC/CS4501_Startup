@@ -7,7 +7,8 @@ The integrated MVP is on **`dev`**. `main` is reserved for an approved release.
 ## What works now
 
 - Private teacher accounts and assignments with checked answer keys and rubrics.
-- JPG/PNG and scanned PDF uploads, with source pages beside editable transcripts.
+- JPG/PNG photo uploads without Pillow/PDFium, with source pages beside editable
+  transcripts. Scanned PDFs are an optional server feature.
 - Optional AI transcription; manual entry works without an API key.
 - Suggested rubric scores, first invalid steps, checked hints, partial-credit
   overrides, teacher approval, and versioned review history.
@@ -47,15 +48,25 @@ it does not pretend to recognize handwriting. Review a response, confirm its
 transcript, approve or override the suggested grades, and return to the dashboard
 to export grades and create practice for a reviewed skill gap.
 
-Use one file per student: an image up to 20 megapixels or a PDF up to 5 pages,
-8 MiB per file. The UI accepts batches of up to 20 files; assignments support
-1–5 questions and up to 200 student responses. Files become normalized PNG source
-pages stored privately with the assignment. Delete a response or assignment to
+Use one photo per student, JPG/PNG up to 20 megapixels and 8 MiB. The browser
+applies photo orientation, composites transparency onto white, and resizes only
+when needed to fit 2400 pixels per side and 3 megapixels. Python validates the
+bounded RGB pixels and creates a clean PNG using its standard library; no
+third-party image-processing DLL is loaded. No extra JPEG compression is added.
+Photograph a short worksheet straight on in good light; crop out unused margins
+and check that small signs, exponents, and fractions remain legible in the saved
+source. HEIC must first be converted to JPG. This does not replace teacher review.
+
+The UI accepts batches of up to 20 files (one student per file); assignments
+support 1–5 questions and up to 200 responses. Normalized PNG source pages are
+stored privately with the assignment. Delete a response or assignment to
 remove its retained work and dependent records. Rubrics are immutable after
 creation; create a replacement assignment to change a rubric.
 
-If Windows blocks an image/PDF DLL, the app still starts and supports typed
-homework. The workspace explains which upload formats are unavailable. See the
+PDFs are optional: install `requirements-media.lock` and set
+`PROOFGRADE_PDF_UPLOADS=true` to accept PDFs of 1–5 pages, up to 8 MiB, using
+Pillow/PDFium. Keep PDFs off on a computer that blocks those libraries. Photo
+upload, AI extraction, source review, and grading still work. See the
 [Windows troubleshooting steps](docs/development.md#windows-a-native-library-is-blocked).
 
 ## AI configuration
@@ -126,6 +137,7 @@ reference rubric for this application's grading policy.
 Prepare a small reproducible MathWriting evaluation sample:
 
 ```sh
+python -m pip install -r requirements-media.lock
 python -m proofgrade.mathwriting prepare --download --split valid --limit 20
 ```
 
@@ -134,6 +146,7 @@ labels, split, source, and attribution. Dataset downloads stay out of git and
 application storage; this command does not train or call a model.
 
 ```sh
+python -m pip install -r requirements-media.lock
 python -m pytest -q
 python -m proofgrade.evaluate --split all
 python -m proofgrade.demo
@@ -142,9 +155,12 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-CI runs Python 3.11/3.12 tests, the 42 developer-labeled algebra cases, fault
-injection, teacher/student browser flows including mobile checks, and Docker smoke
-checks. The 30 practice exercises and 42 regression cases await instructor review.
+CI runs Python 3.11/3.12 tests with optional media coverage and Windows/Python 3.14
+checks with no Pillow/PDFium installed. Browser checks exercise photo preparation,
+source viewing, mocked AI extraction, confirmation and grading with both native
+media libraries blocked. It also runs the 42 developer-labeled algebra cases,
+mobile/student flows and Docker smoke checks. The 30 practice exercises and 42
+regression cases await instructor review.
 Synthetic tests do not establish grading quality or time savings.
 
 The [pilot plan](docs/pilot-plan.md) proposes measuring total teacher time,

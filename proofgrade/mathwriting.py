@@ -10,8 +10,6 @@ import tarfile
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from PIL import Image, ImageDraw
-
 SOURCE = "https://storage.googleapis.com/mathwriting_data/mathwriting-2024-excerpt.tgz"
 SHA256 = "cba038def001480a89962b25cb20a60df4c4145e94c86ef9d2af65f192cb82bc"
 LICENSE = "CC-BY-NC-SA-4.0"
@@ -54,6 +52,11 @@ def read_ink(raw):
 
 
 def render_strokes(strokes):
+    try:
+        from PIL import Image, ImageDraw
+    except (ImportError, OSError) as error:
+        raise ValueError("Dataset rendering needs the optional media libraries: install requirements-media.lock "
+                         "on a machine that permits Pillow. Photo uploads do not need them.") from error
     points = [point for stroke in strokes for point in stroke]
     xmin, xmax = min(x for x, y in points), max(x for x, y in points)
     ymin, ymax = min(y for x, y in points), max(y for x, y in points)

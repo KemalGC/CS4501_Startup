@@ -1,5 +1,7 @@
 """Load native media libraries only for features that need them."""
 
+import os
+
 
 class MediaUnavailable(Exception):
     pass
@@ -10,9 +12,8 @@ def image_backend():
         from PIL import Image, ImageOps, UnidentifiedImageError
     except (ImportError, OSError) as error:
         raise MediaUnavailable(
-            "Image and PDF uploads are unavailable because the server cannot load its image library. "
-            "You can still add typed student work. Ask the server administrator to check the "
-            "installation or application-control policy."
+            "The optional server image library is unavailable. Upload a JPG/PNG photo through "
+            "the teacher workspace, which prepares images in your browser, or add typed student work."
         ) from error
     return Image, ImageOps, UnidentifiedImageError
 
@@ -29,13 +30,17 @@ def pdf_backend():
     return pypdfium2
 
 
+def pdf_uploads_enabled():
+    return os.getenv("PROOFGRADE_PDF_UPLOADS", "false").lower() == "true"
+
+
 def upload_capabilities():
+    capabilities = {"images": True, "image_transport": "browser_rgb", "pdf": False, "message": ""}
+    if not pdf_uploads_enabled():
+        return capabilities  # Default startup never imports Pillow or PDFium.
     try:
         image_backend()
-    except MediaUnavailable as error:
-        return {"images": False, "pdf": False, "message": str(error)}
-    try:
         pdf_backend()
     except MediaUnavailable as error:
-        return {"images": True, "pdf": False, "message": str(error)}
-    return {"images": True, "pdf": True, "message": ""}
+        return capabilities | {"message": "PDF uploads are unavailable. " + str(error)}
+    return capabilities | {"pdf": True}

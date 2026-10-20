@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ARG WITH_MEDIA=false
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PROOFGRADE_HINT_MODE=demo \
@@ -8,9 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PROOFGRADE_TEACHER_DB=/data/teachers.sqlite3
 
 WORKDIR /app
-COPY requirements.lock pyproject.toml README.md ./
+COPY requirements.lock requirements-media.lock pyproject.toml README.md ./
 COPY proofgrade ./proofgrade
 RUN python -m pip install --no-cache-dir -r requirements.lock \
+    && if [ "$WITH_MEDIA" = "true" ]; then python -m pip install --no-cache-dir -r requirements-media.lock; fi \
     && python -m pip install --no-cache-dir --no-deps . \
     && useradd --create-home --uid 10001 app \
     && mkdir -p /data && chown app:app /data

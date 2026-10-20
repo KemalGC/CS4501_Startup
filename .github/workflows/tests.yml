@@ -26,13 +26,14 @@ jobs:
           python-version: '${{ matrix.python }}'
           cache: pip
           cache-dependency-path: requirements.lock
-      - run: python -m pip install -r requirements.lock
+      - run: python -m pip install -r requirements.lock -r requirements-media.lock
       - run: python -m pip install -e '.[dev]'
       - run: python -m pytest -q
       - run: python -m proofgrade.evaluate --split all
       - run: python -m proofgrade.demo
       - run: node --check proofgrade/static/app.js
       - run: node --check proofgrade/static/teacher.js
+      - run: node --check proofgrade/static/image-upload.js
 
   windows:
     runs-on: windows-latest
@@ -48,7 +49,9 @@ jobs:
           python-version: '3.14'
       - run: python -m pip install -r requirements.lock
       - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest -q tests/test_media_startup.py tests/test_api.py tests/test_teacher_uploads.py
+      - name: Confirm the default install has no image or PDF libraries
+        run: python -c "import importlib.util; assert importlib.util.find_spec('PIL') is None; assert importlib.util.find_spec('pypdfium2') is None"
+      - run: python -m pytest -q tests/test_media_startup.py tests/test_api.py tests/test_image_pages.py tests/test_teacher.py
 
   browser:
     runs-on: ubuntu-latest

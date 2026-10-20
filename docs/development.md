@@ -25,11 +25,13 @@ command. `/` and `/teacher` open the teacher workspace; `/practice` is the origi
 student interface. The default workflow needs no API key.
 
 ```sh
+python -m pip install -r requirements-media.lock
 python -m pytest -q
 python -m proofgrade.evaluate --split all
 python -m proofgrade.demo
 node --check proofgrade/static/app.js
 node --check proofgrade/static/teacher.js
+node --check proofgrade/static/image-upload.js
 npm ci
 npx playwright install chromium
 npm run test:browser
@@ -37,21 +39,29 @@ npm run test:browser
 
 On Linux, Playwright may need `npx playwright install --with-deps chromium`.
 `npm run test:browser` creates a temporary account/database, starts and stops its
-own server, and checks both flows, including image upload, manual source review,
+own server, and checks both flows, including browser image preparation/upload,
+mocked AI transcription, source review,
 partial credit, approval, exports, targeted practice, revision invalidation,
 mobile overflow, and browser errors. It writes screenshots to ignored
 `test-results/`. An already running student app can also be tested with
 `PROOFGRADE_TEST_URL=http://127.0.0.1:8000 node tests/browser-smoke.cjs`.
 
-CI runs Python 3.11/3.12, regression evaluation, offline fault injection,
+The browser server deliberately blocks Pillow/PDFium imports and replaces only
+the model's HTTP transport with synthetic fixtures. PNG/JPEG preparation,
+orientation, resizing, white transparency background, PNG source decoding and
+the review/grade workflow run normally. This is integration coverage, not an
+OCR-quality evaluation. Windows/Python 3.14 CI installs no Pillow/PDFium packages.
+
+CI runs Python 3.11/3.12 with optional media, regression evaluation, offline fault injection,
 JavaScript syntax, both Chromium flows, and a Docker runtime smoke check.
 Screenshots are uploaded as `teacher-browser-previews`. On 2026-10-20 these
 checks passed for the teacher workspace and the screenshots were inspected.
 Local Chromium launch is blocked in the authoring sandbox; CI provides the
 browser execution evidence. No API credentials are used in tests.
 
-`requirements.lock` pins runtime dependencies; `package-lock.json` pins browser
-test dependencies. Update pins intentionally. The current httpx-backed TestClient
+`requirements.lock` pins the default runtime; `requirements-media.lock` pins the
+optional PDF/dataset libraries (also available as `.[media]`). `package-lock.json`
+pins browser test dependencies. Update pins intentionally. The current httpx-backed TestClient
 emits a Starlette deprecation warning; it does not fail the suite.
 
 ## Container
@@ -65,6 +75,12 @@ docker run --rm -it -v proofgrade-data:/data \
 docker run --rm -p 127.0.0.1:8000:8000 \
   -v proofgrade-data:/data proofgrade
 ```
+
+The default image supports JPG/PNG photos without the optional native media
+libraries. To build a PDF-enabled image, use
+`docker build --build-arg WITH_MEDIA=true -t proofgrade .` and set
+`-e PROOFGRADE_PDF_UPLOADS=true` when running it. Both installation and explicit
+enablement are required for PDFs.
 
 The image runs as a non-root user. Both teacher records/source pages and optional
 student metrics use `/data`. Without the volume, recreating a container loses its
@@ -106,12 +122,13 @@ native image code. Installing the Python package can succeed even when loading
 one of its binaries is blocked. This message alone does not identify which policy
 or binary dependency caused the block; upgrading pip does not resolve that policy.
 
-The app loads image/PDF backends only when needed. If Pillow cannot load, it still
-starts and supports login, typed homework, grading, analytics, exports, and
-practice. The teacher workspace disables file selection and explains the limit.
-If only PDFium cannot load, JPG/PNG uploads still work. A rejected upload returns
-503 without creating a submission. Existing normalized source pages can still be
-viewed. These fallbacks do not change Windows security settings.
+The standard photo workflow does not load Pillow or PDFium at all. A current
+browser decodes the JPG/PNG, applies orientation, and sends bounded RGB pixels.
+The server checks dimensions/byte counts and builds a metadata-free PNG using
+standard-library `struct`, `zlib`, and `binascii`. This removes the dependency on
+third-party image DLLs; it does not mean Python itself uses no native code.
+Photo upload, source review, optional AI extraction, grading, and exports work
+without changing Windows security settings. Existing source pages still work.
 
 After pulling the fix on `dev`, restart from the same project directory and
 virtual environment; an already created teacher account does not need recreation:
@@ -120,18 +137,41 @@ virtual environment; an already created teacher account does not need recreation
 git fetch origin
 git switch dev
 git pull --ff-only origin dev
+python -m pip install -r requirements.lock
+python -m pip install -e .
+$env:PROOFGRADE_PDF_UPLOADS="false"
 python -m uvicorn proofgrade.api:create_app --factory --reload
 ```
 
-To restore file processing, review **Event Viewer → Applications and Services
-Logs → Microsoft → Windows → CodeIntegrity → Operational**. The App Control
-block event (commonly 3077) identifies the file and policy; related 3089 events
-describe signature information. Share those details with the policy administrator
-for an approved installation or policy correction. Do not assume a Python-version
-change will remove an Application Control restriction. See
+Keep using the same activated environment, project directory and teacher database.
+An existing installation may still contain Pillow/PDFium; they do not need to be
+uninstalled because the photo path never imports them. Refresh the browser after
+restarting. Open `/teacher`, create/select an assignment, add a JPG/PNG homework
+photo, and open **Review**. Review the saved image for legibility.
+
+For automatic handwriting transcription, stop the server and configure these
+variables in that PowerShell session before restarting:
+
+```powershell
+$env:PROOFGRADE_TEACHER_AI="openai"
+$env:OPENAI_API_KEY="<your API key>"
+$env:PROOFGRADE_VISION_MODEL="<your vision model with Structured Outputs>"
+python -m uvicorn proofgrade.api:create_app --factory --reload
+```
+
+Enter the key locally; never commit it or put it in frontend code. In **Review**,
+select **Extract handwriting with AI**, compare/correct every equation, confirm
+the transcript, then approve the suggested grades. A model and API key are still
+required for automatic reading; without them, enter equations beside the photo.
+AI transcription accuracy has not been measured on real homework.
+
+PDF decoding and the MathWriting rendering command still use the optional media
+extra. If you need those, use a machine where the libraries are allowed or ask
+the policy administrator to review the blocked binary. The photo workflow does
+not need the restriction removed. See
 [Microsoft's troubleshooting guide](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/operations/appcontrol-debugging-and-troubleshooting).
 
-Windows/Python 3.14 CI covers startup, image/PDF intake, and simulated native
+Windows/Python 3.14 CI covers startup, browser-pixel intake, grading, and simulated native
 import blocks. It cannot reproduce the specific policy installed on a user's PC.
 
 ## Technical references
@@ -141,3 +181,5 @@ import blocks. It cannot reproduce the specific policy installed on a user's PC.
 - [OpenAI vision inputs](https://developers.openai.com/api/docs/guides/images-vision).
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 - [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/).
+- [Browser image decoding and EXIF orientation](https://developer.mozilla.org/en-US/docs/Web/API/Window/createImageBitmap).
+- [Canvas pixel data](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/getImageData).

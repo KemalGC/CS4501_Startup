@@ -1,0 +1,4 @@
+# Optional native libraries for server PDF rendering and dataset PNG preparation.
+# Browser-based JPG/PNG uploads do not need these packages.
+pillow==13.0.0
+pypdfium2==5.14.0

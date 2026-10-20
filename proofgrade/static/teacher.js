@@ -104,9 +104,9 @@ function frame(content) {
       type: 'button', class: 'assignment-item' + (state.assignment?.id === a.id ? ' active' : ''),
       onclick: () => run(() => home(a.id))
     }, a.title, el('small', {}, a.class_name)))),
-    el('p', {class: 'sidebar-note'}, state.session.uploads?.message || (state.session.vision_mode === 'openai'
+    el('p', {class: 'sidebar-note'}, state.session.vision_mode === 'openai'
       ? 'AI transcription is available. Uploaded pages are sent to the configured model only when you request extraction. Always review the draft.'
-      : 'Manual transcription mode. Image and PDF uploads work; enter the equations beside each source page. AI extraction requires server configuration.')));
+      : 'Manual transcription mode. Upload a homework photo and enter the equations beside the source. AI extraction requires server configuration.'));
   app.replaceChildren(el('div', {class: 'layout'}, sidebar, el('section', {}, content)));
 }
 
@@ -180,7 +180,7 @@ async function dashboard() {
 }
 
 function uploadCard(a) {
-  const uploads = state.session.uploads || {images: true, pdf: true, message: ''};
+  const uploads = state.session.uploads || {images: true, pdf: false, message: ''};
   const code = input('student-code', '', {required: true, pattern: '[A-Za-z0-9_-]{1,40}', maxLength: 40, placeholder: 'student-01'});
   const files = input('homework-files', '', {type: 'file', multiple: true, disabled: !uploads.images,
     accept: uploads.pdf ? 'image/jpeg,image/png,application/pdf' : 'image/jpeg,image/png'});
@@ -196,27 +196,33 @@ function uploadCard(a) {
       if (selected.length > 1 && code.value.length > 36) throw new Error('Use a shorter code prefix for a batch.');
       for (let i = 0; i < selected.length; i++) {
         const file = selected[i];
-        if (file.size > 8 * 1024 * 1024) throw new Error(file.name + ' exceeds 8 MiB. Earlier uploads, if any, are saved.');
-        message('Uploading ' + (i + 1) + ' of ' + selected.length + '…');
-        const encoded = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(',')[1]);
-          reader.onerror = () => reject(new Error('Could not read this file.'));
-          reader.readAsDataURL(file);
-        });
-        await api('/assignments/' + a.id + '/uploads', 'POST', {
-          student_code: selected.length === 1 ? code.value : code.value + '-' + String(i + 1).padStart(2, '0'),
-          file_base64: encoded
-        });
+        const student_code = selected.length === 1 ? code.value : code.value + '-' + String(i + 1).padStart(2, '0');
+        message('Preparing and uploading ' + (i + 1) + ' of ' + selected.length + '…');
+        try {
+          if (await ProofGradeImages.fileKind(file) === 'pdf') {
+            if (!uploads.pdf) throw new Error('PDF uploads are off. Choose a JPG/PNG photo of the worksheet.');
+            await api('/assignments/' + a.id + '/uploads', 'POST', {
+              student_code, file_base64: ProofGradeImages.base64(new Uint8Array(await file.arrayBuffer()))
+            });
+          } else {
+            const pixels = await ProofGradeImages.prepare(file);
+            await api('/assignments/' + a.id + '/image-uploads', 'POST', {student_code, ...pixels});
+          }
+        } catch (error) {
+          if (state.session?.authenticated) await dashboard();
+          throw new Error(file.name + ': ' + error.message + ' ' + i + ' earlier file(s) saved. Re-select only the remaining files.');
+        }
       }
       await dashboard(); message('Uploads saved. Open each response to extract or enter the work.');
     }, 'Preparing student work…');
   }}, el('div', {class: 'form-row'}, label('Anonymous student code / batch prefix', code), label('Homework files (optional)', files)),
-    el('p', {class: 'footnote'}, 'One file per student. JPG/PNG up to 20 megapixels or PDF up to 5 pages; 8 MiB per file. Batch codes end in -01, -02, and so on. Leave files empty to enter a typed response.'),
+    el('p', {class: 'footnote'}, 'One file per student. JPG/PNG up to 20 megapixels; 8 MiB per file. '
+      + (uploads.pdf ? 'PDFs may contain up to 5 pages. ' : 'PDFs are optional; use a photo of the worksheet here. ')
+      + 'Batch codes end in -01, -02, and so on. Leave files empty to enter a typed response.'),
     el('button', {type: 'submit'}, 'Add student work'));
   return el('div', {class: 'card'}, el('h2', {}, 'Add homework'), el('div', {class: 'upload-box'}, form),
     uploads.message ? el('p', {class: 'subtle-box warning-box', role: 'status'}, uploads.message) : null,
-    el('p', {class: 'footnote'}, 'Use anonymous codes and work you have permission to upload. Normalized source pages are retained until you delete the submission or assignment.'));
+    el('p', {class: 'footnote'}, 'Photograph the whole worksheet straight on, in good light, with readable symbols. Photos are resized for upload; review the saved source before confirming. Use anonymous codes and work you have permission to upload. Source pages are retained until you delete the submission or assignment.'));
 }
 
 function assignmentForm() {
@@ -273,11 +279,11 @@ function reviewView() {
     const image = el('img', {class: 'source-image', src: apiRoot + '/submissions/' + s.id + '/pages/1', alt: 'Uploaded homework source, page 1'});
     pageSelect.addEventListener('change', () => { image.src = apiRoot + '/submissions/' + s.id + '/pages/' + pageSelect.value; image.alt = 'Uploaded homework source, page ' + pageSelect.value; });
     source.append(label('Source page', pageSelect), image,
-      button('Extract handwriting with AI', async () => {
+      ...(state.session.vision_mode === 'openai' ? [button('Extract handwriting with AI', async () => {
         message('Reading handwriting. This can take up to a few minutes; no grade is released automatically.');
         state.submission = await api('/submissions/' + s.id + '/extract', 'POST', {revision: s.revision});
         reviewView(); message('AI transcription is a draft. Compare it with the original before confirming.');
-      }, 'secondary'),
+      }, 'secondary')] : []),
       el('p', {class: 'footnote'}, state.session.vision_mode === 'openai'
         ? 'Extraction sends these normalized pages to the configured AI provider. It must preserve mistakes, not solve the work.'
         : 'AI extraction is not configured. You can transcribe the uploaded source manually.'));

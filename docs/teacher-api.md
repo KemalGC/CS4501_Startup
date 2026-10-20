@@ -22,7 +22,8 @@ ownership. There is no public registration, grading API, or upload URL.
 | `GET/POST /assignments` | List and create assignments with validated keys |
 | `GET/DELETE /assignments/{id}` | Read or delete an owned assignment |
 | `GET/POST /assignments/{id}/submissions` | List or add anonymous student codes |
-| `POST /assignments/{id}/uploads` | Add an image/PDF response as private normalized pages |
+| `POST /assignments/{id}/image-uploads` | Add browser-prepared RGB pixels without native image libraries |
+| `POST /assignments/{id}/uploads` | Optional native decoder for encoded files; PDF requires explicit enablement |
 | `GET/DELETE /submissions/{id}` | Read or delete a response |
 | `GET /submissions/{id}/pages/{number}` | Read an owned source PNG, with no-store caching |
 | `POST /submissions/{id}/extract` | Request a structured AI transcription draft |
@@ -58,11 +59,30 @@ replacement assignment if the rubric changes.
 
 ## Uploads and optional model processing
 
-Upload JSON contains `student_code` and `file_base64` (raw file bytes encoded as
-base64, without a data-URL prefix). Accept JPG/PNG up to 20 megapixels, or PDF with
-1–5 pages, up to 8 MiB per file. Only normalized PNG pages are retained. There are
-at most 200 responses per assignment. Requests are capped before parsing,
-including chunked bodies: 12 MiB for uploads and 256 KiB for other mutations.
+The default image endpoint `/image-uploads` takes `student_code`, integer `width`
+and `height`, and `pixels_base64`. The latter is base64 of exactly
+`width * height * 3` raw RGB bytes, top-to-bottom/left-to-right, with no padding
+between rows, alpha channel or data-URL prefix. Each side is 1–2400 pixels, with
+at most 3,000,000 pixels overall. Extra fields, invalid base64, inconsistent byte
+counts and out-of-bounds dimensions are rejected before creating a record.
+Ownership is checked before pixel processing. The server constructs an RGB PNG
+with only IHDR/IDAT/IEND chunks, using standard-library compression and CRCs.
+It never parses client-supplied encoded images on this route.
+
+`static/image-upload.js` decodes JPG/PNG files of at most 8 MiB and 20 megapixels
+in the browser, respects EXIF orientation, flattens transparency onto white, and
+downsizes to the prepared-image bounds without upscaling. Those source-file checks
+are browser checks; the server independently enforces its own pixel/byte limits.
+
+The legacy `/uploads` endpoint takes `student_code` and `file_base64` (raw file
+bytes as base64, without a data-URL prefix). It requires the optional native media
+libraries. PDF also requires `PROOFGRADE_PDF_UPLOADS=true` and supports 1–5 pages,
+8 MiB/file. Native decoding errors do not affect `/image-uploads`.
+
+Only clean PNG pages are retained. There are at most 200 responses per assignment.
+Requests are capped before parsing, including chunked bodies: 12 MiB for either
+upload endpoint and 256 KiB for other mutations. Source and grade writes retain
+the existing ownership, deletion, and review contracts.
 
 `POST /submissions/{id}/extract` takes `{"revision": 1}` using the current version.
 Set `PROOFGRADE_TEACHER_AI=openai`, `OPENAI_API_KEY`, and a vision/Structured
@@ -85,10 +105,12 @@ sets are withheld. The source (`checked_templates` or `openai_checked`) is recor
 review and `/practice/{id}/approve` are required for the key-free student export.
 
 The authenticated session response exposes `vision_mode`, `hint_mode`, and
-`uploads: {images, pdf, message}`. Native-library load failures disable only the
-affected upload formats; uploads return 503 without creating a record. Typed
-submissions and existing source-page reads remain available. The unauthenticated
-session has `uploads: null` and does not probe native libraries.
+`uploads: {images: true, image_transport: "browser_rgb", pdf, message}`. Images
+always use browser preparation. PDFs are off by default, with no native imports
+during startup or session checks. If explicitly enabled, missing/blocked libraries
+set `pdf: false`; native uploads return 503 without creating a record. Browser
+photos, typed work, AI extraction, and page reads remain available. The
+unauthenticated session has `uploads: null` and does not probe native libraries.
 The UI at `/teacher` implements these operations; API details need not
 be entered by teachers. Provider tests mock transport; live validation remains.
 

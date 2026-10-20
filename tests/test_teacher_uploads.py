@@ -57,7 +57,8 @@ def test_uploaded_pages_are_private_and_deleted(teacher):
         assert db.execute("SELECT count(*) FROM pages").fetchone()[0] == 0
 
 
-def test_pdf_render_and_page_limit():
+def test_pdf_render_and_page_limit(monkeypatch):
+    monkeypatch.setenv("PROOFGRADE_PDF_UPLOADS", "true")
     def pdf_bytes(count):
         document = pdfium.PdfDocument.new()
         for _ in range(count):

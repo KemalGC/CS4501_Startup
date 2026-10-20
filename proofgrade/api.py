@@ -13,6 +13,8 @@ from proofgrade.feedback import generate_feedback
 from proofgrade.problems import PROBLEMS, get_problem
 from proofgrade.providers import configured_provider
 from proofgrade.storage import AttemptStore
+from proofgrade.teacher_api import build_teacher_router, register_teacher_errors
+from proofgrade.teacher_store import TeacherStore
 
 STATIC = Path(__file__).parent / "static"
 Step = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=256)]
@@ -42,15 +44,26 @@ class RatingRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
 
 
-def create_app(provider=None, store=None):
+def create_app(provider=None, store=None, teacher_store=None):
     app = FastAPI(title="ProofGrade", version="0.1.0")
     provider = provider if provider is not None else configured_provider()
+    teacher_store = teacher_store if teacher_store is not None else TeacherStore(
+        os.getenv("PROOFGRADE_TEACHER_DB", "data/teachers.sqlite3"))
+    teacher_router, teacher_auth = build_teacher_router(teacher_store, provider)
+    app.include_router(teacher_router)
+    register_teacher_errors(app)
     if store is None and os.getenv("PROOFGRADE_STORE_ATTEMPTS", "false").lower() == "true":
         store = AttemptStore(os.getenv("PROOFGRADE_DB_PATH", "data/proofgrade.sqlite3"))
 
     @app.middleware("http")
     async def response_headers(request, call_next):
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except ValueError as error:
+            if not request.url.path.startswith("/api/teacher/"):
+                raise
+            from fastapi.responses import JSONResponse
+            response = JSONResponse({"detail": str(error)}, status_code=400)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (

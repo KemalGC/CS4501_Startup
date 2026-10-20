@@ -1,8 +1,18 @@
 # ProofGrade
 
-ProofGrade helps students find the first incorrect step in typed algebra practice
-and revise their work using a checked hint. The selected startup brief is in
-[README-startups/readme-startupSelected.md](README-startups/readme-startupSelected.md).
+ProofGrade's product goal is to help math teachers grade handwritten homework,
+review suggested scores and feedback, identify class learning gaps, and create
+targeted follow-up practice. See the
+[selected startup brief](README-startups/readme-startupSelected.md) and
+[homework-checker implementation plan](docs/homework-checker-plan.md).
+
+## Current implementation
+
+The runnable app is the typed-algebra foundation: students select a practice
+problem, enter their steps, find the first invalid transition, and revise using a
+checked hint. Handwritten uploads, rubric scoring, teacher review, classroom
+analytics, and differentiated practice are planned features, not available yet.
+The default provider is an offline demo; it makes no real AI calls.
 
 ## Development
 
@@ -56,13 +66,18 @@ does not certify every explanation or prove which operation the student intended
 A valid sequence is only marked complete when the final line states all roots
 or the applicable special solution set. No AI-generated text is used by this layer.
 
-## MVP acceptance goals
+## Teacher MVP acceptance goals
 
-Proposed pilot targets: at least 90% first-error agreement on instructor-reviewed
-examples, 70% correction after one hint, and 80% usefulness ratings of 4/5 or higher.
-These are targets, not measured results. Human review and student testing are still
-required before claiming learning benefits. See the [pilot plan](docs/pilot-plan.md)
-for the procedure, metric definitions, and limitations of the initial data.
+The revised pilot will measure total teacher grading time, rubric-score agreement,
+transcription corrections, teacher overrides, class-summary correctness, and
+follow-up practice quality. Proposed targets include 30% lower median total grading
+time, 90% exact draft-score agreement on supported, legible work, and teacher
+approval for every released result. These are unmeasured targets for the planned
+teacher workflow. See the [pilot plan](docs/pilot-plan.md) for denominators,
+review coverage, and evaluation procedures.
+
+The existing developer fixtures and practice metrics validate only the current
+typed-algebra foundation; they cannot establish handwriting or grading accuracy.
 
 ## Verified hints
 

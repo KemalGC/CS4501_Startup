@@ -21,7 +21,7 @@ const net = require('node:net');
   const server = spawn(python, ['-m', 'uvicorn', 'proofgrade.api:create_app', '--factory', '--host', '127.0.0.1', '--port', String(port), '--no-access-log'], {env, stdio: ['ignore', 'pipe', 'pipe']});
   let serverLog = '';
   server.stderr.on('data', chunk => { serverLog += chunk; });
-  let browser;
+  let browser, page;
   try {
     let ready = false;
     for (let i = 0; i < 100; i++) {
@@ -31,7 +31,7 @@ const net = require('node:net');
     assert(ready, 'Server did not start: ' + serverLog);
     browser = await chromium.launch({headless: true,
       ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE} : {})});
-    const page = await browser.newPage({viewport: {width: 1440, height: 1100}});
+    page = await browser.newPage({viewport: {width: 1440, height: 1100}});
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(base);
@@ -52,7 +52,10 @@ const net = require('node:net');
     await page.getByRole('button', {name: 'Add student work', exact: true}).click();
     await page.getByRole('button', {name: 'Review student-01', exact: true}).click();
     await page.getByAltText('Uploaded homework source, page 1').waitFor();
-    assert(await page.getByAltText('Uploaded homework source, page 1').evaluate(img => img.complete && img.naturalWidth > 0));
+    await page.waitForFunction(() => {
+      const img = document.querySelector('img[alt="Uploaded homework source, page 1"]');
+      return img?.complete && img.naturalWidth > 0;
+    });
     await page.getByLabel('Student steps Q1', {exact: true}).fill('2x+3=10\n2x=7');
     await page.getByLabel('Source for Q1', {exact: true}).selectOption('1');
     await page.getByLabel('I checked these equations against the source or entered the typed response.').check();
@@ -92,6 +95,12 @@ const net = require('node:net');
     assert.deepEqual(errors, []);
     console.log('Teacher browser flow passed: sign in, assignment/rubric, image upload, transcription, scoring override, approval, analytics, export, targeted practice, mobile layout, revision invalidation, sign out.');
     execFileSync(process.execPath, ['tests/browser-smoke.cjs'], {env: {...process.env, PROOFGRADE_TEST_URL: base}, stdio: 'inherit'});
+  } catch (error) {
+    if (page) {
+      mkdirSync('test-results', {recursive: true});
+      await page.screenshot({path: 'test-results/teacher-failure.png', fullPage: true}).catch(() => {});
+    }
+    throw error;
   } finally {
     if (browser) await browser.close();
     server.kill('SIGTERM');

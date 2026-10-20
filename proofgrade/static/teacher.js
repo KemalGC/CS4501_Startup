@@ -46,7 +46,11 @@ async function run(action, pending = '') {
 function button(text, action, style = '') { return el('button', {type: 'button', class: style, onclick: () => run(action)}, text); }
 function link(text, path, style = 'secondary') { return el('a', {class: 'button-link ' + style, href: apiRoot + path}, text); }
 function badge(status) { return el('span', {class: 'badge ' + status}, statuses[status] || status); }
-function label(text, control) { return el('label', {}, text, control); }
+function label(text, control) {
+  const labelId = control.id + '-label';
+  control.setAttribute('aria-labelledby', labelId);
+  return el('label', {htmlFor: control.id}, el('span', {id: labelId}, text), control);
+}
 function input(id, value = '', attrs = {}) { return el('input', {id, name: id, value, ...attrs}); }
 function select(id, values, selected) {
   return el('select', {id, name: id}, values.map(([value, text]) => el('option', {value, selected: value === selected}, text)));

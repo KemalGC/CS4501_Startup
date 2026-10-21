@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790" role="img" aria-labelledby="title desc">
+<title id="title">StrokeSense rowing technique report — illustrative website preview</title>
+<desc id="desc">A synthetic rowing analysis example showing eight rowers, stroke rate, per-seat technique, and timing differences. Not an actual video-analysis result.</desc>
+<rect width="1200" height="790" rx="20" fill="#f6f7f9"/>
+<rect width="1200" height="169" rx="20" fill="#0f2747"/>
+<rect y="145" width="1200" height="24" fill="#0f2747"/>
+<text x="46" y="53" font-family="Arial,sans-serif" font-size="17" font-weight="700" fill="#91baf3">STROKESENSE · ROWING ANALYSIS</text>
+<text x="46" y="95" font-family="Arial,sans-serif" font-size="36" font-weight="700" fill="#ffffff">Technique report</text>
+<text x="46" y="129" font-family="Arial,sans-serif" font-size="17" fill="#bccbdd">Synthetic example: eight-person crew filmed side-on</text>
+<text x="747" y="70" font-family="Arial,sans-serif" font-size="17" fill="#c8d9e7">ROWERS TRACKED</text>
+<text x="747" y="112" font-family="Arial,sans-serif" font-size="35" font-weight="700" fill="#ffffff">8</text>
+<text x="929" y="70" font-family="Arial,sans-serif" font-size="17" fill="#c8d9e7">STROKE RATE</text>
+<text x="929" y="112" font-family="Arial,sans-serif" font-size="35" font-weight="700" fill="#ffffff">22 spm</text>
+<rect x="32" y="193" width="548" height="535" rx="14" fill="#fff" stroke="#dce3ea" stroke-width="2"/>
+<text x="60" y="237" font-family="Arial,sans-serif" font-size="27" font-weight="700" fill="#1f2933">Stroke seat · technique</text>
+<circle cx="514" cy="234" r="32" fill="#fff" stroke="#e0a52a" stroke-width="5"/>
+<text x="514" y="244" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="#c88a20">73</text>
+<rect x="58" y="267" width="237" height="76" rx="9" fill="#f6f7f9"/>
+<rect x="313" y="267" width="237" height="76" rx="9" fill="#f6f7f9"/>
+<text x="72" y="293" font-family="Arial,sans-serif" font-size="17" fill="#69798c">Strokes analyzed</text>
+<text x="72" y="328" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#273648">10</text>
+<text x="328" y="293" font-family="Arial,sans-serif" font-size="17" fill="#69798c">Catch offset</text>
+<text x="328" y="328" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#c58e2b">+42 ms</text>
+<text x="60" y="383" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="#1f2933">Top coaching focus</text>
+<rect x="58" y="398" width="491" height="75" rx="9" fill="#fff8ea" stroke="#f1d4a7"/>
+<text x="74" y="424" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#80571d">Early arm bend · 4 of 10 strokes</text>
+<text x="74" y="451" font-family="Arial,sans-serif" font-size="16" fill="#80571d">Example cue: maintain straight arms early in the drive.</text>
+<text x="60" y="511" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="#1f2933">Stroke sequence (normalized)</text>
+<path d="M76 661 H541 M76 554 V661" stroke="#c9d3df" stroke-width="2" fill="none"/>
+<path d="M76 626 H541 M76 591 H541" stroke="#e8edf2" stroke-width="2" fill="none"/>
+<path d="M80 656 C146 655 151 592 224 571 S381 561 541 559" fill="none" stroke="#2f6fdf" stroke-width="5"/>
+<path d="M80 656 C176 652 216 645 287 600 S423 560 541 559" fill="none" stroke="#e0802a" stroke-width="5"/>
+<path d="M80 657 C236 657 273 651 349 623 S456 568 541 560" fill="none" stroke="#2aa876" stroke-width="5"/>
+<circle cx="104" cy="694" r="7" fill="#2f6fdf"/><text x="121" y="701" font-family="Arial,sans-serif" font-size="16" fill="#556579">Legs</text>
+<circle cx="213" cy="694" r="7" fill="#e0802a"/><text x="230" y="701" font-family="Arial,sans-serif" font-size="16" fill="#556579">Body</text>
+<circle cx="326" cy="694" r="7" fill="#2aa876"/><text x="343" y="701" font-family="Arial,sans-serif" font-size="16" fill="#556579">Arms</text>
+<rect x="600" y="193" width="568" height="535" rx="14" fill="#fff" stroke="#dce3ea" stroke-width="2"/>
+<text x="632" y="237" font-family="Arial,sans-serif" font-size="26" font-weight="700" fill="#1f2933">Crew catch timing</text>
+<text x="632" y="271" font-family="Arial,sans-serif" font-size="16" fill="#69798c">Average difference from crew median · illustrative values</text>
+<line x1="918" y1="303" x2="918" y2="642" stroke="#9bb1c7" stroke-width="2"/>
+<line x1="725" y1="644" x2="1103" y2="644" stroke="#cbd4df" stroke-width="2"/>
+<text x="720" y="677" font-family="Arial,sans-serif" font-size="17" fill="#69798c">Early</text>
+<text x="906" y="677" font-family="Arial,sans-serif" font-size="17" fill="#69798c">0</text>
+<text x="1069" y="677" font-family="Arial,sans-serif" font-size="17" fill="#69798c">Late</text>
+<g font-family="Arial,sans-serif" font-size="18" fill="#39485a" font-weight="700">
+<text x="635" y="339">Stroke</text><text x="635" y="381">7</text><text x="635" y="423">6</text><text x="635" y="465">5</text><text x="635" y="507">4</text><text x="635" y="549">3</text><text x="635" y="591">2</text><text x="635" y="633">Bow</text></g>
+<rect x="918" y="321" width="97" height="22" rx="4" fill="#e0a52a"/>
+<rect x="876" y="363" width="42" height="22" rx="4" fill="#2aa876"/>
+<rect x="918" y="405" width="26" height="22" rx="4" fill="#2aa876"/>
+<rect x="900" y="447" width="18" height="22" rx="4" fill="#2aa876"/>
+<rect x="918" y="489" width="58" height="22" rx="4" fill="#e0a52a"/>
+<rect x="859" y="531" width="59" height="22" rx="4" fill="#e0a52a"/>
+<rect x="918" y="573" width="35" height="22" rx="4" fill="#2aa876"/>
+<rect x="884" y="615" width="34" height="22" rx="4" fill="#2aa876"/>
+<text x="35" y="764" font-family="Arial,sans-serif" font-size="17" fill="#718298">ILLUSTRATIVE PREVIEW · SYNTHETIC VALUES · NOT A REAL VIDEO ANALYSIS OR COACH-VALIDATED GRADE</text>
+</svg>

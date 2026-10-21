@@ -1,47 +1,73 @@
-# Startup 2: ProofGrade — Verified Feedback on Math Solutions
+# Selected Startup: StrokeSense — Verified rowing technique feedback
 
-**Inspiration from YC Startup Directory:** [Frizzle (YC Summer 2025)](https://www.ycombinator.com/companies/frizzle), which applies AI to math assignment grading and instructional feedback.
+**Product concept:** StrokeSense helps rowers and coaches turn ordinary rowing footage into interpretable technique feedback: recurring faults, stroke sequencing, and—when a crew is visible—catch-timing differences by seat.
 
-**Proposed startup (our adaptation):** ProofGrade focuses on a smaller, verifiable outcome: **explaining the first invalid step in a typed algebra solution and generating a checked next hint**. This is an original specialized MVP, not a claim that Frizzle operates this way.
+**Y Combinator inspiration:** [HYBRD (YC Fall 2024)](https://www.ycombinator.com/companies/hybrd) applies adaptive AI coaching to athlete training data. StrokeSense adapts the broader AI-coaching concept to **rowing-specific video biomechanics and evidence-backed corrections**. We do not claim HYBRD offers this rowing video feature.
 
-## How this idea meets all eight criteria
+## Existing prototype and website-report example
 
-### 1. Solves one problem extremely well
-Students often know that their answer is wrong without knowing **where their reasoning first broke**. The MVP takes typed, step-by-step linear and quadratic equation solutions, identifies the first non-equivalent transformation, and offers one correct hint. It does not attempt handwritten OCR, essay grading, or every branch of mathematics.
+The team currently has a working **Python CLI technique analyzer** in [strokesense/](../strokesense/). It uses markerless pose estimation, stroke segmentation, heuristic fault detection, and creates a browser-viewable HTML coaching report, annotated video, and structured JSON metrics.
 
-### 2. I know or can access target customers
-College students, peer tutors, and teaching assistants are accessible through my university classes and prior teaching-assistant experience. I could pilot with volunteers using **practice exercises**, not confidential graded submissions, and ask instructors to judge the feedback.
+![Illustrative StrokeSense HTML technique-report preview with a crew example](../docs/strokesense-report-preview.svg)
 
-### 3. Familiar with the infrastructure
-The MVP needs Python, SymPy, JSON schema validation, FastAPI, an LLM API, and a simple web form. I understand the underlying algebra and probability/coursework context; learning the precise SymPy APIs and constructing a test bank are achievable.
+*This is a mock preview using synthetic values; it is not a real video-analysis screenshot.*
 
-### 4. Significantly reimagines the problem
-Rather than a general AI tutor that explains anything, ProofGrade makes **mathematical correctness a machine-checkable prerequisite for personalized feedback**. Students see the earliest verifiably incorrect step and a hint specifically tied to that step, not a confident unverified explanation or an answer dump.
+**Concrete rowing example:** Consider a short, side-on recording of an eight-person crew. Suppose the stroke seat has 10 usable strokes at 22 spm, early arm bend appears in 4 strokes, and the mean catch offset is +42 ms relative to the crew's median. StrokeSense can organize this kind of analysis into per-seat summaries, sequencing charts, footage annotations, and crew timing charts. A coach decides whether the flagged pattern warrants correction. These example values are illustrative.
 
-### 5. An LLM/generative model is core
-The LLM interprets the student's sequence, selects which misconception best explains the mistake, and **generates a tailored hint and worked corrective transition**. Deterministic algebra code independently verifies these suggestions but does not write the personalized pedagogical feedback itself.
+## How we address the eight project requirements
 
-### 6. Validation guardrail: no unvalidated LLM artifact reaches users
-The LLM must return structured JSON containing the cited step number, equation before/after, the claimed correction, and a constrained hint. Before any feedback appears:
-- Pydantic/JSON Schema checks the object and step indices;
-- SymPy checks equation equivalence on the declared real-number domain and verifies the corrected transition and final solution against a trusted answer key;
-- the hint must reference a verified error category from a fixed taxonomy and cannot introduce an unchecked new mathematical result.
+### 1. Solves one specific problem well
 
-The final displayed explanation is assembled from verified fields and approved templates. Ambiguous variable domains, extraneous roots, or unverifiable reasoning cause withholding and referral to human review.
+Rowers and coaches need a faster way to find **recurring technique and synchronization issues** in practice footage without manually inspecting every stroke. The first product focuses on short side-on erg and crew videos, not an all-purpose fitness tracker or injury diagnosis.
 
-### 7. Automatic self-correction loop
-If SymPy detects a false correction or JSON validation fails, the backend sends the LLM the **failing transformation, counterexample or symbolic difference, and schema errors**. The LLM regenerates the candidate and it is rechecked, up to three attempts. A fallback is "This solution needs manual review," never unverified advice.
+### 2. We know or can access target customers
 
-### 8. Fully deployable MVP
-Deploy a FastAPI backend with SymPy, a web frontend for entering algebra steps, and a small database for anonymous practice results. Package in Docker and host on a container service. Start with 30–50 instructor-reviewed algebra examples and synthetic student errors; use no student identifiers without appropriate permission.
+Initial audiences are individual erg users, rowing clubs, collegiate crews, and coaches. The team can recruit volunteers from rowing communities for consented pilot clips and seek coaches' feedback. We still need to validate demand, repeat use, and willingness to pay.
 
-## Concrete MVP demonstration
-1. User enters `2(x+3)=10` → `2x+3=10` → `2x=7`.
-2. SymPy verifies that the expansion step is not equivalent to the original.
-3. The LLM generates an error diagnosis and hint such as "Distribute the 2 to both terms."
-4. A structured validator checks the claimed corrected equation (`2x+6=10`) and references to the first error.
-5. On deliberate LLM miscalculation, validator feedback triggers automatic regeneration; only the checked hint is released.
+### 3. Familiarity with the infrastructure
 
-**Validation/quality metric:** Accuracy of first-error location; fraction of feedback passing symbolic verification; human tutor rating for hint usefulness.
+The existing tool uses Python, NumPy, SciPy, OpenCV, ONNX Runtime, and Matplotlib. A YOLO11-pose network provides joints; deterministic tracking, kinematics, and fault rules generate reports. A deployable product could add a Python API, a video-upload web frontend, a processing queue, cloud object storage, and an LLM service.
 
-**Boundaries:** Start with typed algebra and practice content only. Correctness is checked inside a declared mathematical scope; unsupported questions are rejected rather than guessed.
+### 4. Reimagines the problem
+
+The current tool highlights recurring stroke-pattern evidence, per-seat findings, and crew timing instead of relying entirely on manual frame-by-frame review. The proposed product takes the next step: explain a measured issue, suggest a coach-approved correction, and let athletes compare subsequent recordings.
+
+Rowing video-analysis competitors already exist, so differentiation must be demonstrated through trustworthy evidence-linked feedback and actual customer adoption, not claims of being the first AI rowing coach.
+
+### 5. A generative model is core to the proposed product
+
+**Not yet implemented:** An LLM would read validated stroke measurements and a selected coach-approved drill library, then generate a personalized coaching explanation referencing the actual stroke and issue. It would choose the relevant cue and explain the sequence without fabricating measurements or diagnosing injuries.
+
+**Current status:** The prototype uses computer vision and deterministic heuristics, **not an LLM**. Building the coaching generation layer is required to fully meet this assignment criterion.
+
+### 6. Independent validation before generated output is released
+
+**Proposed guardrail:** Require a structured output containing seat ID, stroke indices, fault codes, quantitative claims, and drill/cue identifiers. A separate validator checks that references exist, numeric claims match saved metrics, the recommended cue is approved for the given fault, and there is enough tracking evidence for an interpretable statement. Unverifiable feedback is withheld.
+
+The existing synthetic unit tests check some detector behavior. They **do not yet implement this LLM-output release gate** or establish diagnostic accuracy on real footage.
+
+### 7. Automatic self-correction
+
+**Proposed loop:** If a generated explanation cites a nonexistent stroke, misstates a measured percentage, or chooses an unsupported cue, the validator returns a precise machine-readable error. The LLM revises the candidate and is rechecked for at most three attempts. It cannot modify measurements, allowed rules, or validators. Persistent failures go to coach review without releasing unverified feedback.
+
+**Current status:** This LLM retry loop is future work.
+
+### 8. Deployable MVP
+
+**What works today:** The local CLI creates annotated video, HTML reports, and JSON metrics. It is runnable with supported Python dependencies and suitable footage.
+
+**Next deployment steps:** Build a consent-based video upload interface, queue jobs for video analysis, store clips privately, show report results, and implement the validated LLM coaching loop. Start with a bounded processing size and clear limitations before widening support to varied camera angles.
+
+## Suggested live demo
+
+1. Run the analyzer on a short side-on erg or crew recording from the strokesense directory.
+2. Open the resulting report.html in a browser; show the per-seat findings, catch/finish snapshots, and graphs.
+3. Show the annotated video and any crew timing offsets.
+4. Run the synthetic fault tests using the commands in the [technical README](../strokesense/README.md).
+5. **Planned LLM demo:** Intentionally create a coaching candidate with a wrong stroke reference or percentage, reject it, retry, and show only a valid corrected explanation.
+
+## Metrics and safeguards
+
+**Validation metrics:** Coach agreement on technique labels, false positives/negatives across camera angles, agreement on catch timing, percentage of generated coaching statements that pass independent checks, retry success rate, and time saved reviewing clips.
+
+**Limitations:** Side-view 2D poses, occlusion, low frame rates, and heuristic thresholds can distort measurement. Test with real consented footage and expert labels before making performance or safety claims. The prototype does not establish injury prevention or guarantee better rowing performance.

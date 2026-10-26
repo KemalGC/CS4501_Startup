@@ -5,36 +5,96 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 import time
+import zlib
 from pathlib import Path
+from zipfile import BadZipFile
 
 import numpy as np
 
 from . import crew, render, report
-from .pose import (PoseDetector, PoseResult, run_video, save_detections, load_detections,
-                   result_from_detections, crew_tracks)
+from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video,
+                   save_detections, load_detections, result_from_detections, crew_tracks)
+
+
+# Bump this when pose preprocessing or detector defaults change. Downstream
+# technique/report changes can reuse detections because they run again each time.
+POSE_CACHE_VERSION = 1
+
+
+def _file_identity(path):
+    path = Path(path).expanduser().resolve()
+    stat = path.stat()
+    return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def _cache_identity(video, start, duration, tiles, fps, model):
+    """Identify the exact source/request/model behind cached pose detections.
+
+    Videos use path and stat data to avoid hashing large footage on every run.
+    Model files are small enough to hash, including custom models at the same path.
+    """
+    model_path = Path(model if model is not None else DEFAULT_MODEL).expanduser().resolve()
+    try:
+        model_id = _file_identity(model_path)
+        digest = hashlib.sha256()
+        with model_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        model_id["sha256"] = digest.hexdigest()
+    except FileNotFoundError:
+        model_id = {"path": str(model_path), "missing": True, "download_url": MODEL_URL}
+    identity = {
+        "version": POSE_CACHE_VERSION,
+        "source": _file_identity(video),
+        "settings": {
+            "start": float(start), "duration": None if duration is None else float(duration),
+            "tiles": tiles if isinstance(tiles, (str, type(None))) else np.asarray(tiles).tolist(),
+            "target_fps": None if fps is None else float(fps),
+        },
+        "model": model_id,
+    }
+    return json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="auto", fps=15.0,
                   model=None, single=False, reuse=True, log=print):
-    video = Path(video)
+    video = Path(video).expanduser().resolve()
+    model = Path(model).expanduser().resolve() if model is not None else None
     out = Path(out_dir) / video.stem
     out.mkdir(parents=True, exist_ok=True)
     cache = out / "detections.npz"
 
     t0 = time.time()
+    identity = _cache_identity(video, start, duration, tiles, fps, model)
+    dets = meta = None
     if reuse and cache.exists():
-        dets, meta = load_detections(cache)
-        log(f"[1/4] Loaded cached pose ({len(dets)} frames)")
-    else:
+        try:
+            cached_dets, cached_meta = load_detections(cache)
+            if cached_meta.get("cache_identity") == identity:
+                dets, meta = cached_dets, cached_meta
+                log(f"[1/4] Loaded cached pose ({len(dets)} frames)")
+            else:
+                log("[1/4] Pose cache is outdated or belongs to a different source/settings/model; recomputing.")
+        except (OSError, ValueError, KeyError, EOFError, BadZipFile, zlib.error) as exc:
+            log(f"[1/4] Could not read pose cache ({type(exc).__name__}); recomputing.")
+    if dets is None:
         log(f"[1/4] Running pose estimation on {video.name} ...")
         det = PoseDetector(model) if model else PoseDetector()
+        # The detector may have downloaded the model, so capture its actual identity.
+        identity = _cache_identity(video, start, duration, tiles, fps, model)
 
         def prog(i, n):
             log(f"      frame {i}/{n}  ({time.time() - t0:.0f}s)")
         dets, meta = run_video(video, det, tiles=tiles, start=start, duration=duration, target_fps=fps, progress=prog)
-        save_detections(cache, dets, meta)
+        if identity == _cache_identity(video, start, duration, tiles, fps, model):
+            meta = {**meta, "cache_identity": identity}
+            save_detections(cache, dets, meta)
+        else:
+            log("[1/4] Source or model changed during pose estimation; cache was not saved.")
     log("[2/4] Finding rowers and analysing strokes ...")
     rowers = []
     if not single:
@@ -100,3 +160,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+

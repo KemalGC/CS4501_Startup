@@ -10,6 +10,7 @@ resolution. Detections from all tiles are merged with NMS.
 from __future__ import annotations
 
 import os
+import tempfile
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -338,17 +339,53 @@ def build_tracks(dets, fps, n_frames, min_track_frac=0.3):
 
 def save_detections(path, dets, meta):
     flat = {k: np.asarray(v) for k, v in meta.items()}
-    flat["counts"] = np.array([len(b) for b, _ in dets])
+    flat["counts"] = np.array([len(b) for b, _ in dets], dtype=np.int64)
     flat["boxes"] = np.concatenate([b for b, _ in dets]) if dets else np.zeros((0, 4))
     flat["kpts"] = np.concatenate([k for _, k in dets]) if dets else np.zeros((0, 17, 3))
-    np.savez_compressed(path, **flat)
+    # Replace only after the complete archive is written; an interrupted run must
+    # not destroy a previous usable cache or leave a partially written archive.
+    path = Path(path)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False) as stream:
+            temp_path = Path(stream.name)
+            np.savez_compressed(stream, **flat)
+        temp_path.replace(path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def load_detections(path):
-    z = np.load(path)
-    idx = np.concatenate([[0], np.cumsum(z["counts"])])
-    dets = [(z["boxes"][a:b], z["kpts"][a:b]) for a, b in zip(idx[:-1], idx[1:])]
-    meta = {k: z[k].item() for k in ("fps", "width", "height", "start", "stride")}
+    archive = np.load(path, allow_pickle=False)
+    if not isinstance(archive, np.lib.npyio.NpzFile):
+        raise ValueError("Pose cache must be an NPZ archive")
+    with archive as z:
+        counts, boxes, kpts = z["counts"], z["boxes"], z["kpts"]
+        if counts.ndim != 1 or not np.issubdtype(counts.dtype, np.integer) or np.any(counts < 0):
+            raise ValueError("Invalid cached detection counts")
+        total = sum(int(count) for count in counts)
+        if boxes.shape != (total, 4) or kpts.shape != (total, 17, 3):
+            raise ValueError("Cached detection arrays do not match the frame counts")
+        for array in (boxes, kpts):
+            if not np.issubdtype(array.dtype, np.number) or not np.isfinite(array).all():
+                raise ValueError("Cached detections contain invalid coordinates")
+        meta = {k: z[k].item() for k in ("fps", "width", "height", "start", "stride")}
+        if not all(isinstance(v, (int, float)) and np.isfinite(v) for v in meta.values()):
+            raise ValueError("Invalid cached video metadata")
+        if meta["fps"] <= 0 or meta["start"] < 0 or meta["stride"] < 1:
+            raise ValueError("Invalid cached frame timing")
+        if any(meta[key] != int(meta[key]) for key in ("width", "height", "stride")):
+            raise ValueError("Invalid cached video dimensions or stride")
+        if min(meta["width"], meta["height"]) < (1 if len(counts) else 0):
+            raise ValueError("Invalid cached video dimensions")
+        if "cache_identity" in z:
+            identity = z["cache_identity"].item()
+            if not isinstance(identity, str):
+                raise ValueError("Invalid cached source identity")
+            meta["cache_identity"] = identity
+        idx = np.concatenate([[0], np.cumsum(counts)])
+        dets = [(boxes[a:b], kpts[a:b]) for a, b in zip(idx[:-1], idx[1:])]
     return dets, meta
 
 
@@ -532,3 +569,4 @@ def crew_tracks(dets, fps, min_frac=0.3):
         if len(t["frames"]) >= min_frac * n_frames:
             tracks[si] = {kk: np.array(v) for kk, v in t.items()}
     return tracks, int(crew_dir), n_seats
+

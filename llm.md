@@ -57,6 +57,9 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 17:29 recovery: #38 independently validated release/provider inputs now fail closed on rehashed invalid chronology/IDs/references; offline CI 188/188 unittests and four synthetic checks, no live model/provider. Real review and footage remain blocked.
+
+
 - 2026-10-27 17:29 recovery continued: combined independent evidence chronology checks (#37) and non-destructive persisted coaching withholding (#36) in a two-parent tested merge. CI 184/184 offline unittests plus four synthetic functions; no real model/provider/accuracy claim. Release validator structural-hardening is the next unblocked issue.
 
 
@@ -1451,6 +1454,16 @@ not offline unit tests.
 - No empirical footage labels, consent verification, real video precision/recall, provider traffic/spending, genuine cue approval, or customer KPI. Human team inspection pending; actual revocation does not erase old private files.
 - Next: a separate tests-first issue must make the independent release gate reject structurally contradictory *reviewed* synthetic snapshots, without confusing an unreviewed viewer's schema policy with the release validator. Then integrate and re-run complete suite.
 - Communication: consolidated factual email pending duplicate Sent check and confirmed send; never include private recipient data in public commits.
+
+### 2026-10-27 17:29 recovery sprint (continued) — reviewed coaching release integrity
+
+- New **issue #38**, topic `dev/2026-10-27-1729-release-integrity` from verified integrated `c3d02beac65ca028059c00c5e708cf80d9c26dcd`. As a coach, independently checked proposed advice and outbound provider payloads must be refused when the saved *reviewed* evidence graph is contradictory, regardless of a recomputed SHA digest.
+- TESTS FIRST commit `bedce61fffa14136e279254189b344cdd716e916` added three offline test methods with **six expected assertion failures** (overlap, duplicate findings, and unknown seat reference in release/provisioning paths) among 187 tests at GitHub Actions [#40588800896](https://github.com/KemalGC/CS4501_Startup/actions/runs/40588800896). Those were missing behavioral checks, not import failures; the positive reviewed fixture passed.
+- Production `8c66b009`, `7281b128`, `0a9f5a0`: add shared `validate_reference_graph` in `evidence.py` that verifies versioned digest, bounded/unique IDs, valid timestamp/frame relations, per-seat chronological nonoverlap, finding references and observed fractions. Both `validation.py` and `provider.py` run that **before** release or networking. It intentionally permits reviewed states while the separate unreviewed viewer remains stricter about coach eligibility. No external provider was contacted.
+- Green Actions [#40589045228](https://github.com/KemalGC/CS4501_Startup/actions/runs/40589045228): **187/187 unit tests and four synthetic analysis functions passed** with `python strokesense/quality.py`. Additional `16505e6` tests added reversed chronology and independent overlapping seats *after implementation*, honestly **green regression coverage rather than a new red checkpoint**. Actions [#40589228232](https://github.com/KemalGC/CS4501_Startup/actions/runs/40589228232) passed **188/188 unittests and four synthetic functions**; `--doctor` found installed modules but no cached ONNX model (read-only).
+- Measured recovery run 17:31:07 EDT start to **17:44:28 EDT** checkpoint (monotonic 30.86797716 to 832.177516409), **13m 21s elapsed**, with possible integration/communication following. The code/fixture evidence is synthetic; SHA-256 is not an authenticity signature. Any claimed review approvals are fixtures only. No empirical model accuracy, live provider requests, permission audit, real coach-approved advice, customer KPI or human team inspection is claimed.
+- Diff review: `evidence.py` shared checks, `provider.py`, `validation.py` gates, and `test_release_evidence_integrity.py`; no unrelated UI or infrastructure rewrite, no changes to `main`. 
+- Next: a separate bounded issue for consistent persisted coaching outcome/API/UI presentation from verified saved evidence, if legitimate review material is available; otherwise prioritize safe withheld state and offline integration/demo. Email: pending checked-Sent and confirmed send.
 
 ### Future session entry template
 

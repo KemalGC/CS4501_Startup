@@ -110,6 +110,31 @@ class RegistryAuditTests(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 99)
             self.assertEqual(conn.execute("SELECT count(*) FROM clips").fetchone()[0], 1)
 
+    def test_version_one_registry_upgrades_without_dropping_rows(self):
+        self.db.parent.mkdir(parents=True)
+        with sqlite3.connect(self.db) as conn:
+            conn.executescript(registry._SCHEMA)
+            conn.execute("PRAGMA user_version = 1")
+        self.assertEqual(registry.list_clips(self.db), [])
+        with sqlite3.connect(self.db) as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertIn("revoked_utc", {
+                c[1] for c in conn.execute("PRAGMA table_info(clips)")
+            })
+
+    def test_version_two_missing_required_audit_column_fails_closed(self):
+        self.db.parent.mkdir(parents=True)
+        with sqlite3.connect(self.db) as conn:
+            conn.executescript(registry._SCHEMA)
+            conn.execute("PRAGMA user_version = 2")
+        with self.assertRaises(registry.RegistryError):
+            registry.list_clips(self.db)
+        with sqlite3.connect(self.db) as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertNotIn("revoked_utc", {
+                c[1] for c in conn.execute("PRAGMA table_info(clips)")
+            })
+
 
 if __name__ == "__main__":
     unittest.main()

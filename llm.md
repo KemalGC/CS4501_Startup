@@ -327,11 +327,13 @@ No approved real cue catalogue or independently eligible real-video evidence
 exists yet, so the adapter appropriately refuses live generation without
 those prerequisites.
 
-Next highest-priority issue: implement a minimal **local** analysis job and
-results interface with bounded uploads, clear queued/running/failed states,
-and safely escaped navigation to saved metrics/evidence. Prefer established
-maintainable components, robust path isolation and security controls. Write
-acceptance tests before implementation. Preserve existing CLI and release
+The local bounded queue is implemented and CI-green. Next priority: a small
+**loopback-only upload / results UI** that uses JobQueue, enforces file-size
+and extension limits, requires an explicit permission-provenance claim,
+provides queued/running/failed/succeeded states, and safely navigates
+saved report/evidence without exposing absolute private paths. Write HTTP
+acceptance tests before production code. Do not expose a debug or unauthenticated
+public server, and never show generated text that fails the release validator. Preserve existing CLI and release
 validator. Do not expose unapproved coaching or private video footage.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
@@ -689,6 +691,49 @@ unverified and requires human outreach/evidence.
   remains. Avoid any actual spending without consent.
 - Next: issue-based TDD for local job/result upload interface and strict
   release-only coaching display. Progress email after verification/integration.
+
+### 2026-10-27 13:00 sprint (continued) — bounded local analysis jobs
+
+- Issue #18: queue only an explicitly registry-permitted clip, recheck SHA-256
+  before analysis, persist queued/running/succeeded/failed jobs without
+  exposing private paths, isolate every job's report under a random run ID,
+  and sanitize errors. Explicit permission is a *claim*, not independently
+  verified consent. Topic branch `dev/2026-10-27-1300-analysis-jobs`,
+  based on CI-green integration `6ab7df8716d92bc0a42ff987de34d8452e7fe168`.
+- **Test first:** `strokesense/tests/test_jobs.py` (8 synthetic/mock cases)
+  at `25c8b6458d8ade0271d23d8ceceb087df678c026`. GitHub Actions
+  #40552765707 confirmed 8 expected missing-module errors; 75 existing
+  unittests and four legacy synthetic checks still passed.
+- **Green:** implementation commit `8303ae23d18c9212a15efcf53433ddd729087481`
+  added `strokesense/strokesense/jobs.py`, using bounded local executor,
+  SQLite durable public status, registry permission/provenance claim,
+  source hash check, per-job output isolation, safe report-relative paths
+  and sanitized errors. Actions #40552986633 passed 4 legacy synthetic
+  checks plus 83 unittests (8 new job tests).
+- **Quality review:** a new filesystem failure test-first commit
+  `c4c5547a3c3bbc0634684f92c6d591dfbe5021e9` produced the
+  expected unsanitized `OSError` in Actions #40553198705 before the fix.
+  Commit `001a596fe25dab8c85c899d258ea2c0de6f48408` catches
+  unwritable output directories, marks the job `output_unavailable`,
+  and closes the initialization SQLite connection. GitHub Actions
+  #40553340755 passed **4 synthetic functions and 84 unittests**,
+  including all nine job lifecycle and failure tests; read-only
+  `--doctor` succeeded. The ONNX model was not cached in CI.
+- Documentation added to `strokesense/README.md`. No real media, model
+  inference, LLM calls, coach review, customer validation or empirical
+  accuracy data. Team test inspection remains pending. Job permissions
+  rely on an operator claim; the media can mutate between hash check
+  and decoding. Local worker is not a production distributed queue.
+- Overall scheduled 13:00 occurrence already had issue #14–#17 work
+  logged above. This continuation was instrumented at **13:27:07 EDT**;
+  the **13:44:44 EDT** checkpoint was **17m37s measured** from that
+  start. Additional docs, publication and email steps follow. Neither
+  this continuation nor the earlier work should be recorded as a full
+  30-minute session without the corresponding elapsed evidence.
+- Next: issue-based TDD for a loopback-only, bounded upload/results UI
+  with safe artifact navigation and independent coaching withholding.
+- Communication: report completion only after integration and email.
+
 
 ### Future session entry template
 

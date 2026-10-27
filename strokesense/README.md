@@ -267,6 +267,50 @@ have **not** been tested. A passing structural validator still cannot prove
 free-text truth or coaching effectiveness. The UI must display only validated,
 safely escaped text and clearly distinguish withheld results.
 
+## Local analysis job service (backend Alpha, no web UI yet)
+
+`strokesense.jobs.JobQueue` supplies a **single-process, bounded** local worker
+on top of the consent/provenance-claiming SQLite clip registry. It persists
+`queued`, `running`, `succeeded` or `failed` states and a job-scoped relative
+`report_path` in a private SQLite database. At most one job executes at a
+time, with a configurable limit on running plus waiting jobs. An invalid
+request, full queue or unregistered/unverified clip is rejected.
+
+Example usage after registering a clip with an explicit permission claim:
+
+```python
+from strokesense.jobs import JobQueue
+
+with JobQueue(
+    registry_db="results/video_registry.sqlite3",
+    job_db="results/jobs.sqlite3",
+    results_root="results/job_outputs",
+) as jobs:
+    submitted = jobs.submit(clip_id)  # clip_id from private registry
+    status = jobs.get(submitted["job_id"])  # poll rather than block the UI
+    # For a terminal-only demonstration: jobs.wait(submitted["job_id"])
+```
+
+The worker rehashes the original source immediately before analysis and
+refuses content changes. Each job has a unique output root, so repeat
+analysis cannot replace a previous job's reports. Returned public status
+records never contain absolute video paths, traceback messages or raw
+exception text. Reports are published only after verifying that the
+`report.html` file exists under the job's dedicated output directory.
+Worker failures and unavailable result directories use safe error codes;
+unfinished jobs from an interrupted previous local process are marked
+`interrupted` on restart.
+
+**Limitations:** This is not a hosted queue, durable cross-machine worker
+or complete upload/UI application. Jobs execute in a local thread and the
+process must remain running. Permission is still an unverified operator
+attestation, not a cryptographic or legal proof of consent. The source
+can change between the pre-run hash check and decoding; production
+handling requires stronger immutable ingest/storage. This implementation
+has no user authentication, HTTP server, CSRF protection or UI yet and
+must **not** be exposed on a network. Tests inject fake analysis and
+synthetic file bytes; no real video/model/LLM execution was performed.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

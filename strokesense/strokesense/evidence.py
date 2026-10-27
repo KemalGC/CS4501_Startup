@@ -180,3 +180,152 @@ def verify_evidence_snapshot(snapshot) -> bool:
         return hmac.compare_digest(claimed, _digest(payload))
     except (TypeError, ValueError, OverflowError):
         return False
+
+
+def validate_public_evidence_snapshot(snapshot) -> bool:
+    """Strict v1 schema/invariant check for the *unreviewed* local viewer.
+
+    The SHA-256 field is an accidental-corruption check, not authentication.
+    This guard must not mistake a rehashed but structurally invalid record for
+    a verified measurement or a coach-approved release.
+    """
+    if not verify_evidence_snapshot(snapshot):
+        return False
+
+    def number(value, *, positive=False, nonnegative=False):
+        return (type(value) in (float, int) and math.isfinite(value)
+                and (not positive or value > 0)
+                and (not nonnegative or value >= 0))
+
+    def nonnegative_int(value):
+        return type(value) is int and value >= 0
+
+    def valid_id(value):
+        return (isinstance(value, str) and 0 < len(value) <= 128
+                and all(c.isalnum() or c in "_-" for c in value))
+
+    try:
+        if set(snapshot) != {
+            "schema_version", "analysis_id", "fps", "start_seconds",
+            "status", "seats", "strokes", "findings",
+            "quality_limitations", "snapshot_sha256",
+        }:
+            return False
+        fps, start = snapshot["fps"], snapshot["start_seconds"]
+        if (not valid_id(snapshot["analysis_id"]) or
+                not number(fps, positive=True) or
+                not number(start, nonnegative=True)):
+            return False
+        limits = snapshot["quality_limitations"]
+        if (not isinstance(limits, list) or len(limits) > 50 or any(
+            not isinstance(item, str) or len(item) > 256 for item in limits
+        )):
+            return False
+        seats, strokes, findings = (snapshot[name] for name in
+                                    ("seats", "strokes", "findings"))
+        if any(not isinstance(items, list) or len(items) > 5000 for items
+               in (seats, strokes, findings)):
+            return False
+
+        seat_map = {}
+        for row in seats:
+            if (not isinstance(row, dict) or set(row) != {
+                    "id", "seat", "analyzed_strokes", "status"}):
+                return False
+            sid = row["id"]
+            if (not valid_id(sid) or sid in seat_map or
+                    not isinstance(row["seat"], str) or
+                    not 0 < len(row["seat"]) <= 80 or
+                    not nonnegative_int(row["analyzed_strokes"])):
+                return False
+            n = row["analyzed_strokes"]
+            expected_status = ("candidate_unreviewed" if n >= MIN_SAMPLE_STROKES
+                               else "insufficient_strokes")
+            if row["status"] != expected_status:
+                return False
+            seat_map[sid] = row
+
+        stroke_map, counts, indices, fault_map = {}, {}, {}, {}
+        for row in strokes:
+            if (not isinstance(row, dict) or set(row) != {
+                    "id", "seat_id", "index", "catch_frame", "finish_frame",
+                    "next_catch_frame", "catch_seconds", "finish_seconds",
+                    "next_catch_seconds", "fault_codes"}):
+                return False
+            sid, rid = row["seat_id"], row["id"]
+            if (sid not in seat_map or not valid_id(rid) or rid in stroke_map
+                    or not nonnegative_int(row["index"])):
+                return False
+            frame_keys = ("catch_frame", "finish_frame", "next_catch_frame")
+            frames = [row[key] for key in frame_keys]
+            if (not all(nonnegative_int(v) for v in frames) or
+                    not frames[0] < frames[1] < frames[2]):
+                return False
+            times = [row[key] for key in
+                     ("catch_seconds", "finish_seconds", "next_catch_seconds")]
+            if (not all(number(v, nonnegative=True) for v in times) or
+                    not times[0] < times[1] < times[2] or
+                    any(abs(times[i] - (start + frames[i] / fps)) >
+                        (1.0 / fps + 1e-5 if i == 0 else 1e-5)
+                        for i in range(3))):
+                return False
+            codes = row["fault_codes"]
+            if (not isinstance(codes, list) or
+                    any(not isinstance(code, str) or code not in FAULTS
+                        for code in codes) or len(set(codes)) != len(codes)):
+                return False
+            key = (sid, row["index"])
+            if key in indices:
+                return False
+            indices[key] = True
+            counts[sid] = counts.get(sid, 0) + 1
+            stroke_map[rid] = row
+            for code in codes:
+                fault_map.setdefault((sid, code), set()).add(rid)
+
+        if any(counts.get(sid, 0) != row["analyzed_strokes"]
+               for sid, row in seat_map.items()):
+            return False
+
+        finding_keys = set()
+        for row in findings:
+            if (not isinstance(row, dict) or set(row) != {
+                    "id", "seat_id", "fault_code", "stroke_ids",
+                    "observed_count", "analyzed_strokes", "observed_fraction",
+                    "eligible_strokes", "status", "coaching_eligible"}):
+                return False
+            sid, code = row["seat_id"], row["fault_code"]
+            key = (sid, code)
+            if (not valid_id(row["id"]) or sid not in seat_map or
+                    code not in FAULTS or key in finding_keys):
+                return False
+            finding_keys.add(key)
+            ids = row["stroke_ids"]
+            expected_ids = fault_map.get(key, set())
+            if (not isinstance(ids, list) or
+                    any(not isinstance(x, str) for x in ids) or
+                    len(ids) != len(set(ids)) or set(ids) != expected_ids or
+                    not nonnegative_int(row["observed_count"]) or
+                    row["observed_count"] != len(expected_ids) or
+                    row["analyzed_strokes"] != seat_map[sid]["analyzed_strokes"] or
+                    not number(row["observed_fraction"]) or
+                    row["observed_count"] < 1 or
+                    not math.isclose(row["observed_fraction"],
+                                     row["observed_count"] / row["analyzed_strokes"],
+                                     rel_tol=0, abs_tol=1e-9) or
+                    row["eligible_strokes"] is not None or
+                    row["coaching_eligible"] is not False):
+                return False
+            expected_status = ("candidate_unreviewed"
+                               if row["analyzed_strokes"] >= MIN_SAMPLE_STROKES
+                               else "insufficient_evidence")
+            if row["status"] != expected_status:
+                return False
+
+        expected_top = ("candidate_unreviewed" if any(
+            row["analyzed_strokes"] >= MIN_SAMPLE_STROKES for row in seats
+        ) else "insufficient_evidence")
+        return (finding_keys == set(fault_map) and
+                snapshot["status"] == expected_top)
+    except (TypeError, ValueError, KeyError, OverflowError, ZeroDivisionError):
+        return False

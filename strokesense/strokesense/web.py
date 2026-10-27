@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue
+from .evidence import validate_public_evidence_snapshot
 from .registry import DEFAULT_DB, RegistryError, list_clips, register_clip
 
 
@@ -262,7 +263,7 @@ def create_server(
                     return
                 data = json.loads(metrics.read_text(encoding="utf-8"))
                 snapshot = data.get("evidence") if isinstance(data, dict) else None
-                if not verify_evidence_snapshot(snapshot):
+                if not validate_public_evidence_snapshot(snapshot):
                     self._error(409)
                     return
                 columns = {

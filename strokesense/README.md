@@ -477,6 +477,30 @@ runnable demo's success, failure and CLI JSON output. Production browser
 usage remains `python -m strokesense.web --port 8765`, using genuinely
 permitted footage and the installed model.
 
+## Withdraw local permission for analysis
+
+A clip operator can withdraw a previous permission claim by its opaque
+SHA-256 clip ID; no private source path is required:
+
+```sh
+python -m strokesense.registry list
+python -m strokesense.registry revoke <clip-id> --db strokesense/results/video_registry.sqlite3
+```
+
+The update is transactional and idempotent: the clip remains in the private
+registry with `permission=denied`; original provenance and recording-group
+metadata remain for local audit/reconciliation. New analysis requests reject
+the revoked clip. Workers recheck permission before analysis and again before
+marking a result successful; queued or in-progress jobs whose permission was
+withdrawn fail with safe `permission_revoked` and no published report pointer.
+
+**Limitations:** Permission is only a local operator assertion, not verified
+athlete consent. Revocation does **not** delete the source file or historic
+reports, undo prior disclosures, forcibly terminate an already-running model,
+or make the final permission check and report publication atomic. The UI must
+remain on loopback and must not be treated as a consent-management service.
+Ask the data controller to remove retained video/reports separately when needed.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

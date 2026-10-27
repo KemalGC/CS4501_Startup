@@ -16,7 +16,7 @@ import sqlite3
 from threading import BoundedSemaphore, Lock
 from uuid import uuid4
 
-from .registry import _stream_sha256, list_clips
+from .registry import _stream_sha256, list_clips, analysis_permission_granted
 from .media import UndecodableMediaError, probe_decodable_video
 
 _SCHEMA = """
@@ -180,7 +180,7 @@ class JobQueue:
                         (job_id, clip_id, "queued", created),
                     )
                 self._futures[job_id] = self._executor.submit(
-                    self._run, job_id, Path(clip["source_path"]), clip["sha256"]
+                    self._run, job_id, clip_id, Path(clip["source_path"]), clip["sha256"]
                 )
                 return {
                     "job_id": job_id, "clip_id": clip_id, "status": "queued",
@@ -191,9 +191,13 @@ class JobQueue:
                 self._permits.release()
                 raise
 
-    def _run(self, job_id: str, video: Path, expected_sha: str) -> None:
+    def _run(self, job_id: str, clip_id: str, video: Path, expected_sha: str) -> None:
         try:
             self._write(job_id, "running", started_utc=_utc())
+            if not analysis_permission_granted(clip_id, self._registry_db):
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="permission_revoked")
+                return
             if not _matches_registered_source(video, expected_sha):
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="source_changed")
@@ -216,6 +220,12 @@ class JobQueue:
             except Exception:
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="analysis_failed")
+                return
+            # Permission can be withdrawn while the analyzer is running.
+            # Do not release the resulting report after a withdrawal.
+            if not analysis_permission_granted(clip_id, self._registry_db):
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="permission_revoked")
                 return
             # Fail closed if the registered bytes changed while analyzing.
             # The file may still change after this check; immutable ingest

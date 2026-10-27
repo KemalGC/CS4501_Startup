@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import sqlite3
 import sys
@@ -192,6 +193,63 @@ def list_clips(db_path: str | Path = DEFAULT_DB, *, show_paths: bool = False) ->
         conn.close()
 
 
+
+def analysis_permission_granted(
+    clip_id: str, db_path: str | Path = DEFAULT_DB,
+) -> bool:
+    """Check current local operator permission without creating a database."""
+    if not isinstance(clip_id, str):
+        return False
+    conn = _connect(db_path, create=False)
+    if conn is None:
+        return False
+    try:
+        row = conn.execute(
+            "SELECT permission FROM clips WHERE clip_id = ?", (clip_id,)
+        ).fetchone()
+        return row is not None and row["permission"] == "granted"
+    finally:
+        conn.close()
+
+
+def revoke_clip(
+    clip_id: str, db_path: str | Path = DEFAULT_DB,
+) -> dict:
+    """Permanently deny analysis of a registered clip (no file deletion).
+
+    This changes only the local permission claim; prior reports are retained.
+    BEGIN IMMEDIATE serializes concurrent permission updates.
+    """
+    if not isinstance(clip_id, str) or not re.fullmatch(r"[0-9a-f]{64}", clip_id):
+        raise RegistryError("invalid clip id")
+    conn = _connect(db_path, create=False)
+    if conn is None:
+        raise RegistryError("clip not found")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM clips WHERE clip_id = ?", (clip_id,)
+        ).fetchone()
+        if row is None:
+            raise RegistryError("clip not found")
+        if row["permission"] != "denied":
+            conn.execute(
+                "UPDATE clips SET permission = 'denied' WHERE clip_id = ?",
+                (clip_id,),
+            )
+            row = conn.execute(
+                "SELECT * FROM clips WHERE clip_id = ?", (clip_id,)
+            ).fetchone()
+        result = _view(row)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Register or list local clips without uploading")
     sub = parser.add_subparsers(dest="operation", required=True)
@@ -207,6 +265,9 @@ def main(argv: list[str] | None = None) -> int:
     listing = sub.add_parser("list", help="List indexed clips")
     listing.add_argument("--db", default=str(DEFAULT_DB))
     listing.add_argument("--show-path", action="store_true", help="Reveal private source paths")
+    revoke = sub.add_parser("revoke", help="Deny analysis of a registered clip")
+    revoke.add_argument("clip_id", help="SHA-256 clip ID (not a file path)")
+    revoke.add_argument("--db", default=str(DEFAULT_DB))
     args = parser.parse_args(argv)
     try:
         if args.operation == "import":
@@ -216,10 +277,16 @@ def main(argv: list[str] | None = None) -> int:
                 split=args.split, camera=args.camera, fps=args.fps,
             )
             print(json.dumps({"record": record, "created": created}, sort_keys=True))
+        elif args.operation == "revoke":
+            record = revoke_clip(args.clip_id, args.db)
+            print(json.dumps({"record": record}, sort_keys=True))
         else:
             print(json.dumps(list_clips(args.db, show_paths=args.show_path), sort_keys=True))
-    except (RegistryError, OSError, sqlite3.DatabaseError) as exc:
+    except RegistryError as exc:
         print("Registry error: " + str(exc), file=sys.stderr)
+        return 2
+    except (OSError, sqlite3.DatabaseError):
+        print("Registry error: storage unavailable", file=sys.stderr)
         return 2
     return 0
 

@@ -327,14 +327,15 @@ No approved real cue catalogue or independently eligible real-video evidence
 exists yet, so the adapter appropriately refuses live generation without
 those prerequisites.
 
-The bounded local queue and loopback-only registered-clip/browser results UI
-are implemented and CI-green, including durable recent-job browsing and
-reopenable completed reports. No file upload is supported yet: the immediate
-next priority is a bounded, private browser upload with extension/size checks
-and explicit permission/provenance attestation, using tests-first workflow.
-Keep HTTP bound to loopback, CSRF and Host/Origin checks, report path
-confinement, the existing CLI and independent coaching release validator.
-Never expose unapproved generated advice or private footage publicly.
+The bounded local queue, loopback-only browser upload, clip selection and
+reopenable history/report UI are implemented and CI-green. Browser uploads
+are limited to 25 MiB request bodies, restricted extensions and explicit
+operator permission/provenance claims; they are not independently validated
+consent or real-video safety checks. Keep the HTTP interface loopback-only.
+Next: evidence-linked report navigation, strict verified-vs-withheld coaching
+states, and an offline test of the complete correction/release UI path.
+Preserve the existing CLI, independent validator, privacy safeguards,
+and main-branch exclusion. Do not expose unapproved generated advice.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
 gate for the analysis CLI. It neither validates video format nor prevents all
@@ -784,6 +785,51 @@ unverified and requires human outreach/evidence.
   auto-release unreviewed LLM coaching. Preserve all older history.
 - Communication: final session email after completed integration and
   duplicate check; pending until confirmed.
+
+### 2026-10-27 14:00 sprint (continued) — bounded private browser ingest
+
+- Issue #21: as a coach, upload a single local video from the browser
+  with explicit permission/provenance and no exposure of original
+  path; safely hash/index the clip for later analysis. Branch
+  `dev/2026-10-27-1400-private-upload` from verified integration
+  `28c51a66ae2603b330faae8029f8bdc8361c4d0e`. Student team
+  inspection of AI-authored tests remains pending.
+- **Test first** at `11af6ac9efda06b4c27f93db3b8c177b97f9f18d`:
+  GitHub Actions #40557056540 confirmed nine new offline upload tests
+  errored on missing `upload_dir` support in `create_server`, while
+  101 previous tests and four synthetic legacy checks remained passing.
+- Initial implementation `209d8a14169592c128a0a0ca363fb110cc2d488d`
+  was not integrated: Actions #40557303846 failed nine new cases
+  because the multipart MIME prefix escaped CRLF incorrectly. Fixed
+  in `e8f533a73668e7214624aa3cebef4eb87112f42a`.
+  Actions #40557392874 then passed **4 legacy synthetic functions plus
+  110/110 unittests** including all nine new upload cases.
+- Implementation uses a 25-MiB maximum request body, strict
+  multipart/field limits, random private filenames and 0600
+  permissions, explicit CSRF and Host/Origin checks, SHA-256
+  registration/deduplication, deletion on duplicate/error, and
+  sanitization of HTTP responses. No arbitrary upload downloads.
+  README documents local-only controls and missing virus scan,
+  codec/content validation and abandoned-file garbage collection.
+  Documentation commit `42231b48cbf1a50a713593070a8f1bb04735782c`
+  passed GitHub Actions #40557616163.
+- Changed: `strokesense/strokesense/web.py`,
+  `strokesense/tests/test_upload.py`, `strokesense/README.md`,
+  this durable history. Diff reviewed against previous integrated head.
+  No source footage, sensitive local paths or secrets committed.
+- Measured scheduled-session checkpoint 14:11:26 EDT from tool-recorded
+  start 13:51:26 EDT: **20 minutes elapsed**. Further log/CI,
+  integration and report steps may extend the observed duration.
+  This is not a 30-minute work claim.
+- Limitations: Only synthetic bytes and mocked worker tests were
+  exercised, no real video decoder/ONNX inference, empirical accuracy,
+  verified permission, human coach cue review, live LLM output or
+  customer validation. Actual consent must be checked externally;
+  local UI is unauthenticated and must not be network-exposed.
+- Next: issue-based negative tests for evidence navigation and explicit
+  withheld/verified coaching UI; no release without independent gate.
+- Communication: scheduled-session email after final CI/integration;
+  pending confirmation.
 
 ### Future session entry template
 

@@ -197,6 +197,24 @@ free text or the effectiveness/safety of advice**. The return value warns
 HTML and withhold unverified model output. `snapshot_sha256` is not a
 signature; upstream storage and approval data require separate trust controls.
 
+## Bounded correction loop (offline Alpha)
+
+`strokesense.correction.run_correction(generator, *, evidence_snapshot,
+reviewed_cues, max_attempts=3)` calls a provider-agnostic candidate generator
+up to **three total attempts** (including the initial attempt). A rejected
+candidate receives only machine-readable validator error codes for the next
+attempt; no failed candidate text or exception message is returned. Trusted
+evidence and cue metadata are copied before generation, so the generator
+cannot amend validator inputs via references during the loop. A persistent
+failure or generator exception produces `status: withheld` and
+`released: null`. Invalid attempt caps are rejected.
+
+The offline tests use explicit synthetic generators and fictional review
+fixtures. This is **not a live LLM adapter or a production-approved cue
+catalogue**; all current v1 evidence still fails the release gate.
+Real provider configuration, structured generation prompts, live integration,
+and HTML output of only validated responses remain future work.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

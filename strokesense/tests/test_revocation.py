@@ -61,6 +61,10 @@ class PermissionWithdrawalTests(unittest.TestCase):
 
     def test_revoke_is_idempotent_and_preserves_original_metadata(self):
         before = registry.list_clips(self.registry_db, show_paths=True)[0]
+        with sqlite3.connect(self.registry_db) as db:
+            original_provenance = db.execute(
+                "SELECT provenance FROM clips WHERE clip_id=?", (self.clip_id,)
+            ).fetchone()[0]
         first = registry.revoke_clip(self.clip_id, self.registry_db)
         again = registry.revoke_clip(self.clip_id, self.registry_db)
         self.assertEqual(first, again)
@@ -69,9 +73,14 @@ class PermissionWithdrawalTests(unittest.TestCase):
         self.assertNotIn(self.provenance, json.dumps(first))
         after = registry.list_clips(self.registry_db, show_paths=True)[0]
         for key in ("clip_id", "sha256", "size_bytes", "group_id", "split",
-                    "source_path", "provenance", "created_utc"):
+                    "source_path", "created_utc"):
             self.assertEqual(after[key], before[key])
         self.assertEqual(after["permission"], "denied")
+        with sqlite3.connect(self.registry_db) as db:
+            saved_provenance = db.execute(
+                "SELECT provenance FROM clips WHERE clip_id=?", (self.clip_id,)
+            ).fetchone()[0]
+        self.assertEqual(saved_provenance, original_provenance)
 
     def test_unknown_and_malformed_revocation_does_not_create_database(self):
         missing = self.root / "absent.sqlite3"

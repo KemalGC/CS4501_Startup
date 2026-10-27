@@ -436,6 +436,37 @@ that measurements are accurate. This local interface is not authenticated;
 do not expose it outside loopback. Tests use synthetic metric fixtures,
 not genuine coach-reviewed footage.
 
+## Reproducible offline browser demo (synthetic, no model)
+
+Run the complete local HTTP upload -> queued analysis -> saved report ->
+validated evidence flow without any user footage, model download, external
+provider calls, approved cues, credentials, or cloud deployment. From the
+`strokesense/` directory:
+
+```powershell
+python -m strokesense.demo
+python -m strokesense.demo --simulate-failure
+```
+
+The first command prints JSON with `mode=synthetic-offline`,
+`status=succeeded`, `synthetic_report_observed=true`, three fabricated
+stroke observations and `coaching_state=withheld`. The second simulates a
+typed invalid-media analysis failure, expects `status=failed`, no report,
+and withheld coaching. Both start a temporary loopback HTTP server, send
+a real multipart request through the same upload/job/results routes as the
+browser, and clean up temporary SQLite databases, dummy video bytes and
+result files. The analysis adapter is intentionally FAKE and its report is
+explicitly marked SYNTHETIC. It does **not** establish real-media
+compatibility, actual pose analysis, label precision/recall, customer
+validation, live LLM behavior or the effectiveness of advice.
+
+The underlying tests run automatically in `python strokesense/quality.py`:
+`test_upload_analyze.py` exercises real loopback request routing with
+fake analysis and withheld evidence, and `test_demo.py` verifies the
+runnable demo's success, failure and CLI JSON output. Production browser
+usage remains `python -m strokesense.web --port 8765`, using genuinely
+permitted footage and the installed model.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

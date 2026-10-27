@@ -6,6 +6,8 @@ Input is already bounded to the browser upload limit by the caller.
 """
 from __future__ import annotations
 
+import math
+
 _SUPPORTED_BMFF = frozenset({".mp4", ".mov"})
 _SUPPORTED_EBML = frozenset({".mkv", ".webm"})
 
@@ -45,3 +47,48 @@ def plausible_container(data: bytes, extension: str) -> bool:
         return (0 < length < max_vint and
                 length <= 4096 and 4 + width + length <= len(data))
     return False
+
+
+class UndecodableMediaError(ValueError):
+    """Expected safe failure when local footage cannot be opened or read."""
+
+
+def probe_decodable_video(path) -> bool:
+    """Try one frame inside the background worker, before expensive pose work.
+
+    This is a fast UX preflight, not proof that all frames decode safely.
+    No model download, report write or network request occurs here.
+    """
+    capture = None
+    try:
+        import cv2  # Lazy: importing this module itself has no native deps.
+        capture = cv2.VideoCapture(str(path))
+        if not capture.isOpened():
+            return False
+        width = float(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = float(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        max_pixels = 3840 * 2160
+        if not all(math.isfinite(x) for x in (width, height, fps)):
+            return False
+        if (width < 64 or height < 64 or width * height > max_pixels
+                or not 0 < fps <= 240):
+            return False
+        decoded, frame = capture.read()
+        shape = getattr(frame, "shape", None)
+        if (not decoded or not isinstance(shape, tuple)
+                or len(shape) < 2):
+            return False
+        rows, columns = shape[:2]
+        return (type(rows) is int and type(columns) is int
+                and rows >= 64 and columns >= 64
+                and rows * columns <= max_pixels)
+    except Exception:
+        # Codec error text can reveal local paths; only a safe code escapes.
+        return False
+    finally:
+        if capture is not None:
+            try:
+                capture.release()
+            except Exception:
+                pass

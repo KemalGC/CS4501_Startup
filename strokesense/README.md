@@ -298,6 +298,15 @@ with JobQueue(
     # For a terminal-only demonstration: jobs.wait(submitted["job_id"])
 ```
 
+The production local-job worker first performs a bounded OpenCV decoder
+preflight: it checks that the media opens, reports finite FPS and sensible
+dimensions (64px minimum, 4K pixel-budget, up to 240 fps) and yields at
+least one readable frame. A failed preflight returns the safe
+`invalid_media` status without starting the pose model. Fake analyzers in
+offline unit tests explicitly bypass this media-only production check.
+This is not a full-file decode or a security/malware scan; supported codecs
+and corrupted later frames remain possible real-video blockers.
+
 The worker rehashes the registered source **before and after** analysis
 using streamed SHA-256, and refuses success/report publication if the clip
 changed or disappeared during processing (safe `source_changed` failure).

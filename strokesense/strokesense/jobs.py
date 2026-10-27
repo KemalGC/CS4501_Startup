@@ -17,6 +17,7 @@ from threading import BoundedSemaphore, Lock
 from uuid import uuid4
 
 from .registry import _stream_sha256, list_clips
+from .media import UndecodableMediaError, probe_decodable_video
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -64,6 +65,10 @@ def _matches_registered_source(video: Path, expected_sha: str) -> bool:
 
 
 def _default_analyze(video: Path, *, out_dir: Path):
+    # Only the production analyzer performs decoding; injected offline
+    # analyze_fn fixtures deliberately have no dependency on real video files.
+    if not probe_decodable_video(video):
+        raise UndecodableMediaError("invalid_media")
     from .cli import analyse_video  # Heavy pose dependencies load only on execution.
     return analyse_video(video, out_dir=out_dir)
 
@@ -204,6 +209,10 @@ class JobQueue:
                 return
             try:
                 result = self._analyze_fn(video, out_dir=run_root)
+            except UndecodableMediaError:
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="invalid_media")
+                return
             except Exception:
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="analysis_failed")

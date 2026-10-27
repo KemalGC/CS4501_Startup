@@ -19,6 +19,7 @@ import sys
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "results" / "video_registry.sqlite3"
 PERMISSIONS = ("unverified", "granted", "denied")
 SPLITS = ("unassigned", "development", "heldout")
+REGISTRY_SCHEMA_VERSION = 2
 
 
 class RegistryError(ValueError):
@@ -47,6 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_clips_group ON clips(group_id, split);
 _VISIBLE = (
     "clip_id", "sha256", "size_bytes", "permission", "group_id", "split",
     "camera", "fps", "annotation_version", "review_status", "created_utc",
+    "revoked_utc",
 )
 
 
@@ -77,8 +79,36 @@ def _connect(db_path: str | Path, *, create: bool) -> sqlite3.Connection | None:
             os.close(fd)
     conn = sqlite3.connect(str(db), timeout=15)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA)
-    return conn
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        # A future schema may have incompatible semantics. Never modify it.
+        if version > REGISTRY_SCHEMA_VERSION:
+            raise RegistryError("unsupported newer registry schema")
+        conn.executescript(_SCHEMA)
+        if version < REGISTRY_SCHEMA_VERSION:
+            # Serialize migration, then re-read the version under the lock.
+            # SQLite ALTER TABLE and PRAGMA user_version are transactional.
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("PRAGMA user_version").fetchone()[0]
+            if current > REGISTRY_SCHEMA_VERSION:
+                raise RegistryError("unsupported newer registry schema")
+            if current < REGISTRY_SCHEMA_VERSION:
+                fields = {column["name"] for column in
+                          conn.execute("PRAGMA table_info(clips)")}
+                if "revoked_utc" not in fields:
+                    conn.execute("ALTER TABLE clips ADD COLUMN revoked_utc TEXT")
+                conn.execute(f"PRAGMA user_version = {REGISTRY_SCHEMA_VERSION}")
+            conn.commit()
+        # Version number alone is not proof that the required schema exists.
+        fields = {column["name"] for column in
+                  conn.execute("PRAGMA table_info(clips)")}
+        if "revoked_utc" not in fields:
+            raise RegistryError("registry audit schema is incomplete")
+        return conn
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
 
 
 def _view(row: sqlite3.Row, *, show_paths: bool = False) -> dict:
@@ -234,8 +264,9 @@ def revoke_clip(
             raise RegistryError("clip not found")
         if row["permission"] != "denied":
             conn.execute(
-                "UPDATE clips SET permission = 'denied' WHERE clip_id = ?",
-                (clip_id,),
+                "UPDATE clips SET permission = 'denied', revoked_utc = ? "
+                "WHERE clip_id = ?",
+                (datetime.now(timezone.utc).isoformat(), clip_id),
             )
             row = conn.execute(
                 "SELECT * FROM clips WHERE clip_id = ?", (clip_id,)

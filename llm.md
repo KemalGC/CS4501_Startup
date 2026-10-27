@@ -57,6 +57,9 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00: successful local jobs now require source-byte stability
+  across analysis, with an explicit failed status if footage changes mid-run.
+
 - 2026-10-27 15:00 continued: CLI now rejects invalid/nonfinite start,
   duration and FPS settings before any analysis; 128 unittests + 4 synthetic
   checks passed with the added regression coverage.\n
@@ -959,6 +962,45 @@ unverified and requires human outreach/evidence.
   Team inspection of AI-assisted tests remains pending.
 - Next: fail-closed local job completion if source changes during
   analysis, followed by permitted real-video end-to-end verification.
+
+
+### 2026-10-27 15:00 sprint (continued) — reject jobs after source mutation
+
+- Issue #25: As a coach, do not see a succeeded/reopenable report when
+  registered source footage changed or disappeared during analysis.
+  Topic `dev/2026-10-27-1500-job-source-recheck`, based on verified
+  integration `3bf54bee4daa5c1c53a81c0210e9534022d0861a`.
+- Two synthetic worker lifecycle regressions were **committed before code**
+  at `b9d728af00c88791624597a34d53d2ac200b4c8a`.
+  The isolated baseline branch `dev/2026-10-27-1500-job-recheck-red`
+  at `3850e7d8e5099d1617658198d54305f56cc2e179`
+  produced **two expected failures** in Actions #40569271748
+  (old publisher returned `succeeded` after a same-stat source
+  replacement and after source deletion). For accuracy of TDD chronology,
+  the red CI execution happened after the test-first and fix commits,
+  not before code publication; it is a valid replay against the
+  test-only/unfixed baseline.
+- Code commit `842cb12aab83078e06d2cf680cdc5721bc82040d`:
+  `JobQueue._run` streams registered SHA-256 before and again after
+  the analysis callback, before storing any success/report pointer.
+  Source changes and missing/unreadable files fail with public
+  `error_code=source_changed` and `report_path=None`; private
+  paths/errors stay unexposed. Helper centralizes both checks.
+- Green Actions #40569193401: `python strokesense/quality.py`
+  passed **4 synthetic analysis checks plus 130 unittests**, including
+  two new worker post-run regression cases; `--doctor` confirmed
+  runtime modules present but no cached ONNX model.
+- No actual rowing video, real-video pose inference, empirical accuracy,
+  verified consent, live LLM, reviewed cue library or customer KPI
+  was tested. This is not atomic/immutable storage: the local file
+  could change after the second hash or be deliberately restored.
+  All AI-assisted test inspection by the student team is pending.
+- Session combined issues #22–#25 in distinct dated topic branches,
+  retained separate intentional-red test checkpoints, and integrated
+  only verified green commits; neither `main` nor repo settings changed.
+  Concrete next task: evaluate the end-to-end local UI on genuinely
+  permitted, decodable rowing footage when made available, otherwise
+  add a safe media-format/decoder preflight with synthetic tests.
 
 ### Future session entry template
 

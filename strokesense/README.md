@@ -298,8 +298,12 @@ with JobQueue(
     # For a terminal-only demonstration: jobs.wait(submitted["job_id"])
 ```
 
-The worker rehashes the original source immediately before analysis and
-refuses content changes. Each job has a unique output root, so repeat
+The worker rehashes the registered source **before and after** analysis
+using streamed SHA-256, and refuses success/report publication if the clip
+changed or disappeared during processing (safe `source_changed` failure).
+This is best-effort source consistency, not immutable media storage; bytes
+can still change between checks or be maliciously restored. Each job has
+a unique output root, so repeat
 analysis cannot replace a previous job's reports. Returned public status
 records never contain absolute video paths, traceback messages or raw
 exception text. Reports are published only after verifying that the

@@ -95,3 +95,39 @@ def evaluate_fault_records(records) -> dict:
         "evaluated_opportunities": len(records),
         "by_split": by_split,
     }
+
+
+MAX_INPUT_BYTES = 2 * 1024 * 1024
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Bounded local evaluation CLI; never echo private input paths or rows."""
+    import argparse
+    import json
+    from pathlib import Path
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Aggregate explicitly reviewed fault opportunities locally")
+    parser.add_argument("input", help="Local UTF-8 JSON list of reviewed opportunities")
+    args = parser.parse_args(argv)
+    try:
+        path = Path(args.input).expanduser()
+        if not path.is_file() or path.stat().st_size > MAX_INPUT_BYTES:
+            raise ValueError("invalid input")
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_INPUT_BYTES + 1)
+        if len(payload) > MAX_INPUT_BYTES:
+            raise ValueError("oversized input")
+        rows = json.loads(payload.decode("utf-8"))
+        result = evaluate_fault_records(rows)
+        output = json.dumps(result, sort_keys=True, allow_nan=False)
+    except (OSError, ValueError, UnicodeError, TypeError, OverflowError):
+        print("Evaluation error: input unavailable or invalid", file=sys.stderr)
+        return 2
+    print(output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

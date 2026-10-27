@@ -300,10 +300,14 @@ with JobQueue(
 
 The production local-job worker first performs a bounded OpenCV decoder
 preflight: it checks that the media opens, reports finite FPS and sensible
-dimensions (64px minimum, 4K pixel-budget, up to 240 fps) and yields at
-least one readable frame. A failed preflight returns the safe
+dimensions (64px minimum, 4K pixel-budget, up to 240 fps), a known
+positive frame count and nominal duration at most 120 seconds, and yields
+at least one readable frame. A failed preflight returns the safe
 `invalid_media` status without starting the pose model. Fake analyzers in
 offline unit tests explicitly bypass this media-only production check.
+Container frame counts and FPS are estimates, not verified truth:
+variable-frame-rate/unindexed media may be rejected, and this is NOT a hard
+CPU/runtime timeout. The local Alpha is intentionally conservative.
 This is not a full-file decode or a security/malware scan; supported codecs
 and corrupted later frames remain possible real-video blockers.
 

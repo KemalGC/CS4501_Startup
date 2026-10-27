@@ -246,6 +246,7 @@ def validate_public_evidence_snapshot(snapshot) -> bool:
             seat_map[sid] = row
 
         stroke_map, counts, indices, fault_map = {}, {}, {}, {}
+        intervals = {}
         for row in strokes:
             if (not isinstance(row, dict) or set(row) != {
                     "id", "seat_id", "index", "catch_frame", "finish_frame",
@@ -278,6 +279,9 @@ def validate_public_evidence_snapshot(snapshot) -> bool:
             if key in indices:
                 return False
             indices[key] = True
+            intervals.setdefault(sid, []).append(
+                (row["index"], frames[0], frames[2])
+            )
             counts[sid] = counts.get(sid, 0) + 1
             stroke_map[rid] = row
             for code in codes:
@@ -286,8 +290,16 @@ def validate_public_evidence_snapshot(snapshot) -> bool:
         if any(counts.get(sid, 0) != row["analyzed_strokes"]
                for sid, row in seat_map.items()):
             return False
+        # A rehashed snapshot is still invalid if a seat's chronological
+        # stroke sequence overlaps or reverses, even when each interval
+        # independently has valid catch/finish/next-catch frame order.
+        for entries in intervals.values():
+            ordered = sorted(entries)
+            if any(later[1] < earlier[2]
+                   for earlier, later in zip(ordered, ordered[1:])):
+                return False
 
-        finding_keys = set()
+        finding_keys, finding_ids = set(), set()
         for row in findings:
             if (not isinstance(row, dict) or set(row) != {
                     "id", "seat_id", "fault_code", "stroke_ids",
@@ -296,10 +308,12 @@ def validate_public_evidence_snapshot(snapshot) -> bool:
                 return False
             sid, code = row["seat_id"], row["fault_code"]
             key = (sid, code)
-            if (not valid_id(row["id"]) or sid not in seat_map or
-                    code not in FAULTS or key in finding_keys):
+            if (not valid_id(row["id"]) or row["id"] in finding_ids or
+                    sid not in seat_map or code not in FAULTS or
+                    key in finding_keys):
                 return False
             finding_keys.add(key)
+            finding_ids.add(row["id"])
             ids = row["stroke_ids"]
             expected_ids = fault_map.get(key, set())
             if (not isinstance(ids, list) or

@@ -1,4 +1,8 @@
-"""CLI argument regression tests; analysis/inference is never invoked."""
+"""CLI argument regression tests; analysis/inference is never invoked.
+
+Test-first checkpoint for issue #24: this branch intentionally keeps the old
+argument parser so rejected-parameter assertions demonstrate the original bug.
+"""
 import contextlib
 import importlib.util
 import io

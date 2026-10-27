@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -130,6 +130,18 @@ class LocalJobsTests(unittest.TestCase):
                 manager.submit(self.clip_id)
             release.set()
             self.assertEqual(manager.wait(first["job_id"], timeout=5)["status"], "succeeded")
+
+
+    def test_output_directory_failure_returns_safe_failed_status(self):
+        with self.queue() as manager:
+            with patch("strokesense.jobs.Path.mkdir",
+                       side_effect=OSError("secret absolute filesystem path")):
+                record = manager.submit(self.clip_id)
+                finished = manager.wait(record["job_id"], timeout=5)
+        self.assertEqual(finished["status"], "failed")
+        self.assertEqual(finished["error_code"], "output_unavailable")
+        self.assertNotIn("secret", json.dumps(finished))
+        self.calls.assert_not_called()
 
     def test_unknown_status_id_does_not_expose_records(self):
         with self.queue() as manager:

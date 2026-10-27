@@ -57,6 +57,8 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 17:29 recovery continued: #39 introduced strict synthetic-only, grouped-split evaluation counts with explicit denominators, avoiding real-video accuracy claims (192/192 offline tests plus four synthetic functions green). No actual human annotation or empirical fault accuracy available.
+
 - 2026-10-27 17:29 recovery: #38 independently validated release/provider inputs now fail closed on rehashed invalid chronology/IDs/references; offline CI 188/188 unittests and four synthetic checks, no live model/provider. Real review and footage remain blocked.
 
 
@@ -1464,6 +1466,16 @@ not offline unit tests.
 - Measured recovery run 17:31:07 EDT start to **17:44:28 EDT** checkpoint (monotonic 30.86797716 to 832.177516409), **13m 21s elapsed**, with possible integration/communication following. The code/fixture evidence is synthetic; SHA-256 is not an authenticity signature. Any claimed review approvals are fixtures only. No empirical model accuracy, live provider requests, permission audit, real coach-approved advice, customer KPI or human team inspection is claimed.
 - Diff review: `evidence.py` shared checks, `provider.py`, `validation.py` gates, and `test_release_evidence_integrity.py`; no unrelated UI or infrastructure rewrite, no changes to `main`. 
 - Next: a separate bounded issue for consistent persisted coaching outcome/API/UI presentation from verified saved evidence, if legitimate review material is available; otherwise prioritize safe withheld state and offline integration/demo. Email: pending checked-Sent and confirmed send.
+
+### 2026-10-27 17:29 recovery sprint (continued) — reviewed accuracy denominators
+
+- New issue **#39**, topic `dev/2026-10-27-1729-eval-counts` based on tested integration `2ba79f0ef78681363433e58834ba0b41521d656e`: as an evaluator, compute transparent per-fault counts only from explicitly reviewed positive **and negative** eligible stroke/fault opportunities, with development/heldout grouping safeguards.
+- TESTS FIRST `7dc6890a78c6c7ec4dc1e52e4a73f98fdf5d4b6d`, Actions [#40589750499](https://github.com/KemalGC/CS4501_Startup/actions/runs/40589750499): **11 expected assertion failures among 192 tests** because the requested evaluation feature did not exist. An explicit missing-feature assertion was used to distinguish absence from a missing environment dependency/import failure.
+- Implementation `d571679094842de9bfdfa28626491b2c8db17b5c` adds pure-Python `strokesense/strokesense/evaluation.py`: versioned aggregate TP/FP/FN/TN by split and fault, exact P/R numerators and denominators, null undefined rates, bounded strict reviewed boolean input, known fault validation, duplicate opportunity detection, session-group/clip split-leak protection, order-independent aggregate output, no source IDs in result. Docs `71667d6315a1b6fe64b1b9d8b81868a8e173d06f` explain assumptions and non-empirical limitations.
+- Green Actions [#40589892864](https://github.com/KemalGC/CS4501_Startup/actions/runs/40589892864) executed **`python strokesense/quality.py`**, passing **192/192 offline unittest cases and four legacy synthetic stroke-analysis functions**. `python strokesense/quality.py --doctor` found Python runtime packages but no cached ONNX model; it is not inference. Human team review pending.
+- Work used synthetic fixtures only. No permitted real footage, coach-labeled ground truth, heldout accuracy, catch timing error, consent verification, LLM provider call or empirical KPI was measured. The `review_status` string is an input declaration, **not proof** of a human review; correct group assignments remain caller's responsibility. No private IDs or media were committed.
+- Actual worker started 17:31:07 EDT and reached this checkpoint **17:50:09 EDT** (monotonic 30.86797716 to 1173.087283761), **19m 02s measured**. Final checkpoint, integration and email may follow; no full 30-minute claim.
+- Next explicit task: connect this evaluator to independently reviewed, permission-cleared real-video annotations once they exist; meanwhile prioritize bounded local report/UI tests and preserve withheld LLM coaching. No automatic data download or fabricated evaluation. Communication pending duplicate-Sent search and verified email.
 
 ### Future session entry template
 

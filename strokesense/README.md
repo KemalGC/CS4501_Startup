@@ -489,7 +489,22 @@ python -m strokesense.registry revoke <clip-id> --db strokesense/results/video_r
 
 The update is transactional and idempotent: the clip remains in the private
 registry with `permission=denied`; original provenance and recording-group
-metadata remain for local audit/reconciliation. New analysis requests reject
+metadata remain for local audit/reconciliation. A first explicit withdrawal
+also sets a UTC `revoked_utc` timestamp in the private SQLite registry.
+Repeating a withdrawal preserves the original timestamp. Clips imported
+as `denied` (or denied in an older database) retain a null timestamp;
+the software does not invent when that action happened.
+
+The registry uses SQLite schema version 2 (`PRAGMA user_version`). On first
+access, existing unversioned/v1 registries are upgraded additively without
+dropping clips or rewriting their provenance/split. A database reporting a
+newer schema, or an inconsistent v2 schema, fails closed rather than being
+silently overwritten. Opening an old database may therefore perform a local
+schema migration. Keep private backups before upgrading. This audit records
+local operator claims, not independently verified consent or legal compliance,
+and **does not delete** source media or historical reports.
+
+New analysis requests reject
 the revoked clip. Workers recheck permission before analysis and again before
 marking a result successful; queued or in-progress jobs whose permission was
 withdrawn fail with safe `permission_revoked` and no published report pointer.

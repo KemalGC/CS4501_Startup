@@ -363,11 +363,10 @@ published outputs remain available and are not deleted or instantly recalled.
 The independent LLM adapter has *not* run with live provider credentials;
 actual rowing pose accuracy and customer validation are unmeasured.
 
-**Next focused engineering action:** add an explicit loopback-only browser
-permission-withdrawal action with CSRF and Origin protections, following the
-working CLI, so coaches can withdraw a clip without a terminal. Keep private
-historical files retained pending a documented deletion policy; never imply
-revocation can recall data already downloaded.
+**Next focused engineering action:** complete the still-open #31 error
+contract coverage with API 409/413/503 and browser compatibility regression,
+then document a versioned privacy/data-retention audit plan. Preserve local
+CSRF/Host/Origin safeguards and avoid cloud exposure or unauthorized deletion.
 
 Remaining research/validation blockers: genuinely permitted rowing media,
 downloaded ONNX pose model for empirical inference, coach-reviewed cue
@@ -388,7 +387,8 @@ and deliberate concurrent file mutation remains a race to analyze.
 | Configurable provider adapter, local jobs, browser and evidence | #17–#28 | Issue-based test/CI history below | Offline tests, no live inference |
 | One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; red/green CI logged below | Integrated; team inspection pending |
 | Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Integrated; team inspection pending |
-| Withhold revoked prior results and recent history in browser/API | #33 | `test_revoked_web.py` (3 synthetic HTTP cases): red Actions 40580738910; green Actions 40580961440 | Green and integration pending; team inspection pending |
+| Withhold revoked prior results and recent history in browser/API | #33 | `test_revoked_web.py` (3 synthetic HTTP cases): red Actions 40580738910; green Actions 40580961440 | Integrated at `842f4663`, team inspection pending |
+| CSRF/Host/Origin-protected withdrawal form in loopback UI | #34 | `test_web_revoke.py` (3 HTTP fixture cases): red Actions 40581464304; green Actions 40581629204 | Green topic, integration pending; human review pending |
 
 These tests are **synthetic or mocked**. The eight selected-proposal
 criteria map to Alpha implementation goals, not a verified official grade.
@@ -1236,6 +1236,44 @@ not offline unit tests.
 - Next action: browser permission-withdrawal form guarded by
   CSRF and Host/Origin checks, with test-first negative cases.
   Communication pending consolidated email after safe publication.
+
+### 2026-10-27 16:00 sprint (continued) — private browser withdrawal
+
+- Issue **#34**: as a local coach, withdraw the current local
+  operator permission claim from the same loopback-only Alpha browser.
+  Topic `dev/2026-10-27-1600-web-revoke-form`, base `842f4663`.
+- **Tests committed first:** `031e23dc4d4d33e4f9b86bb2bb6c7a155c176f68`
+  added three synthetic HTTP integration test functions with forged
+  CSRF/Origin/Host, unknown/malformed/duplicate request inputs, previous
+  report blocking and permitted-clip selection. Actions
+  **#40581464304** ran `python strokesense/quality.py` and observed
+  **six expected behavior assertion failures** (unimplemented
+  `/revoke` route and missing form); unrelated cases passed.
+- Code commit `7063d4a3c14827db6ff8b58b3de3cf5f4d9e8416`
+  adds an explicit separate browser withdrawal form and a bounded
+  POST `/revoke` that reuses existing Content-Type, CSRF, Host/Origin,
+  field cardinality and clip ID validation; it invokes the previously
+  tested atomic `registry.revoke_clip` and redirects to home. The
+  already-verified #33 read-time gate blocks previous reports; no
+  historical video/report files are deleted. README updated.
+- Actions **#40581629204** completed green:
+  `python strokesense/quality.py` passed **162/162 unittests and
+  all four legacy synthetic stroke checks**;
+  `python strokesense/quality.py --doctor` detected runtime modules
+  but no cached pose model, and did not infer video. Verified changed
+  files are `web.py`, README, `test_web_revoke.py` (and this log).
+- Session actual start **16:31:56 EDT**; checkpoint
+  **16:51:57 EDT** (`time.monotonic` 535.8759 to 1736.3486,
+  ~20 minutes measured). This continues the 16:00 occurrence,
+  not a claim of 30 minutes of work.
+- No genuine footage, real-video precision/recall/timing, external LLM
+  execution, approved coaching cues, verified consent or customer
+  KPI was measured; all tests are synthetic/mocked. Server remains
+  local loopback, not a public authenticated service.
+  Human inspection of AI-assisted tests remains pending.
+- Next: harden and complete #31 API error-code coverage; then
+  assess explicit retention/audit strategy in a narrow issue.
+  Communication pending confirmed Sent check after integration.
 
 ### Future session entry template
 

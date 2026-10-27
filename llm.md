@@ -57,6 +57,12 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00 continued: local browser uploads now reject clearly
+  mislabelled/truncated ISO BMFF, RIFF/AVI and EBML container signatures
+  before private storage or SQLite registration; this is NOT decoding,
+  malware scanning, consent verification, or empirical model evaluation.
+
+
 - 2026-10-27 15:00: successful local jobs now require source-byte stability
   across analysis, with an explicit failed status if footage changes mid-run.
 
@@ -1001,6 +1007,51 @@ unverified and requires human outreach/evidence.
   Concrete next task: evaluate the end-to-end local UI on genuinely
   permitted, decodable rowing footage when made available, otherwise
   add a safe media-format/decoder preflight with synthetic tests.
+
+### 2026-10-27 15:00 sprint (continued) — fail-closed upload container preflight
+
+- Story and issue #26: as a local coach, do not accept text or truncated
+  binary files renamed as videos for registration. A bounded standard-library
+  `strokesense/strokesense/media.py` helper checks plausible initial container
+  header families, and `web.py` rejects bad ones with HTTP 415 before any
+  private upload or registry writes. Existing CSRF, size, storage and
+  deduplication controls are preserved. Tests use **synthetic plausible
+  headers**, not playable or consented real media.
+- New topic `dev/2026-10-27-1500-upload-signature`; verified base
+  `41ba51d7594db4da3951afe5be40f2912332c0b4`.
+  Red tests-first commit `263f83622ca8fbfd7ab9724e695231b3931ddd3f`
+  updated synthetic fixtures and added nine invalid-container subcases.
+  GitHub Actions #40570634002 ran `python strokesense/quality.py`:
+  **nine expected assertion failures** (old upload returned 303 instead of
+  415); all preexisting cases passed. This is a genuine pre-code red run.
+- Implementation `087a8d17ad092904397e77d878f4e261d0161048`
+  added header-size and family checks for MP4/MOV `ftyp`, RIFF/AVI
+  and EBML MKV/WebM, adjusted synthetic fixture declared lengths,
+  and documented behavior. GitHub Actions #40570969886 succeeded:
+  `python strokesense/quality.py` passed **four legacy synthetic
+  functions plus 132 unittests**, including supported-container and
+  rejection tests; `python strokesense/quality.py --doctor` reported
+  installed runtime modules but no cached ONNX model. Diff scoped to
+  `media.py`, `web.py`, `test_upload.py`, README and this log.
+- This check is deliberately **not** a decoder or trust boundary against
+  malicious containers. It does not establish that a file contains video,
+  that OpenCV can decode frames, or that footage was authorized. Some
+  legacy QuickTime files without initial `ftyp` may be rejected. No
+  actual footage, model inference, live LLM call, coach review or customer
+  validation was carried out. Human inspection of AI-generated tests
+  remains pending; no hidden AI checker or covert checker directive
+  was found in the inspected text files.
+- Measured first checkpoint: America/New_York 15:32:37 to
+  15:40:36 (7 minutes 59 seconds elapsed); execution continues
+  within the remaining allotted budget. Do not claim a full 30 minutes.
+  This is a continuation of the already logged 15:00 occurrence,
+  not a second scheduled run or email.
+- Next engineering step: validate basic media decoding in the local
+  worker before expensive pose inference; do so without converting
+  synthetic unit-test fixtures into fake real videos. Preserve tested
+  integration and never change main.
+- Communication: one consolidated factual 15:00 report after remaining
+  verification and branch integration; pending confirmation.
 
 ### Future session entry template
 

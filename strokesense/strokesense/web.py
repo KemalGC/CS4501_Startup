@@ -271,7 +271,7 @@ def create_server(
                 if len(content) != length:
                     raise ValueError("incomplete upload")
                 raw = (b"Content-Type: " + content_type.encode("ascii")
-                       + b"\\r\\nMIME-Version: 1.0\\r\\n\\r\\n" + content)
+                       + b"\r\nMIME-Version: 1.0\r\n\r\n" + content)
                 message = BytesParser(policy=policy.default).parsebytes(raw)
                 if not message.is_multipart():
                     self._error(400)
@@ -329,7 +329,7 @@ def create_server(
                         destination, registry_path, permission="granted",
                         provenance=provenance,
                     )
-                except BaseException:
+                except Exception:
                     destination.unlink(missing_ok=True)
                     raise
                 if not created:

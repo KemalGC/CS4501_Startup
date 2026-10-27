@@ -92,6 +92,25 @@ def create_server(
                 self.wfile.write(data)
 
         def _error(self, status):
+            if urlsplit(self.path).path.startswith("/api/"):
+                # Safe, machine-readable Problem Details for local API clients.
+                # Never include exceptions, filesystem paths or request contents.
+                title = {
+                    400: "Bad Request",
+                    403: "Forbidden",
+                    404: "Not Found",
+                    409: "Conflict",
+                    413: "Content Too Large",
+                    415: "Unsupported Media Type",
+                    422: "Unprocessable Content",
+                    503: "Service Unavailable",
+                }.get(status, "Request Failed")
+                body = json.dumps(
+                    {"type": "about:blank", "title": title, "status": status},
+                    sort_keys=True,
+                ).encode("utf-8")
+                self._send(status, body, mime="application/problem+json")
+                return
             self._send(status, _document("Request unavailable",
                                          "<p>The requested action is unavailable.</p>"))
 

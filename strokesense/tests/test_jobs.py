@@ -250,5 +250,32 @@ class LocalJobsTests(unittest.TestCase):
                 analyze.assert_not_called()
 
 
+    def test_decoder_preflight_smoke_on_generated_toy_avi(self):
+        """Actually decode synthetic computer-generated frames, never user footage."""
+        import cv2
+        import numpy as np
+        from strokesense.jobs import _default_analyze
+        from strokesense.media import probe_decodable_video
+        clip = self.root / "synthetic-decodable.avi"
+        writer = cv2.VideoWriter(str(clip),
+                                 cv2.VideoWriter_fourcc(*"MJPG"), 15.0,
+                                 (160, 120))
+        if not writer.isOpened():
+            self.skipTest("local OpenCV build lacks MJPG AVI video writer")
+        try:
+            for index in range(3):
+                frame = np.zeros((120, 160, 3), dtype=np.uint8)
+                frame[20:60, 10 + 20 * index:50 + 20 * index] = 255
+                writer.write(frame)
+        finally:
+            writer.release()
+        self.assertTrue(clip.is_file())
+        self.assertTrue(probe_decodable_video(clip))
+        sentinel = {"report": "stubbed: no inference"}
+        with patch("strokesense.cli.analyse_video", return_value=sentinel) as analyze:
+            self.assertIs(_default_analyze(clip, out_dir=self.out_dir), sentinel)
+        analyze.assert_called_once_with(clip, out_dir=self.out_dir)
+
+
 if __name__ == "__main__":
     unittest.main()

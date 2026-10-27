@@ -57,6 +57,9 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 17:29 manual recovery: #37 evidence viewer now rejects per-seat stroke chronology conflicts and duplicated finding IDs even when a snapshot digest is recomputed; regression test-only commit showed three expected behavioral failures, production passed 181/181 offline unittests plus four synthetic analysis functions (Actions #40587716613). No signed authenticity, empirical rowing accuracy or human team review is claimed.
+
+
 - 2026-10-27 15:00 continued: local job preflight also requires finite,
   positive reported frame count and rejects nominal clips longer than
   120 seconds before decoding/inference. Frame count/FPS metadata can lie
@@ -1424,6 +1427,17 @@ not offline unit tests.
   ensure unapproved cues and unsafe free text remain withheld.
 - Communication: consolidated email pending verified Sent check and
   guarded integration; no private addresses stored here.
+
+### 2026-10-27 17:29 recovery sprint — reject contradictory saved evidence
+
+- Key `2026-10-27-1729-sprint` identifies this manually restarted recovery run rather than reusing the already documented 16:00 or 17:00 slot. Actual engineering start measured **17:31:07 EDT** (monotonic 30.86797716); first green verification checkpoint **17:35:20 EDT** (monotonic 284.241875934), **4 minutes 13 seconds elapsed** to that checkpoint, not a claim of a 30-minute session. Final work and communication can follow this checkpoint.
+- New **issue #37**: as a coach reading saved measurements, reject contradictory per-seat chronology and ambiguous reused finding IDs even when a digest is syntactically valid. Topic `dev/2026-10-27-1729-evidence-invariants`, verified integration base `c3a00485d766755365308ac335c5c83f378e5859`.
+- TESTS FIRST: `55cf377701c782ef9361819bb01afb2ca578bf02` added four offline synthetic tests. GitHub Actions [#40587567663](https://github.com/KemalGC/CS4501_Startup/actions/runs/40587567663) ran **`python strokesense/quality.py`**, with **3 expected behavioral assertion failures among 181 tests** (overlapping chronological intervals, out-of-order frame sequence, duplicate finding IDs), and the normal fixture passed. The failures were logic, not import/environment errors.
+- Implementation `0c6da493c3a734599bff4c0ad6bc5252cd279489` changes only `strokesense/strokesense/evidence.py`: verify per-seat successive intervals sorted by index do not overlap/reverse; require distinct finding IDs independent of seat/fault keys. No change to the existing snapshot producer or CLI.
+- GitHub Actions [#40587716613](https://github.com/KemalGC/CS4501_Startup/actions/runs/40587716613) passed **181/181 unittests** plus `test_clean_rower`, `test_facing_left_and_hidden_ankles`, `test_fault_detection`, and `test_angle_faults` using `python strokesense/quality.py`. Read-only `python strokesense/quality.py --doctor` found dependencies installed but no ONNX model cached; it did not perform inference. Unit regressions were included in full discovery. Human team test inspection pending.
+- This establishes only synthetic structural schema invariant coverage; SHA-256 is not an authenticity signature, and it does not prove footage permission, technique accuracy, coach-reviewed cue quality, true catch timings, live LLM correctness, or customer KPIs. No private media or credentials were published.
+- Concurrent unintegrated green topic `dev/2026-10-27-1700-coaching-state` (#36) was observed from the same baseline, so preserve its work and reconcile separately rather than overwrite it; only a previously verified integration SHA may be moved using guarded fast-forward. `main` remains excluded.
+- Next concrete action: reconcile the existing #36 coaching-state topic into integration with combined tests; then wire independent validated-release decisions to saved evidence without letting unapproved cues release. Communication: pending duplicate Sent check and confirmed send.
 
 ### Future session entry template
 

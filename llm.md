@@ -101,11 +101,15 @@ Base inspected: `main` at `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
 - Corrected technical README cache name (`detections.npz`) and supported
   `--tiles auto|none` flags, and documented test/doctor commands.
 - GitHub Actions first run on commit `d16f78c8` **passed** on 2026-10-27:
-  4 legacy synthetic functions and 18 discovered unittest cases,
-  including 13 cache regressions and 5 quality-tool regressions.
+  4 legacy synthetic functions and 18 discovered unittest cases.
+  Follow-up CLI argument validation on `50ab85f2` also **passed CI**:
+  4 synthetic checks and 21 cases (13 cache, 5 quality, 3 CLI).
 - No real-video inference or empirical measurement was performed. The
   checked execution container lacks ONNX Runtime and a cached model;
   the CI job installed runtime dependencies but did not download/infer a model.
+- Added a strict `--tiles auto|none` argparse choice gate with tests;
+  unrecognized options no longer silently disable native-resolution tiling.
+
 ## Verification and assets
 
 Primary command (all offline tests, independent of the working directory):
@@ -244,13 +248,13 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-Evening session: add strict accepted values for `--tiles auto|none` (currently
-any unrecognized value silently disables tiling), with an argument-parser
-regression that rejects typos rather than degrading small-rower detection.
-Also plan collision-safe result identity for separate videos sharing a filename
-stem, including tests; keep any change backward-compatible or explicitly
-migrated. The first offline quality gate is working and should remain green.
-The cache fix is complete; do not repeat it without a new observed failure.
+Evening session: address output-directory collisions when distinct input
+videos share a filename stem (`results/<stem>`), using deterministic, private
+clip identity and regression tests. Preserve existing single-video CLI use and
+cache isolation. Then begin the consent/provenance-aware video registry schema.
+Keep the 4 legacy synthetic functions and 21 offline unittests green. The
+cache and invalid `--tiles` argument fixes are complete; do not repeat them
+without a new reproducible failure.
 
 Known follow-ups: the output directory still uses only the input video's stem,
 so different same-named inputs can overwrite reports even though cache reuse
@@ -318,13 +322,24 @@ can add content hashes. `--fresh` forces recomputation in the meantime.
 - Current execution environment's `--doctor` found ONNX Runtime missing,
   cached model missing, optional FFmpeg present, and other analysis modules
   available. This does not contradict the clean CI environment.
+- Follow-up fix in the same AM session: the CLI silently accepted unknown
+  `--tiles` strings and treated them as `none`, which could reduce distant
+  rower detection accuracy without warning. Added `choices=('auto', 'none')`
+  in `strokesense/strokesense/cli.py` plus 3 parameter/typo regressions in
+  `strokesense/tests/test_cli.py`; commit `50ab85f2e715f67ce49d5aba42242c157897c6db`.
+- GitHub Actions CI rerun on this CLI commit passed 4 legacy synthetic
+  test functions plus **21 unittest cases** (13 cache, 5 quality, 3 CLI);
+  Python 3.11 runtime dependencies were available, model remained uncached.
+- Final engineering checkpoint: America/New_York 09:18:31, measured
+  14 minutes 38 seconds from start (integration/email occurred afterward);
+  no idle time or unsupported 30-minute duration claim.
 - Empirical performance improvement: **not measured**. The quality changes
   catch regressions; they do not claim to improve rowing recognition accuracy.
 - Blocked/untested: no consented real rowing clip, coach-labeled benchmark,
   actual ONNX model inference or live LLM provider configured in this run.
-- Next acceptance: bad `--tiles` values must fail argument parsing,
-  `auto` must remain the default, and valid `none` must disable tiling;
-  existing quality checks must pass on the topic branch.
+- Next acceptance: distinct same-stem inputs must not overwrite each
+  other's reports/caches, and a repeated identical input should reuse the
+  intended result location; relevant offline regression tests must pass.
 - Communication: post-session email to be verified and sent after
   integration; no private recipient information stored here.
 

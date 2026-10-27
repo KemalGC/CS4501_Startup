@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .evidence import MIN_SAMPLE_STROKES, verify_evidence_snapshot
+from .evidence import MIN_SAMPLE_STROKES, validate_reference_graph
 
 DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 MAX_RESPONSE_BYTES = 131_072
@@ -71,7 +71,7 @@ def _nonempty(value: str, name: str) -> str:
 
 def _safe_payload(snapshot, reviewed_cues):
     """Whitelisted values only; no raw source path, video, reviewer or private metadata."""
-    if not verify_evidence_snapshot(snapshot):
+    if not validate_reference_graph(snapshot):
         raise ProviderError("invalid_evidence")
     if not isinstance(reviewed_cues, Mapping):
         raise ProviderError("no_approved_cues")

@@ -53,6 +53,41 @@ Speed: pose detection is the slow step — about 7 minutes for a 37 s 1080p clip
 2-core CPU (faster with more cores). It is cached in `detections.npz`, so re-running the analysis or
 re-rendering takes ~2 minutes.
 
+## Private local video registry (Alpha)
+
+Index an existing local file in a SQLite database with SHA-256, a stable clip
+ID, source path/size, a permission claim, optional rights/consent provenance,
+recording group, evaluation split, camera/FPS, and initial unreviewed status.
+**Import does not copy, upload, decode or analyze video.**
+
+From `strokesense/`, for example:
+
+```powershell
+python -m strokesense.registry import "Z:\footage\crew.mp4" --group practice-2026-10-27 --split development --camera side-on --fps 30
+python -m strokesense.registry list
+# Optional: deliberately show local source paths
+python -m strokesense.registry list --show-path
+```
+
+The default database `strokesense/results/video_registry.sqlite3` is Git
+ignored. Use `--db PRIVATE_PATH` to override. Protect the database and video
+storage locally: SQLite is not encrypted and stores sensitive paths and
+provenance. Ordinary `list` and import output omit source paths/provenance.
+
+Permission defaults to `unverified`. Only claim `--permission granted
+--provenance "documented consent reference"` after obtaining actual rights;
+the registry cannot verify consent. `denied` is also supported. Identical
+content yields `created: false` and cannot silently overwrite existing
+permission, session/split or other explicit metadata. Non-`unassigned`
+evaluation splits require a `--group`; clips in a group cannot be divided
+between development and held-out sets.
+
+This is only a local catalog: the existing analysis CLI does **not** consult
+registry permission status, and group IDs do not independently prevent athlete
+or adjacent-frame leakage. Neither media validity nor real-video accuracy is
+measured here. Source modification after hashing, malicious symlink changes,
+and consent enforcement in the analysis API remain future engineering work.
+
 ## How it works
 
 1. **Pose** — YOLO11-pose (ONNX) finds every person and 17 joints per frame. The boat's band of the

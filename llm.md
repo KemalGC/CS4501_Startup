@@ -318,15 +318,16 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-The collision-safe output, private clip registry, v1 evidence snapshot, and
-**independent fail-closed coaching release validator** now pass offline CI.
-Next highest-priority story: implement and test the bounded LLM revision
-loop (at most three total generation attempts), including rejected-then-corrected
-success and persistent rejection/withholding; use a deterministic fake
-provider in offline tests, never imply a live model was run. Then build a
-real configurable provider adapter and separate coach-reviewed cue catalogue.
-Current evidence is unreviewed and eligible denominator unknown; no
-real generated coaching may be released by the validator.
+The output-isolation, private registry, versioned evidence snapshot,
+independent **fail-closed coaching validator**, and bounded **three-attempt
+correction loop** all pass offline CI on the sprint development branches.
+Next highest-priority Alpha story: implement a configurable real LLM provider
+adapter that produces structured candidate JSON without changing evidence,
+review rules, or the deterministic validator; mock the HTTP boundary first,
+test errors/timeouts without network or spending, and enable live provider
+verification only when credentials and permission are actually configured.
+Then integrate validated coaching with local results/UI. No approved cue
+catalogue, verified real-video labels, or live LLM execution exists now.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
 gate for the analysis CLI. It neither validates video format nor prevents all
@@ -350,7 +351,8 @@ not proof of consent or a complete confidentiality boundary.
 | Privacy-first local registry with content SHA-256, duplicate consent conflict handling and session-group split guard | #13 | `test_registry.py` (10 synthetic cases), red `b5a733e9`, green `1d4e6d99` | 4 synthetic + 37 unittests green in Actions; human test review pending |
 | v1 stroke/fault references, observed denominators, and abstention | #14 | `test_evidence.py` (11 synthetic cases); red `33cee429`, green `7adcfe3b` | Offline CI green; coaching withheld pending eligibility/review; human test inspection pending |
 | Independent fail-closed candidate validation, strict IDs/counts and cue checks | #15 | `test_validation.py` (9 synthetic cases); red `26154fe9`, green `0cbf6d5d` | 57 unittests and 4 synthetic checks green; no live cue approval |
-| Bounded correction, live provider adapter and local UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
+| Bounded independent correction/retry and fail-closed withholding | #16 | `test_correction.py` (7 synthetic tests), red `5c15e9b6`, green `8bf3d9e3` | 64 unittests and 4 synthetic checks green; no live provider |
+| Live provider adapter and results UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
 
 The eight selected-proposal criteria remain the project goals; this increment
 strengthens reproducible infrastructure and Alpha readiness, not the core LLM
@@ -599,6 +601,37 @@ unverified and requires human outreach/evidence.
   validation, live model access, deployment, or user validation.
 - Next: bounded three-attempt correction loop, negative retry tests and
   separately configurable provider. Communication pending.
+
+### 2026-10-27 13:00 sprint (continued) — bounded correction
+
+- Issue #16: generator-agnostic self-correction loop with three total
+  attempts maximum, independent validator on every candidate, fail-closed
+  withholding, and no candidate text leakage from failures. Branch
+  `dev/2026-10-27-1300-bounded-correction` from prior verified
+  integration head `4be48fcea77588d72e81e6749d0f814ee8a53887`.
+- **Test-first observed red**: test-only commit
+  `5c15e9b63c49a981354dcb224a2de1aa91cc653c`;
+  GitHub Actions #40549738484 passed 4 legacy synthetic functions and
+  57 existing unittests; seven new tests errored because the correction
+  module was missing. This was confirmed before implementation.
+- Implemented `strokesense/strokesense/correction.py` and synthetic
+  `strokesense/tests/test_correction.py` cases for rejected-then-corrected
+  success, exact attempt caps, persistent rejection, provider error
+  withholding and snapshot/catalogue mutation isolation. README records
+  limits. Code commit `8bf3d9e327a926068bc08ddf8a6fc438315740f0`.
+- Green Actions #40549888862: `python strokesense/quality.py` passed
+  **4/4 legacy synthetic checks and all 64 unittests**, including seven
+  new correction cases. `--doctor` succeeded but the ONNX file was not
+  cached. No real LLM, coach-reviewed cues, or real footage was used.
+- Trusted inputs are copied, a generator receives only structured error
+  codes from prior rejected attempts, invalid output is never returned,
+  and provider exceptions are withheld without emitting error text.
+  This does not ensure free-text truth or provider reliability.
+- Next concrete task: a separately configured, network-safe provider
+  adapter with mock-based tests for API errors and structured responses,
+  then local results/UI integration. Student review pending; main
+  remains excluded from all write operations.
+- Communication: final progress email after CI/integration.
 
 ### Future session entry template
 

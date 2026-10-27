@@ -641,7 +641,7 @@ unverified and requires human outreach/evidence.
 
 ### 2026-10-27 13:00 sprint (continued) — configured HTTPS LLM adapter
 
-- Session key: \`2026-10-27-1300-sprint\` (continuation following issues
+- Session key: `2026-10-27-1300-sprint` (continuation following issues
   #14–#16). This coding checkpoint began at **13:27:07 EDT**, after inspecting
   the already-green integrations. Monotonic timer used; **8m51s measured**
   to the **13:35:58 EDT** documentation checkpoint. Remaining verification,
@@ -649,34 +649,34 @@ unverified and requires human outreach/evidence.
 - Issue #17: as a coach, request generated structured explanations using
   preverified evidence and reviewed cue identifiers without bypassing the
   independent release gate. Topic branch:
-  \`dev/2026-10-27-1300-provider-adapter\`, from integration SHA
-  \`edd43d7db51658d236dd5b5bc21761bc51daf723\`. Original \`main\` head
-  \`3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc\`.
-- Test-first commit \`965e01eaf2b8397515719f6bea7f5025a13e8e6c\`
+  `dev/2026-10-27-1300-provider-adapter`, from integration SHA
+  `edd43d7db51658d236dd5b5bc21761bc51daf723`. Original `main` head
+  `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
+- Test-first commit `965e01eaf2b8397515719f6bea7f5025a13e8e6c`
   specifies network-safe initialization, secure URL/config behavior,
   allowlisted privacy-safe request projection, response shape/size,
   sanitization, correction-loop use, persistent withholding. Human review
   tightened the test fixture checksum before implementation in test commit
-  \`b3207b8bfd56268b625c3311b98aca8611efe88b\`.
+  `b3207b8bfd56268b625c3311b98aca8611efe88b`.
   GitHub Actions red run #40551302223 failed with the expected missing
-  \`strokesense.provider\` module, while four prior synthetic checks passed;
+  `strokesense.provider` module, while four prior synthetic checks passed;
   there was no live network traffic.
-- Implementation commit \`d4b44669b37a6f1f022ecc93553e984940c21403\`
-  added \`strokesense/strokesense/provider.py\`: explicit HTTPS Chat
+- Implementation commit `d4b44669b37a6f1f022ecc93553e984940c21403`
+  added `strokesense/strokesense/provider.py`: explicit HTTPS Chat
   Completions adapter, env-configured model/key/endpoint, minimal whitelisted
   eligible evidence/approved cue payload, JSON parsing, timeout/size limit,
   sanitized provider failures, and direct compatibility with independent
   correction/validation. Initial green Actions #40551592658 passed four
   synthetic functions + 74 unittests, including ten provider cases.
 - Security review added a **separate failing redirect test** first:
-  \`652a6932703952b4e6e1a850928681c797319d00\`,
+  `652a6932703952b4e6e1a850928681c797319d00`,
   GitHub Actions #40551829700 confirmed missing redirect-rejection handler
-  before code changes. Fix commit \`02364e53ef74ef690e880960e10f4d0705bd9c3d\`
+  before code changes. Fix commit `02364e53ef74ef690e880960e10f4d0705bd9c3d`
   uses a dedicated no-redirect HTTPS opener, avoiding global mutation and
   preventing forwarding credentials to redirected destinations.
-- Final green Actions #40551950563: \`python strokesense/quality.py\`
+- Final green Actions #40551950563: `python strokesense/quality.py`
   passed **4/4 existing synthetic analysis checks plus all 75 unittests**,
-  including 11 provider tests; \`python strokesense/quality.py --doctor\`
+  including 11 provider tests; `python strokesense/quality.py --doctor`
   succeeded with installed runtime deps but no cached ONNX model. All
   provider responses and approvals were fictional test doubles; no real
   provider was contacted and no empirical accuracy was measured.

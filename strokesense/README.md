@@ -217,24 +217,24 @@ and HTML integration of validated coaching remains future work.
 
 ## Optional LLM adapter (configured, not yet live-verified)
 
-\`strokesense.provider.OpenAIChatGenerator\` implements an OpenAI-compatible
+`strokesense.provider.OpenAIChatGenerator` implements an OpenAI-compatible
 HTTPS Chat Completions JSON adapter and can be passed directly to
-\`strokesense.correction.run_correction()\`. It is an **optional integration**,
+`strokesense.correction.run_correction()`. It is an **optional integration**,
 not an automatically running cloud service: importing or constructing the
 adapter performs no HTTP request. It requires explicit model/provider choice,
 credentials, and a separate permission decision before external inference.
 
 Set these environment variables locally (do not commit their values):
 
-- \`STROKESENSE_LLM_MODEL\` — explicitly selected compatible chat model ID.
-- \`STROKESENSE_LLM_API_KEY\` — secret bearer token; never print or commit.
-- \`STROKESENSE_LLM_ENDPOINT\` — optional HTTPS Chat Completions endpoint
-  (defaults to \`https://api.openai.com/v1/chat/completions\`).
+- `STROKESENSE_LLM_MODEL` — explicitly selected compatible chat model ID.
+- `STROKESENSE_LLM_API_KEY` — secret bearer token; never print or commit.
+- `STROKESENSE_LLM_ENDPOINT` — optional HTTPS Chat Completions endpoint
+  (defaults to `https://api.openai.com/v1/chat/completions`).
   Redirects are blocked rather than forwarding tokens to another host.
 
 The Python call sequence, **only when you have consent and approved cues**, is:
 
-\`\`\`python
+```python
 from strokesense.provider import OpenAIChatGenerator
 from strokesense.correction import run_correction
 
@@ -246,7 +246,7 @@ result = run_correction(
     reviewed_cues=reviewed_cues, max_attempts=3,
 )
 # Present only result["released"] when status == "released".
-\`\`\`
+```
 
 The adapter sends **only** allowlisted evidence IDs, validated eligible
 finding counts/timestamps, and approved cue IDs/fault mappings; raw source

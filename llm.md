@@ -363,10 +363,12 @@ published outputs remain available and are not deleted or instantly recalled.
 The independent LLM adapter has *not* run with live provider credentials;
 actual rowing pose accuracy and customer validation are unmeasured.
 
-**Next focused engineering action:** complete the still-open #31 error
-contract coverage with API 409/413/503 and browser compatibility regression,
-then document a versioned privacy/data-retention audit plan. Preserve local
-CSRF/Host/Origin safeguards and avoid cloud exposure or unauthorized deletion.
+**Next focused engineering action:** finish independent #31 API error
+contract coverage for real 409/413/503 evidence/job paths and retain route-level
+browser compatibility tests; then implement a bounded local privacy-retention
+audit increment without unauthorized deletion. The 17:00 sprint now handles
+known and extension HTTP methods without leaking framework 501 HTML.
+Preserve loopback-only, CSRF, Host and Origin gates.
 
 Remaining research/validation blockers: genuinely permitted rowing media,
 downloaded ONNX pose model for empirical inference, coach-reviewed cue
@@ -385,7 +387,7 @@ and deliberate concurrent file mutation remains a race to analyze.
 | Private clip registry and grouped split integrity | #13 | `test_registry.py`; red `b5a733e9` / green `1d4e6d99` | Integrated; review pending |
 | Versioned evidence + independent validation + three-attempt correction | #14–#16 | `test_evidence.py`, `test_validation.py`, `test_correction.py`; red/green CI in session history | Offline tests green, no live approved cues |
 | Configurable provider adapter, local jobs, browser and evidence | #17–#28 | Issue-based test/CI history below | Offline tests, no live inference |
-| One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; red/green CI logged below | Integrated; team inspection pending |
+| One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; unsupported-method red Actions 40583792311 and 40584165377; green Actions 40584304598 | Integration in progress; #31 broader status-route coverage open, team review pending |
 | Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Integrated; team inspection pending |
 | Withhold revoked prior results and recent history in browser/API | #33 | `test_revoked_web.py` (3 synthetic HTTP cases): red Actions 40580738910; green Actions 40580961440 | Integrated at `842f4663`, team inspection pending |
 | CSRF/Host/Origin-protected withdrawal form in loopback UI | #34 | `test_web_revoke.py` (3 HTTP fixture cases): red Actions 40581464304; green Actions 40581629204 | Green topic, integration pending; human review pending |
@@ -1274,6 +1276,56 @@ not offline unit tests.
 - Next: harden and complete #31 API error-code coverage; then
   assess explicit retention/audit strategy in a narrow issue.
   Communication pending confirmed Sent check after integration.
+
+### 2026-10-27 17:00 sprint — fail-closed HTTP methods
+
+- Session key `2026-10-27-1700-sprint`; America/New_York actual
+  start **17:01:44 EDT** (`time.monotonic_ns` 101463822631);
+  verification checkpoint **17:10:05 EDT** (`time.monotonic_ns`
+  601745630167), **8m 21s measured to that checkpoint**, with
+  integration/communication potentially following. No 30-minute claim.
+- Reused open **issue #31**, local API Problem Details/error-contract
+  user story. Topic `dev/2026-10-27-1700-http-methods` from
+  verified integration base `d49546c2c52794d20453f510291eea5da25838b6`.
+  Acceptance: unsupported methods get sanitized 405, appropriate
+  `Allow`, no-store/privacy headers and no HEAD response body;
+  Host/Origin validation also applies. Unknown routes remain 404.
+- Test-first commit `f0e0b9db4ffbb3bc16f2bc7ee9af16fac026304c`
+  added three HTTP regression tests for common unsupported methods,
+  forged origins and HTML browser compatibility. GitHub Actions
+  **#40583792311** ran `python strokesense/quality.py`; among
+  **165** offline unittests, **24 expected behavioral assertion failures**
+  (old 501/404 instead of 405 or 403), not an environment/import error.
+- Production commit `02f6a71092869fd151dc391e2fa0f023b8d5cb07`
+  implements safe `_error(405)`, route-specific `Allow`, HEAD
+  empty body, and explicit common-method rejection. Actions
+  **#40584005101** was green (165 tests, four synthetic functions).
+- Before the next production change, additional test-only commit
+  `acf44f2b6025fbd3ffc384234d858cd4b3a9079a` covered
+  extension verbs BREW and PROPFIND. Actions **#40584165377**
+  observed **three expected failures** (501 instead of 405/403)
+  in **166** unittests. Code commit
+  `f63a53c4fa29a759390850504f131193c4943ace`
+  adds safe fallback dispatch for unknown method names; Actions
+  **#40584304598** ran `python strokesense/quality.py` and
+  **passed 166/166 unittests plus four synthetic analysis functions**.
+  Its read-only `python strokesense/quality.py --doctor` found runtime
+  dependencies installed but **no cached ONNX model**. Targeted HTTP
+  regressions were included in full unittest discovery.
+- Files: `strokesense/strokesense/web.py`,
+  `strokesense/tests/test_api_errors.py`, and this handoff.
+  Diff review: 53+ production insertions and 7 deletions, tests
+  cover common and extension method dispatch. No PR, settings, or
+  default branch change.
+- This is offline synthetic loopback HTTP behavior, **not real-video
+  inference, empirical rowing precision/recall, live LLM output or
+  customer validation**. Team inspection of AI-generated tests pending;
+  #31 remains open for wider status-path exercise. Existing revocation
+  does not delete past private footage/reports or recall downloads.
+- Next: verify API 409/413/503 and browser compatibility through real
+  local routes, then consider a versioned privacy/data-retention audit
+  mechanism that does not erase data without authorization.
+- Communication: pending confirmed Sent search after integration.
 
 ### Future session entry template
 

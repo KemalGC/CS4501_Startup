@@ -28,13 +28,15 @@ CREATE TABLE IF NOT EXISTS jobs (
     started_utc TEXT,
     finished_utc TEXT,
     report_path TEXT,
-    error_code TEXT
+    error_code TEXT,
+    coaching_state TEXT NOT NULL DEFAULT 'withheld'
+        CHECK(coaching_state IN ('withheld','released'))
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc);
 """
 _PUBLIC_COLUMNS = (
     "job_id", "clip_id", "status", "created_utc", "started_utc",
-    "finished_utc", "report_path", "error_code",
+    "finished_utc", "report_path", "error_code", "coaching_state",
 )
 
 
@@ -97,7 +99,31 @@ class JobQueue:
         self._closed = False
         self._futures = {}
         with closing(self._connection()) as conn, conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if version > 2:
+                raise ValueError("unsupported newer jobs schema")
             conn.executescript(_SCHEMA)
+            if version < 2:
+                # Existing jobs retain status/report references and receive
+                # a safe withheld default; no generated advice is reclassified.
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute("PRAGMA user_version").fetchone()[0]
+                if current > 2:
+                    raise ValueError("unsupported newer jobs schema")
+                if current < 2:
+                    columns = {c["name"] for c in
+                               conn.execute("PRAGMA table_info(jobs)")}
+                    if "coaching_state" not in columns:
+                        conn.execute(
+                            "ALTER TABLE jobs ADD COLUMN coaching_state TEXT "
+                            "NOT NULL DEFAULT 'withheld' "
+                            "CHECK(coaching_state IN ('withheld','released'))"
+                        )
+                    conn.execute("PRAGMA user_version = 2")
+                conn.commit()
+            if "coaching_state" not in {c["name"] for c in
+                                        conn.execute("PRAGMA table_info(jobs)")}:
+                raise ValueError("incomplete jobs schema")
             # No in-memory worker from a prior process can complete these jobs.
             conn.execute(
                 "UPDATE jobs SET status='failed', error_code='interrupted', "
@@ -186,6 +212,7 @@ class JobQueue:
                     "job_id": job_id, "clip_id": clip_id, "status": "queued",
                     "created_utc": created, "started_utc": None,
                     "finished_utc": None, "report_path": None, "error_code": None,
+                    "coaching_state": "withheld",
                 }
             except Exception:
                 self._permits.release()

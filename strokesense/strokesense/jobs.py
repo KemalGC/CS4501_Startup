@@ -55,6 +55,14 @@ def _prepare_db(path: Path) -> None:
         os.close(fd)
 
 
+def _matches_registered_source(video: Path, expected_sha: str) -> bool:
+    """Best-effort streamed source integrity check; never disclose its path."""
+    try:
+        return video.is_file() and _stream_sha256(video) == expected_sha
+    except OSError:
+        return False
+
+
 def _default_analyze(video: Path, *, out_dir: Path):
     from .cli import analyse_video  # Heavy pose dependencies load only on execution.
     return analyse_video(video, out_dir=out_dir)
@@ -181,12 +189,7 @@ class JobQueue:
     def _run(self, job_id: str, video: Path, expected_sha: str) -> None:
         try:
             self._write(job_id, "running", started_utc=_utc())
-            try:
-                if not video.is_file() or _stream_sha256(video) != expected_sha:
-                    self._write(job_id, "failed", finished_utc=_utc(),
-                                error_code="source_changed")
-                    return
-            except OSError:
+            if not _matches_registered_source(video, expected_sha):
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="source_changed")
                 return
@@ -204,6 +207,13 @@ class JobQueue:
             except Exception:
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="analysis_failed")
+                return
+            # Fail closed if the registered bytes changed while analyzing.
+            # The file may still change after this check; immutable ingest
+            # is needed for stronger guarantees.
+            if not _matches_registered_source(video, expected_sha):
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="source_changed")
                 return
             if result is None:
                 self._write(job_id, "failed", finished_utc=_utc(),

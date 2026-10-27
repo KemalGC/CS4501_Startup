@@ -9,7 +9,7 @@ from collections.abc import Mapping
 import math
 from numbers import Real
 
-from .evidence import MIN_SAMPLE_STROKES, verify_evidence_snapshot
+from .evidence import MIN_SAMPLE_STROKES, validate_reference_graph
 
 _FIELDS = frozenset({
     "finding_id", "seat_id", "stroke_ids", "fault_code", "cue_id",
@@ -35,7 +35,7 @@ def validate_candidate(candidate, *, evidence_snapshot, reviewed_cues) -> dict:
 
 
 def _validate_candidate(candidate, evidence_snapshot, reviewed_cues) -> dict:
-    if not verify_evidence_snapshot(evidence_snapshot):
+    if not validate_reference_graph(evidence_snapshot):
         return _blocked("invalid_evidence")
     if not isinstance(candidate, Mapping):
         return _blocked("invalid_candidate")

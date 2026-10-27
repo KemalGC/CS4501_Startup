@@ -83,7 +83,7 @@ class JobQueue:
         self._mutex = Lock()
         self._closed = False
         self._futures = {}
-        with self._connection() as conn:
+        with closing(self._connection()) as conn, conn:
             conn.executescript(_SCHEMA)
             # No in-memory worker from a prior process can complete these jobs.
             conn.execute(
@@ -180,7 +180,12 @@ class JobQueue:
 
             # Even two jobs for the same clip never share reports or caches.
             run_root = self._results_root / job_id
-            run_root.mkdir(parents=True, exist_ok=False, mode=0o700)
+            try:
+                run_root.mkdir(parents=True, exist_ok=False, mode=0o700)
+            except OSError:
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="output_unavailable")
+                return
             try:
                 result = self._analyze_fn(video, out_dir=run_root)
             except Exception:

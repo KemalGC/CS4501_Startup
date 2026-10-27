@@ -267,7 +267,7 @@ have **not** been tested. A passing structural validator still cannot prove
 free-text truth or coaching effectiveness. The UI must display only validated,
 safely escaped text and clearly distinguish withheld results.
 
-## Local analysis job service (backend Alpha, no web UI yet)
+## Local analysis job service (backend for local Alpha)
 
 `strokesense.jobs.JobQueue` supplies a **single-process, bounded** local worker
 on top of the consent/provenance-claiming SQLite clip registry. It persists
@@ -306,10 +306,44 @@ or complete upload/UI application. Jobs execute in a local thread and the
 process must remain running. Permission is still an unverified operator
 attestation, not a cryptographic or legal proof of consent. The source
 can change between the pre-run hash check and decoding; production
-handling requires stronger immutable ingest/storage. This implementation
-has no user authentication, HTTP server, CSRF protection or UI yet and
-must **not** be exposed on a network. Tests inject fake analysis and
+handling requires stronger immutable ingest/storage. The job worker itself does not authenticate callers. Use only the dedicated
+loopback interface below; neither component is designed for public hosting. Tests inject fake analysis and
 synthetic file bytes; no real video/model/LLM execution was performed.
+
+## Local browser Alpha (registered clips to completed reports)
+
+The standard-library `strokesense.web` module provides a minimal **local-only**
+browser flow: choose an already indexed clip with an explicit operator
+permission claim, submit a bounded local analysis job, inspect the status,
+and open its job-scoped HTML report. It does not require installing a
+third-party web framework. From the `strokesense/` directory:
+
+```powershell
+# Register a permitted existing video locally; no upload or copying occurs.
+python -m strokesense.registry import "Z:\\footage\\practice.mov" --permission granted --provenance "Operator confirms permission for local analysis"
+
+# Start the UI using the default private registry/job databases and job outputs.
+python -m strokesense.web --port 8765
+# Visit http://127.0.0.1:8765/ in the browser.
+```
+
+The interface binds only to IPv4 loopback, checks the Host/Origin headers,
+requires a randomized per-process anti-CSRF token on job submissions, caps
+request bodies and report sizes, and restricts report reads to successfully
+completed jobs' own result directories. Hostile path traversal/symlinks do
+not expose unrelated files; it sends no source paths or raw worker exceptions
+to browser clients. Rendered reports use a sandboxing Content Security Policy.
+The browser does not receive credentials or automatically call any LLM; all
+existing heuristic cues are unreviewed and **not** validated LLM output.
+The app and reports are **not authenticated**: anyone using this local
+computer/browser session can inspect reports. Do not port-forward, proxy,
+or deploy it to a public interface.
+
+**Not implemented yet:** browser upload/import (clips must be registered
+through the CLI), production authentication, durable distributed execution,
+independent proof of footage consent, coach-approved cues, and real-video
+evaluation. Server tests are synthetic and use a fake analysis worker; they
+do not establish pose accuracy or a full end-to-end model run.
 
 ## Quality checks
 

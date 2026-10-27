@@ -57,6 +57,11 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00 continued: default local worker now opens and decodes one
+  initial frame before running pose; nondecodable or invalid-size/FPS source
+  returns a sanitized `invalid_media` result without starting inference.
+  A tiny generated MJPG AVI smoke test passed actual OpenCV decoding in CI.
+
 - 2026-10-27 15:00 continued: local browser uploads now reject clearly
   mislabelled/truncated ISO BMFF, RIFF/AVI and EBML container signatures
   before private storage or SQLite registration; this is NOT decoding,
@@ -1052,6 +1057,53 @@ unverified and requires human outreach/evidence.
   integration and never change main.
 - Communication: one consolidated factual 15:00 report after remaining
   verification and branch integration; pending confirmation.
+
+
+### 2026-10-27 15:00 sprint (continued) — early video decode preflight
+
+- Issue #27: as a local coach, see a safe actionable failed analysis
+  for registered nondecodable media before pose estimation starts. Topic
+  `dev/2026-10-27-1500-job-decode-preflight`, based on verified integration
+  `fb2d0eb5740a7c6d8cb60ad547bdfe5050b6e718`.
+- TDD test-only commit
+  `8c3bc697a21a754e8d3649d1f4dc32016b702573`
+  preceded implementation; Actions #40571847478 ran
+  `python strokesense/quality.py` with **five expected behavior
+  failures** across worker rejection, valid capture invocation, and bad
+  metadata / missing-frame cases. Earlier cases passed.
+- Implementation `9bfbd8c26be14c308d7c79f2c408e332d514b456`
+  adds `media.probe_decodable_video`: background-only lazy OpenCV
+  VideoCapture, finite FPS/dimension checks, at least one decoded frame,
+  release of capture on all paths, and a 4K/240fps ceiling for this
+  local Alpha. `jobs._default_analyze` raises a typed media failure
+  before model loading; `JobQueue` maps it to public
+  `failed/invalid_media` with no report URL. Existing injected fake
+  analyzers remain independent of real footage. README updated.
+- Green Actions #40572120062 ran
+  `python strokesense/quality.py`: **135 unittests and four synthetic
+  technique functions passed**; doctor found runtime modules but no
+  ONNX model asset. Follow-up post-code smoke test committed at
+  `45691790aeddf551af0839c49c59ab1d53441c41`
+  generated a three-frame toy MJPG AVI and verified real OpenCV opening,
+  frame decoding and mock analyzer forwarding. Actions #40572392258
+  passed **136 unittests and four synthetic technique functions**;
+  the smoke test executed and passed (not skipped).
+- Scope: synthetic generated video and mocked frame tests only; no
+  actual permitted rowing footage, real model inference, customer
+  validation, human coach review, approved cue catalogue or live
+  external LLM. The header and first-frame checks cannot guarantee
+  later-frame decoding, codec safety or malware resistance, and
+  intentionally exclude certain unusual files. Student-team review
+  of AI-assisted tests is pending.
+- Main never touched. To continue within the remaining budget:
+  next consider a bounded-duration safeguard for full-clip local jobs
+  to avoid unbounded inference on heavily compressed long videos.
+  Document behavior, do not imply security sandboxing.
+- Measured running checkpoint: 15:32:37 to 15:49:35 EDT
+  (16 minutes 58 seconds elapsed); this includes two separately
+  tested increments and is not a 30-minute work claim.
+- Communication: consolidated issue/branch/CI progress report after
+  final safe integration and duplicate Sent check; pending.
 
 ### Future session entry template
 

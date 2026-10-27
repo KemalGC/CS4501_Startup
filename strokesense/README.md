@@ -610,3 +610,17 @@ JSON. It does not upload media, load the pose model, contact an LLM, or reveal
 source identifiers on stdout. Invalid/missing/unreviewed input exits nonzero
 with a generic error that does not echo private input paths. This tool cannot
 verify that human review really occurred; no real-video accuracy is claimed.
+
+
+## Local HTTP form framing safeguards (Alpha)
+
+Local `POST /jobs`, `POST /revoke`, and `POST /upload` accept only a
+single decimal `Content-Length` and no `Transfer-Encoding` request header.
+Duplicate/conflicting length headers, chunked framing and missing body-length
+metadata are rejected before any write. Non-upload form bodies must arrive
+in full within the 5-second socket-read timeout; a clean EOF with too few
+bytes or a stalled sender returns a generic error without submitting an
+analysis or changing a permission claim. Uploads retain their own separate
+bounded size/read timeout and multipart validation. These are local-only
+defenses and are not a substitute for TLS, user authentication or an
+independent security assessment of a publicly exposed service.

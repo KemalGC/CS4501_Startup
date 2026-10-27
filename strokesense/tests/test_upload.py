@@ -14,8 +14,15 @@ from strokesense.registry import list_clips
 from strokesense.web import create_server
 
 
+# Minimal synthetic container headers for HTTP behavior tests only. These are
+# NOT decodable videos and do not establish codec safety or inference accuracy.
+SYNTHETIC_MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 12
+SYNTHETIC_MOV = b"\x00\x00\x00\x18ftypqt  " + b"\x00" * 12
+SYNTHETIC_AVI = b"RIFF" + (28).to_bytes(4, "little") + b"AVI " + b"\x00" * 20
+SYNTHETIC_EBML = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01"
+
 def multipart(csrf, *, permission="granted", provenance="synthetic local attestation",
-              filename="practice.mp4", data=b"synthetic video bytes", extras=()):
+              filename="practice.mp4", data=SYNTHETIC_MP4, extras=()):
     boundary = "StrokeSenseTestBoundary"
     fields = [("csrf", csrf), ("permission", permission),
               ("provenance", provenance)]
@@ -95,7 +102,7 @@ class UploadHTTPTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["permission"], "granted")
         actual = Path(records[0]["source_path"])
-        self.assertEqual(actual.read_bytes(), b"synthetic video bytes")
+        self.assertEqual(actual.read_bytes(), SYNTHETIC_MP4)
         self.assertTrue(actual.is_relative_to(self.uploads))
         self.assertEqual(actual.suffix, ".mp4")
         self.assertNotEqual(actual.name, "practice.mp4")
@@ -130,7 +137,7 @@ class UploadHTTPTests(unittest.TestCase):
         self.assertEqual(list_clips(self.db), [])
 
     def test_traversal_filename_cannot_control_storage_path(self):
-        code, _, _ = self.upload(filename="../../outside.mov")
+        code, _, _ = self.upload(filename="../../outside.mov", data=SYNTHETIC_MOV)
         self.assertEqual(code, 303)
         dest = Path(list_clips(self.db, show_paths=True)[0]["source_path"])
         self.assertTrue(dest.is_relative_to(self.uploads))
@@ -156,6 +163,43 @@ class UploadHTTPTests(unittest.TestCase):
                                   headers={"Host": "evil.example"})
         self.assertEqual(code, 403)
         self.assertEqual(list_clips(self.db), [])
+
+
+    def test_rejects_disguised_and_truncated_containers_before_persistence(self):
+        invalid = (
+            ("renamed text", "practice.mp4", b"this is not video"),
+            ("wrong extension", "practice.mp4", SYNTHETIC_AVI),
+            ("truncated mp4", "practice.mp4", b"\x00\x00\x00\x08ftyp"),
+            ("undersized mp4 box", "practice.mp4", b"\x00\x00\x00\x08ftypisom"),
+            ("wrong mov", "practice.mov", SYNTHETIC_EBML),
+            ("truncated avi", "practice.avi", b"RIFF\x00\x00\x00\x08"),
+            ("wrong avi", "practice.avi", SYNTHETIC_MP4),
+            ("truncated webm", "practice.webm", b"\x1a\x45\xdf\xa3"),
+            ("wrong mkv", "practice.mkv", SYNTHETIC_MP4),
+        )
+        for description, filename, blob in invalid:
+            with self.subTest(case=description):
+                code, _, response = self.upload(filename=filename, data=blob)
+                self.assertEqual(code, 415)
+                self.assertNotIn(str(self.root).encode(), response)
+                self.assertEqual(list_clips(self.db), [])
+                self.assertFalse(
+                    self.uploads.exists() and any(self.uploads.iterdir())
+                )
+
+    def test_plausible_supported_container_headers_remain_eligible(self):
+        accepted = (
+            ("crew.mp4", SYNTHETIC_MP4),
+            ("crew.MP4", SYNTHETIC_MP4),
+            ("crew.mov", SYNTHETIC_MOV),
+            ("crew.avi", SYNTHETIC_AVI),
+            ("crew.mkv", SYNTHETIC_EBML),
+            ("crew.webm", SYNTHETIC_EBML),
+        )
+        for filename, blob in accepted:
+            with self.subTest(filename=filename):
+                code, _, _ = self.upload(filename=filename, data=blob)
+                self.assertEqual(code, 303)
 
 
 if __name__ == "__main__":

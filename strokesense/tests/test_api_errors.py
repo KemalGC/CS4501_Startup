@@ -7,10 +7,12 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from strokesense.jobs import JobQueue
+from strokesense.registry import register_clip
 from strokesense.web import create_server
 
 
@@ -19,6 +21,7 @@ class ApiErrorContractTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
+        self.root = root
         self.jobs = JobQueue(
             registry_db=root / "registry.sqlite3",
             job_db=root / "jobs.sqlite3",
@@ -85,6 +88,66 @@ class ApiErrorContractTests(unittest.TestCase):
         self.assertTrue(headers["Content-Type"].startswith("text/html"))
         self.assertIn(b"Request unavailable", body)
         self.assertEqual(headers["Cache-Control"], "no-store")
+
+
+    def test_all_declared_problem_statuses_use_bounded_safe_shapes(self):
+        # Direct serializer matrix complements actual HTTP-path coverage.
+        handler = self.server.RequestHandlerClass.__new__(
+            self.server.RequestHandlerClass
+        )
+        handler.path = "/api/missing"
+        responses = []
+        handler._send = lambda code, body, **kw: responses.append(
+            (code, body, kw)
+        )
+        for code in (400, 403, 404, 409, 413, 415, 422, 503):
+            responses.clear()
+            handler._error(code)
+            self.assertEqual(len(responses), 1)
+            observed, body, kw = responses[0]
+            self.assertEqual(observed, code)
+            self.assertEqual(kw["mime"], "application/problem+json")
+            payload = json.loads(body)
+            self.assertEqual(payload["type"], "about:blank")
+            self.assertEqual(payload["status"], code)
+            self.assertIsInstance(payload["title"], str)
+            self.assertNotIn(str(self.root), body.decode())
+
+    def test_real_conflict_oversize_and_backend_error_are_problem_json(self):
+        source = self.root / "synthetic.mp4"
+        source.write_bytes(b"synthetic fake clip only")
+        clip_id = register_clip(
+            source, self.root / "registry.sqlite3",
+            permission="granted", provenance="offline fixture",
+        )[0]["clip_id"]
+        metrics = [None]
+
+        def fake_analyzer(video, *, out_dir):
+            output = Path(out_dir) / "fake"
+            output.mkdir(parents=True)
+            report = output / "report.html"
+            report.write_text("Synthetic fake result", encoding="utf-8")
+            metrics[0] = output / "metrics.json"
+            metrics[0].write_text('{"evidence":{}}', encoding="utf-8")
+            return {"report": report}
+
+        self.jobs._analyze_fn = fake_analyzer
+        started = self.jobs.submit(clip_id)
+        self.assertEqual(self.jobs.wait(started["job_id"], timeout=5)["status"],
+                         "succeeded")
+        path = "/api/jobs/" + started["job_id"] + "/evidence"
+        self.assert_problem(path, 409)
+        with metrics[0].open("wb") as stream:
+            stream.truncate(16 * 1024 * 1024 + 1)
+        self.assert_problem(path, 413)
+        with patch.object(self.jobs, "list_recent",
+                          side_effect=RuntimeError("secret private details")):
+            self.assert_problem("/api/jobs", 503)
+            code, headers, page = self.get("/")
+            self.assertEqual(code, 503)
+            self.assertTrue(headers["Content-Type"].startswith("text/html"))
+            self.assertNotIn(b"secret private details", page)
+
 
 
 if __name__ == "__main__":

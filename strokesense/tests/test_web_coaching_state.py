@@ -7,6 +7,7 @@ from __future__ import annotations
 import http.client
 from pathlib import Path
 import re
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -75,6 +76,18 @@ class WithheldJobDisplayTests(unittest.TestCase):
                         self.assertNotIn(str(video), status_html + home)
                         self.assertNotIn("synthetic test-only permission claim",
                                          status_html + home)
+                        # Regression after implementation: an unsupported
+                        # released flag alone must never grant advisory status.
+                        with sqlite3.connect(job_db) as database:
+                            database.execute(
+                                "UPDATE jobs SET coaching_state='released' WHERE job_id=?",
+                                (job_id,),
+                            )
+                        self.assertEqual(get("/api/jobs/" + job_id)[0], 409)
+                        self.assertEqual(get("/jobs/" + job_id)[0], 409)
+                        code, home = get("/")
+                        self.assertEqual(code, 200)
+                        self.assertNotIn(job_id[:12], home)
                     finally:
                         server.shutdown()
                         thread.join(timeout=3)

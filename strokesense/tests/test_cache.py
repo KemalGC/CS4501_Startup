@@ -196,5 +196,48 @@ class PoseCacheTests(unittest.TestCase):
         self.assertEqual(list(self.cache.parent.glob("detections.npz.*.tmp")), [])
 
 
+    def test_replaced_content_with_identical_size_and_mtime_recomputes(self):
+        self.analyse()
+        previous = load_detections(self.cache)[1]["cache_identity"]
+        original = self.video.read_bytes()
+        info = self.video.stat()
+        self.video.write_bytes(b"q" * len(original))
+        os.utime(self.video, ns=(info.st_atime_ns, info.st_mtime_ns))
+        self.assertEqual(self.video.stat().st_size, info.st_size)
+        self.assertEqual(self.video.stat().st_mtime_ns, info.st_mtime_ns)
+
+        self.analyse()
+        self.assertEqual(self.infer.call_count, 2)
+        current = load_detections(self.cache)[1]["cache_identity"]
+        self.assertNotEqual(previous, current)
+        self.assertIn('"sha256"', current)
+
+    def test_source_mutation_during_inference_with_preserved_stats_skips_cache(self):
+        original = self.video.read_bytes()
+        info = self.video.stat()
+
+        def mutate_source(*args, **kwargs):
+            self.video.write_bytes(b"z" * len(original))
+            os.utime(self.video, ns=(info.st_atime_ns, info.st_mtime_ns))
+            return self.dets, dict(self.meta)
+
+        self.infer.side_effect = mutate_source
+        self.analyse()
+        self.assertFalse(self.cache.exists())
+        self.assertTrue(any("cache was not saved" in m for m in self.messages))
+
+    def test_legacy_stat_only_source_identity_is_not_reused(self):
+        self.analyse()
+        detections, metadata = load_detections(self.cache)
+        import json
+        request = json.loads(metadata["cache_identity"])
+        request["source"].pop("sha256", None)
+        metadata["cache_identity"] = json.dumps(request, sort_keys=True,
+                                                separators=(",", ":"), allow_nan=False)
+        save_detections(self.cache, detections, metadata)
+        self.analyse()
+        self.assertEqual(self.infer.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

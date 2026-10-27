@@ -125,6 +125,19 @@ class JobQueue:
             ).fetchone()
         return {key: row[key] for key in _PUBLIC_COLUMNS} if row is not None else None
 
+    def list_recent(self, limit: int = 20) -> list[dict]:
+        """Bounded newest-first public status records; never expose private paths."""
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("history limit must be an integer in [1,100]")
+        with closing(self._connection()) as conn:
+            rows = conn.execute(
+                "SELECT " + ", ".join(_PUBLIC_COLUMNS)
+                + " FROM jobs ORDER BY created_utc DESC, job_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{column: row[column] for column in _PUBLIC_COLUMNS}
+                for row in rows]
+
     def submit(self, clip_id: str) -> dict:
         if not isinstance(clip_id, str) or not clip_id:
             raise JobError("invalid_clip_id")

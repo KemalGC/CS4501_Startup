@@ -57,6 +57,9 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 17:29 recovery continued: combined independent evidence chronology checks (#37) and non-destructive persisted coaching withholding (#36) in a two-parent tested merge. CI 184/184 offline unittests plus four synthetic functions; no real model/provider/accuracy claim. Release validator structural-hardening is the next unblocked issue.
+
+
 - 2026-10-27 17:29 manual recovery: #37 evidence viewer now rejects per-seat stroke chronology conflicts and duplicated finding IDs even when a snapshot digest is recomputed; regression test-only commit showed three expected behavioral failures, production passed 181/181 offline unittests plus four synthetic analysis functions (Actions #40587716613). No signed authenticity, empirical rowing accuracy or human team review is claimed.
 
 
@@ -1438,6 +1441,16 @@ not offline unit tests.
 - This establishes only synthetic structural schema invariant coverage; SHA-256 is not an authenticity signature, and it does not prove footage permission, technique accuracy, coach-reviewed cue quality, true catch timings, live LLM correctness, or customer KPIs. No private media or credentials were published.
 - Concurrent unintegrated green topic `dev/2026-10-27-1700-coaching-state` (#36) was observed from the same baseline, so preserve its work and reconcile separately rather than overwrite it; only a previously verified integration SHA may be moved using guarded fast-forward. `main` remains excluded.
 - Next concrete action: reconcile the existing #36 coaching-state topic into integration with combined tests; then wire independent validated-release decisions to saved evidence without letting unapproved cues release. Communication: pending duplicate Sent check and confirmed send.
+
+### 2026-10-27 17:29 recovery sprint (continued) — reconcile persisted coaching withholding
+
+- Reused existing open **issue #36**, implemented independently on `dev/2026-10-27-1700-coaching-state` from the previously verified base `c3a0048`. Its tests-first commit `d8c10dc831b4372a41be7550e749218a41b379e4` produced **three expected missing-field errors** (not import failures) in 180 offline tests at Actions [#40586630260](https://github.com/KemalGC/CS4501_Startup/actions/runs/40586630260); production `0d9b513df12d56762544540f41c0f119e1a89cce` turned those cases green at [#40586794919](https://github.com/KemalGC/CS4501_Startup/actions/runs/40586794919). This recovery worker did **not** author or backdate those tests.
+- Both independently green topics were combined without rewriting or deleting either topic history: merge branch `dev/2026-10-27-1729-coaching-reconcile`, first parent the integrated #37 evidence guards `ba0bc6c`, second parent the #36 tested topic `0d9b513`; merge commit `89fbe692b4322825edd5e32c82e66598059f210b`. The merge tree differs only in adding #36 `jobs.py` SQLite v2 withheld-state migration and `test_coaching_job_state.py`; prior `llm.md` and evidence changes were preserved.
+- Combined Actions [#40588353119](https://github.com/KemalGC/CS4501_Startup/actions/runs/40588353119) ran **`python strokesense/quality.py`** with **184/184 unit tests plus four legacy synthetic analysis functions passing**. Read-only `python strokesense/quality.py --doctor` found installed modules but no cached ONNX model. Existing jobs migrate non-destructively to `coaching_state=withheld`; new succeeded/failed jobs persist withholding across restart; JSON status exposes that public state without raw media paths or provider responses. This does **not** enable any live or synthetic coaching release in the local app.
+- Measured recovery-worker checkpoint **17:38:39 EDT** (monotonic 483.489392624), elapsed **7m 32s** from 17:31:07 actual start. Any subsequent changes will have separately logged checkpoints; no claim of a full 30-minute session.
+- No empirical footage labels, consent verification, real video precision/recall, provider traffic/spending, genuine cue approval, or customer KPI. Human team inspection pending; actual revocation does not erase old private files.
+- Next: a separate tests-first issue must make the independent release gate reject structurally contradictory *reviewed* synthetic snapshots, without confusing an unreviewed viewer's schema policy with the release validator. Then integrate and re-run complete suite.
+- Communication: consolidated factual email pending duplicate Sent check and confirmed send; never include private recipient data in public commits.
 
 ### Future session entry template
 

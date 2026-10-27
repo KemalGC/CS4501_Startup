@@ -119,10 +119,23 @@ def create_server(
             else:
                 controls = ("<p>No permission-claimed clips are registered. "
                             "Import a clip with the local registry CLI first.</p>")
+            try:
+                recent = jobs.list_recent(limit=20)
+            except Exception:
+                self._error(503)
+                return
+            history_items = "".join(
+                '<li><a href="/jobs/' + html.escape(row["job_id"], quote=True)
+                + '">Analysis ' + html.escape(row["job_id"][:12])
+                + '</a> — ' + html.escape(row["status"]) + '</li>'
+                for row in recent if _JOB_ID.fullmatch(row["job_id"])
+            )
+            history = ("<h2>Recent analyses</h2><ol>" + history_items + "</ol>"
+                       if history_items else "<h2>Recent analyses</h2><p>None yet.</p>")
             body = ("<p>Local prototype. Permission is an operator assertion, "
                     "not independent consent verification. Analysis runs on "
                     "your computer. No generated LLM advice is released here.</p>"
-                    + controls)
+                    + controls + history)
             self._send(200, _document("StrokeSense local Alpha", body))
 
         def _status(self, job_id: str, *, api=False):
@@ -195,6 +208,14 @@ def create_server(
             route = urlsplit(self.path).path
             if route == "/":
                 self._home()
+            elif route == "/api/jobs":
+                try:
+                    recent = jobs.list_recent(limit=20)
+                except Exception:
+                    self._error(503)
+                    return
+                self._send(200, json.dumps(recent, sort_keys=True).encode("utf-8"),
+                           mime="application/json; charset=utf-8")
             elif route.startswith("/api/jobs/"):
                 self._status(route[len("/api/jobs/"):], api=True)
             elif route.startswith("/jobs/"):

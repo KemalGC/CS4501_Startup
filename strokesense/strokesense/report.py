@@ -194,9 +194,14 @@ perpendicular to the boat. Body angle: + = leaning toward the stern (body over),
     return out_path
 
 
-def build_json(rowers, sync, out_path):
+def build_json(rowers, sync, out_path, *, analysis_key=None, fps=None, start_seconds=0.0):
     data = {"sync": sync, "rowers": [
         {"seat": r.seat, "track": r.tid, "summary": r.summary, "sync_ms": r.sync_ms,
          "strokes": [s.to_dict() for s in r.strokes]} for r in rowers]}
+    if analysis_key is not None:
+        from . import evidence
+        data["evidence"] = evidence.build_evidence_snapshot(
+            data, analysis_key=analysis_key, fps=fps, start_seconds=start_seconds
+        )
     Path(out_path).write_text(json.dumps(data, indent=2, default=float))
     return out_path

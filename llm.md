@@ -348,54 +348,53 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-The code-level Alpha now includes collision-safe outputs, a private
-content-addressed clip registry, versioned evidence, fail-closed independent
-coaching validation, a bounded three-attempt correction loop, and an explicit
-HTTPS LLM chat adapter with sanitized, minimal evidence projection.
-The new adapter passes mocked offline CI, **not** live provider verification.
-No approved real cue catalogue or independently eligible real-video evidence
-exists yet, so the adapter appropriately refuses live generation without
-those prerequisites.
+The Alpha's existing offline-regressed capabilities now include collision-safe
+video outputs, SHA-256 private clip index with grouped splits, a three-attempt
+LLM correction/withholding gate with independent validator, an opt-in
+configurable HTTPS provider adapter, bounded local jobs, and a loopback-only
+browser upload/job/report/evidence flow. A standalone **synthetic-only** demo
+is available with `python -m strokesense.demo`. An observed 16:00 API
+increment returns sanitized Problem Details JSON for `/api/` errors.
 
-The bounded local queue, loopback-only browser upload, clip selection and
-reopenable history/report UI are implemented and CI-green. Browser uploads
-are limited to 25 MiB request bodies, restricted extensions and explicit
-operator permission/provenance claims; they are not independently validated
-consent or real-video safety checks. Keep the HTTP interface loopback-only.
-Next: evidence-linked report navigation, strict verified-vs-withheld coaching
-states, and an offline test of the complete correction/release UI path.
-Preserve the existing CLI, independent validator, privacy safeguards,
-and main-branch exclusion. Do not expose unapproved generated advice.
+The current 16:00 sprint also adds a local operator permission-withdrawal
+operation. Already queued/running workers recheck the grant and suppress
+results on withdrawal. This is a local claim, not verified consent. Past
+published outputs remain available and are not deleted or instantly recalled.
+The independent LLM adapter has *not* run with live provider credentials;
+actual rowing pose accuracy and customer validation are unmeasured.
 
-Follow-ups: registry import is a private *index*, not a permission enforcement
-gate for the analysis CLI. It neither validates video format nor prevents all
-athlete/crew/adjacent-frame split leakage. The existing cache/output folder is
-path-stable, so replacing media at the same path may overwrite earlier reports.
-Content-identical video files in different directories have one registry ID;
-the separate analysis output folders are still path-based.
+**Next focused engineering action:** apply the current permission status to
+read-only browser report and evidence routes as well, so a *previously*
+successful but later-withdrawn clip cannot be reopened through the local UI;
+test existing status endpoints and HTML/API response behavior. Do not
+silently delete past media or imply an atomic revocation barrier.
 
-Remaining caveats: a clip replaced at the *same canonical path* shares its
-output directory, so re-analysis may replace prior reports there. Pose cache
-identity still uses source path/size/mtime, not source-content SHA-256; a
-same-size, same-mtime replacement is not detected. The video registry should
-add strong content identity. The deterministic folder suffix is a path hash,
-not proof of consent or a complete confidentiality boundary.
+Remaining research/validation blockers: genuinely permitted rowing media,
+downloaded ONNX pose model for empirical inference, coach-reviewed cue
+catalogue, live provider credentials plus explicit data-transfer
+authorization, independent customer validation and real labeled evaluation.
+The local server is not authenticated for public deployment and must stay
+bound to loopback. Full-content SHA-256 pose cache identity now prevents
+same-size/same-mtime stale reuse, but each rerun incurs O(input size) reads
+and deliberate concurrent file mutation remains a race to analyze.
 
 ### Alpha issue-to-test traceability (sprint)
 
-| Story/acceptance | Issue | Tests and commits | Status |
+| Story and acceptance | Issue | Test-first/verification evidence | State |
 | --- | --- | --- | --- |
-| Separate results for independent same-named clips, preserve legacy files, reuse valid same-source pose cache | #12 | `test_output_paths.py` (6 synthetic/mock tests), existing `test_cache.py`; red `079bb78a`, green `f7c22564` | CI green; student team inspection pending |
-| Privacy-first local registry with content SHA-256, duplicate consent conflict handling and session-group split guard | #13 | `test_registry.py` (10 synthetic cases), red `b5a733e9`, green `1d4e6d99` | 4 synthetic + 37 unittests green in Actions; human test review pending |
-| v1 stroke/fault references, observed denominators, and abstention | #14 | `test_evidence.py` (11 synthetic cases); red `33cee429`, green `7adcfe3b` | Offline CI green; coaching withheld pending eligibility/review; human test inspection pending |
-| Independent fail-closed candidate validation, strict IDs/counts and cue checks | #15 | `test_validation.py` (9 synthetic cases); red `26154fe9`, green `0cbf6d5d` | 57 unittests and 4 synthetic checks green; no live cue approval |
-| Bounded independent correction/retry and fail-closed withholding | #16 | `test_correction.py` (7 synthetic tests), red `5c15e9b6`, green `8bf3d9e3` | 64 unittests and 4 synthetic checks green; no live provider |
-| Live provider adapter and results UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
+| Same-stem input result/caches isolated; legacy outputs preserved | #12 | `test_output_paths.py`; red `079bb78a` / green `f7c22564` | Integrated; team review pending |
+| Private clip registry and grouped split integrity | #13 | `test_registry.py`; red `b5a733e9` / green `1d4e6d99` | Integrated; review pending |
+| Versioned evidence + independent validation + three-attempt correction | #14–#16 | `test_evidence.py`, `test_validation.py`, `test_correction.py`; red/green CI in session history | Offline tests green, no live approved cues |
+| Configurable provider adapter, local jobs, browser and evidence | #17–#28 | Issue-based test/CI history below | Offline tests, no live inference |
+| One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; red/green CI logged below | Integrated; team inspection pending |
+| Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Green topic branch; final integration check pending |
 
-The eight selected-proposal criteria remain the project goals; this increment
-strengthens reproducible infrastructure and Alpha readiness, not the core LLM
-or live deployment criteria. The actual customer-validation Activity 1 remains
-unverified and requires human outreach/evidence.
+These tests are **synthetic or mocked**. The eight selected-proposal
+criteria map to Alpha implementation goals, not a verified official grade.
+Activity 2 issue/story/criteria records are present for chosen stories;
+Activity 3 test-first evidence is in CI and commits, while actual human
+review remains pending. Activity 1 requires real customer validation,
+not offline unit tests.
 
 ## Session history
 
@@ -1153,6 +1152,55 @@ unverified and requires human outreach/evidence.
   Prioritize code quality over decorative UI. Do not touch main.
 - Communication: send one consolidated factual progress email after
   integration and duplicate-Sent check; pending.
+
+### 2026-10-27 16:00 sprint — API errors and permission withdrawal
+
+- Scheduled occurrence: `2026-10-27-1600-sprint`, America/New_York.
+  This worker's independently measured start was **16:31:56 EDT**
+  (monotonic 535.8759); first verification checkpoint **16:41:01 EDT**
+  (about **9 minutes 5 seconds** elapsed). Earlier 16:00 topic work
+  preceded this delayed worker; do not claim its time as measured here.
+- Reconciled existing completed 16:00 issue work without duplicating it:
+  #29 opt-in upload-to-analysis was green on existing topic
+  `dev/2026-10-27-1600-upload-analyze`; #30 reproducible offline
+  synthetic browser demo was integrated at `586b6051`.
+  #31 machine-readable, fail-closed `application/problem+json` API
+  errors had tests-first red Actions #40577206601 (**four expected
+  assertions failed in 151 unit tests**) and green Actions
+  #40577572081 (**151 tests plus four legacy synthetic functions**).
+  Verified the three-file diff, response contract, and CI; safely
+  fast-forwarded integration from `586b6051` to topic `39469a4`
+  with an expected-head guard. #31 remains open pending wider error-code
+  route coverage; the implemented common routes are tested.
+- New issue **#32**: as a coach, withdraw an operator permission claim
+  so no new/in-flight analysis of that clip can be published.
+  Topic `dev/2026-10-27-1600-consent-withdrawal`, base `39469a4`.
+  Test-only commits `b74733e` and `1a09bb7` preceded production.
+  `python strokesense/quality.py` on Actions #40579650482 showed
+  **2 expected behavioral assertion failures and 3 expected missing
+  revocation API/CLI errors** among 156 tests; legacy synthetic checks
+  ran. This was missing functionality, not an import/environment failure.
+- Implementation `4dd30b964435d04259461b4fd984bb81d24deeb6`
+  adds transactional/idempotent `registry revoke`, preserves private
+  clip metadata, rechecks permission before and after the worker's
+  analyzer, and withholds revoked queued/in-flight jobs with safe
+  `permission_revoked`. Changed `registry.py`, `jobs.py`, README,
+  and added five test cases in `tests/test_revocation.py`.
+- Green GitHub Actions **#40580034840** executed
+  `python strokesense/quality.py`: **156/156 unittests and four
+  synthetic analysis functions passed**. Read-only
+  `python strokesense/quality.py --doctor` found runtime modules
+  installed, ONNX pose model not cached, no actual inference.
+  Test suite includes offline fake media and mocked report creation;
+  no permission, coach label, footage or live provider empiricism.
+- Privacy limitations: revocation neither deletes historic files nor
+  revokes an already downloaded report. A running analyzer may continue
+  computing; its result is withheld by a pre-publication check, which
+  is not an atomic guarantee against races. Human team inspection of
+  AI-assisted tests remains pending.
+- Next: enforce revocation when reopening historical reports and evidence
+  via the browser, with new issue and independent test-first evidence.
+  `main` remains excluded; communication pending Sent confirmation.
 
 ### Future session entry template
 

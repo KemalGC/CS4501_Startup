@@ -416,8 +416,13 @@ verified. You can still open old `report.html` files directly. To regenerate
 a clip with the new version, rerun the CLI; its results will appear in the
 new path-scoped directory. Re-inference may be required on the first run.
 The suffix is based on source *path*, not content: replacing a clip at that
-same path reuses the output directory and invalidates caches when its path/stat
-identity changes; a same-size, same-mtime replacement remains an unverified
-edge case, pending stronger content fingerprints in the video registry.
+same path retains the output directory, while the **pose cache identity now
+streams SHA-256 of the actual video bytes** (as well as size, mtime, analysis
+settings and model digest). This prevents stale reuse even when changed bytes
+have identical size and nanosecond mtime. Older stat-only cache metadata is
+invalidated and recomputed. A source change detected during estimation is
+not cached. Each identity computation reads the complete source in 1 MiB
+chunks, so reruns incur additional disk I/O proportional to clip size.
+A digest does not prove authorship or eliminate adversarial file-edit races.
 Synthetic rowers with injected faults (shooting the slide, early arms, rushed slide, late body prep,
 excess layback, short catch) verify each detector fires and a clean stroke scores ≥ 85.

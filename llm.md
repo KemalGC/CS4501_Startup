@@ -57,6 +57,10 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00 continued: cache identity now includes streamed SHA-256
+  for source footage and model; same-size/same-mtime replacement forces
+  inference rather than stale pose reuse. Full video decode still untested.
+
 - 2026-10-27 15:00: evidence navigation now rejects checksum-valid but structurally
   inconsistent v1 metrics and false review states; generated coaching remains withheld.
 
@@ -879,6 +883,45 @@ unverified and requires human outreach/evidence.
   cache when a video is replaced in place without changing its size or
   modification time, with benchmarked digest overhead. Keep `main`
   unchanged and preserve result-directory identity.
+
+
+### 2026-10-27 15:00 sprint (continued) — source video digest and cache isolation
+
+- Issue #23: As a coach, ensure a replaced file cannot silently reuse stale
+  pose detections if size and nanosecond mtime are restored. Dedicated topic
+  `dev/2026-10-27-1500-source-cache-fingerprint` from tested integration
+  `9cd5c5f07c9b35a4e1dd100e24a73c587d8ff5bd`.
+- **Red first:** three synthetic mocked regressions committed at
+  `a229ddd77f1ede318a41e3e57792ca1e5299bbc3`.
+  `python strokesense/quality.py` failed with three expected assertions
+  on GitHub Actions #40567402995: same-stat replacement reused the cache,
+  same-stat mid-inference mutation published an obsolete cache, and
+  stat-only legacy identity was accepted.
+- Code commit `f4254e4cd689d3c5050ce3526ac238ac4f67d5b3` streams
+  full input SHA-256 and model SHA-256 using 1 MiB chunks with stat checks
+  before/after hashing, never reading entire video into memory. Canonical
+  source path, file stats, request settings and model data are still
+  part of the versioned JSON cache key. Existing layouts and CLI flags
+  are preserved. Old stat-only caches safely fail identity comparison.
+- GitHub Actions green #40567687099 ran
+  `python strokesense/quality.py`: **4/4 synthetic analysis checks plus
+  125/125 unittests passed** including all three new regressions;
+  `python strokesense/quality.py --doctor` confirmed runtime deps present
+  but the ONNX model still absent. No model inference or actual video decode.
+- Synthetic local disk benchmark (not CI, not rowing video): hashing a
+  32 MiB repeated-byte file in 32 x 1 MiB chunks took 0.034775 s in
+  this container (approximately 920 MiB/s, warm local filesystem).
+  This one observation is not a cross-platform performance guarantee.
+  Every cache check now incurs O(file size) read I/O, including cached
+  reruns, and first-time runs may hash multiple times. No real-video
+  latency/accuracy comparison was measured.
+- Files: `strokesense/strokesense/cli.py`, `strokesense/tests/test_cache.py`,
+  README and log. Human team review of AI-assisted tests remains pending.
+  SHA-256 content fingerprint is not a cryptographic signature or a
+  mechanism to prevent adversarial in-place mutation during decoding.
+- Next: input argument validation for finite positive clip processing
+  settings, then an end-to-end local demo on genuinely permitted media
+  when available. Record real-asset blockers honestly.
 
 ### Future session entry template
 

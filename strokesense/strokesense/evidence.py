@@ -182,6 +182,110 @@ def verify_evidence_snapshot(snapshot) -> bool:
         return False
 
 
+
+def validate_reference_graph(snapshot) -> bool:
+    """Verify cross-references and chronology regardless of review status.
+
+    Unlike the unreviewed browser schema, this structural check permits
+    independently reviewed findings. It does NOT authenticate a snapshot,
+    validate reviewer identity, or approve any cue/LLM explanation.
+    """
+    if not verify_evidence_snapshot(snapshot):
+        return False
+    try:
+        seats, strokes, findings = (snapshot[key] for key in
+                                    ("seats", "strokes", "findings"))
+        fps, start = snapshot["fps"], snapshot["start_seconds"]
+        if (any(not isinstance(rows, list) or len(rows) > 5000
+                for rows in (seats, strokes, findings)) or
+                type(fps) not in (int, float) or not math.isfinite(fps)
+                or fps <= 0 or type(start) not in (int, float)
+                or not math.isfinite(start) or start < 0):
+            return False
+
+        seat_ids = set()
+        for seat in seats:
+            if not isinstance(seat, Mapping):
+                return False
+            seat_id = seat["id"]
+            if (not isinstance(seat_id, str) or not seat_id
+                    or seat_id in seat_ids):
+                return False
+            seat_ids.add(seat_id)
+
+        stroke_by_id, intervals, index_keys = {}, {}, set()
+        for stroke in strokes:
+            if not isinstance(stroke, Mapping):
+                return False
+            stroke_id, seat_id, idx = (stroke[k] for k in ("id", "seat_id", "index"))
+            frames = [stroke[k] for k in
+                      ("catch_frame", "finish_frame", "next_catch_frame")]
+            if (not isinstance(stroke_id, str) or not stroke_id
+                    or stroke_id in stroke_by_id or seat_id not in seat_ids
+                    or type(idx) is not int or idx < 0
+                    or (seat_id, idx) in index_keys
+                    or any(type(v) is not int or v < 0 for v in frames)
+                    or not frames[0] < frames[1] < frames[2]):
+                return False
+            times = [stroke[k] for k in
+                     ("catch_seconds", "finish_seconds", "next_catch_seconds")]
+            if (any(type(t) not in (float, int) or not math.isfinite(t)
+                    or t < 0 for t in times) or
+                    not times[0] < times[1] < times[2] or
+                    any(abs(times[i] - (start + frames[i] / fps)) >
+                        (1.0 / fps + 1e-5 if i == 0 else 1e-5)
+                        for i in range(3))):
+                return False
+            codes = stroke["fault_codes"]
+            if (not isinstance(codes, list) or
+                    any(not isinstance(code, str) or code not in FAULTS
+                        for code in codes) or len(set(codes)) != len(codes)):
+                return False
+            stroke_by_id[stroke_id] = stroke
+            index_keys.add((seat_id, idx))
+            intervals.setdefault(seat_id, []).append((idx, frames[0], frames[2]))
+
+        for intervals_for_seat in intervals.values():
+            ordered = sorted(intervals_for_seat)
+            if any(after[1] < before[2]
+                   for before, after in zip(ordered, ordered[1:])):
+                return False
+
+        finding_ids = set()
+        for finding in findings:
+            if not isinstance(finding, Mapping):
+                return False
+            fid, seat_id, code = (finding[k] for k in
+                                  ("id", "seat_id", "fault_code"))
+            if (not isinstance(fid, str) or not fid or fid in finding_ids
+                    or seat_id not in seat_ids or code not in FAULTS):
+                return False
+            finding_ids.add(fid)
+            ids = finding["stroke_ids"]
+            if (not isinstance(ids, list) or not ids
+                    or len(ids) > len(stroke_by_id)
+                    or any(not isinstance(sid, str) for sid in ids)
+                    or len(set(ids)) != len(ids)
+                    or any(sid not in stroke_by_id
+                           or stroke_by_id[sid]["seat_id"] != seat_id
+                           or code not in stroke_by_id[sid]["fault_codes"]
+                           for sid in ids)):
+                return False
+            numerator, denominator = finding["observed_count"], finding["analyzed_strokes"]
+            fraction = finding["observed_fraction"]
+            if (type(numerator) is not int or numerator != len(ids)
+                    or type(denominator) is not int or denominator < numerator
+                    or denominator != len(intervals.get(seat_id, ()))
+                    or type(fraction) not in (int, float)
+                    or not math.isfinite(fraction)
+                    or not math.isclose(fraction, numerator / denominator,
+                                        rel_tol=0, abs_tol=1e-9)):
+                return False
+        return True
+    except (TypeError, ValueError, KeyError, OverflowError, ZeroDivisionError):
+        return False
+
+
 def validate_public_evidence_snapshot(snapshot) -> bool:
     """Strict v1 schema/invariant check for the *unreviewed* local viewer.
 

@@ -41,6 +41,16 @@ def _fixture_with_overlap():
     return snapshot, candidate, cues
 
 
+def _fixture_with_reverse_order():
+    snapshot, candidate, cues = trusted_synthetic_fixture()
+    stroke = snapshot["strokes"][1]
+    stroke.update(catch_frame=100, finish_frame=110, next_catch_frame=130,
+                  catch_seconds=100/15, finish_seconds=110/15,
+                  next_catch_seconds=130/15)
+    _rehash(snapshot)
+    return snapshot, candidate, cues
+
+
 def _fixture_with_duplicate_finding():
     snapshot, candidate, cues = trusted_synthetic_fixture()
     snapshot["findings"].append(deepcopy(snapshot["findings"][0]))
@@ -63,8 +73,23 @@ class ReleaseEvidenceIntegrityTests(unittest.TestCase):
         self.assertEqual(result["released"], candidate)
         self.assertIn("free_text_unverified", result["warnings"])
 
+    def test_parallel_seats_can_have_same_frame_times(self):
+        snapshot, candidate, cues = trusted_synthetic_fixture()
+        other_seat = {"id": "seat_synthetic_second", "seat": "Bow",
+                      "analyzed_strokes": 1, "status": "insufficient_strokes"}
+        other_stroke = deepcopy(snapshot["strokes"][0])
+        other_stroke.update(id="stroke_synthetic_second",
+                            seat_id=other_seat["id"])
+        snapshot["seats"].append(other_seat)
+        snapshot["strokes"].append(other_stroke)
+        _rehash(snapshot)
+        result = validate_candidate(candidate, evidence_snapshot=snapshot,
+                                    reviewed_cues=cues)
+        self.assertEqual(result["released"], candidate)
+
     def test_rehashed_structural_conflicts_withheld_by_release_gate(self):
         for fixture in (_fixture_with_overlap,
+                        _fixture_with_reverse_order,
                         _fixture_with_duplicate_finding,
                         _fixture_with_broken_reference):
             with self.subTest(fixture=fixture.__name__):
@@ -78,6 +103,7 @@ class ReleaseEvidenceIntegrityTests(unittest.TestCase):
 
     def test_rehashed_structural_conflicts_never_reach_provider(self):
         for fixture in (_fixture_with_overlap,
+                        _fixture_with_reverse_order,
                         _fixture_with_duplicate_finding,
                         _fixture_with_broken_reference):
             with self.subTest(fixture=fixture.__name__):

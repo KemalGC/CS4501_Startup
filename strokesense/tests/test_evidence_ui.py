@@ -156,5 +156,61 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), body)
 
 
+    def _serve_rehashed_snapshot(self, job_id, modified):
+        """Keep the digest internally consistent to exercise schema checks."""
+        import copy
+        record = copy.deepcopy(self.snapshot)
+        modified(record)
+        record["snapshot_sha256"] = evidence._digest({
+            key: val for key, val in record.items() if key != "snapshot_sha256"
+        })
+        self.metrics_path.write_text(json.dumps({"evidence": record}), encoding="utf-8")
+        return self.request(f"/api/jobs/{job_id}/evidence")
+
+    def test_rehashed_invalid_numeric_measurements_are_rejected(self):
+        job_id = self.succeed()
+        edits = (
+            ("zero_fps", lambda s: s.__setitem__("fps", 0)),
+            ("string_fps", lambda s: s.__setitem__("fps", "15")),
+            ("string_timestamp", lambda s: s["strokes"][0].__setitem__("catch_seconds", "1.2")),
+            ("negative_frame", lambda s: s["strokes"][0].__setitem__("catch_frame", -1)),
+            ("fraction_outside_range", lambda s: s["findings"][0].__setitem__("observed_fraction", 9)),
+        )
+        for description, edit in edits:
+            with self.subTest(description=description):
+                status, _, body = self._serve_rehashed_snapshot(job_id, edit)
+                self.assertEqual(status, 409)
+                self.assertNotIn(b"analysis_fixture", body)
+
+    def test_rehashed_inconsistent_references_and_counts_are_rejected(self):
+        job_id = self.succeed()
+        edits = (
+            ("unknown_seat", lambda s: s["strokes"][0].__setitem__("seat_id", "missing_seat")),
+            ("unknown_stroke", lambda s: s["findings"][0].__setitem__("stroke_ids", ["missing_stroke"])),
+            ("contradictory_count", lambda s: s["findings"][0].__setitem__("observed_count", 3)),
+            ("seat_count_mismatch", lambda s: s["seats"][0].__setitem__("analyzed_strokes", 100)),
+            ("duplicate_seat", lambda s: s["seats"].append(dict(s["seats"][0]))),
+        )
+        for description, edit in edits:
+            with self.subTest(description=description):
+                status, _, _ = self._serve_rehashed_snapshot(job_id, edit)
+                self.assertEqual(status, 409)
+
+    def test_rehashed_unreviewed_snapshot_cannot_fake_release_eligibility(self):
+        job_id = self.succeed()
+        edits = (
+            ("false_review", lambda s: s["findings"][0].update({
+                "status": "reviewed_supported", "eligible_strokes": 3,
+                "coaching_eligible": True,
+            })),
+            ("fake_top_level_approval", lambda s: s.__setitem__("status", "reviewed_supported")),
+        )
+        for description, edit in edits:
+            with self.subTest(description=description):
+                status, _, body = self._serve_rehashed_snapshot(job_id, edit)
+                self.assertEqual(status, 409)
+                self.assertNotIn(b"reviewed_supported", body)
+
+
 if __name__ == "__main__":
     unittest.main()

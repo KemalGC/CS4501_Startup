@@ -150,6 +150,36 @@ Base inspected: `main` at `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
   LLM provider in this checkpoint. Empirical rowing accuracy improvement:
   not measured.
 
+### 2026-10-27 sprint 12:16 — private content-addressed clip registry
+
+- Issue #13: user story for a local clip library with stable SHA-256 identity,
+  conservative permission/provenance, recording-group split isolation,
+  and private-by-default source references.
+- Added `strokesense/strokesense/registry.py`: standard-library SQLite,
+  streamed content hashing, `import` and `list` commands, metadata for
+  camera/FPS/split/consent status, original local source reference, and
+  duplicate detection with conflicting metadata rejection. Default SQLite
+  path: `strokesense/results/video_registry.sqlite3` (Git ignored).
+  Import does not copy, upload, decode or analyze footage.
+- Added ten synthetic offline regression tests in
+  `strokesense/tests/test_registry.py`; first commit
+  `b5a733e963f89620d31ac12ec2e748d90222a039` intentionally failed
+  CI with 10 missing-module errors, while 27 existing unittests and four
+  legacy synthetic checks passed. This is observed red-before-code evidence,
+  not an environment or model import failure.
+- Implementation commit `1d4e6d99c17526c7410d64b18822d540f19a514e`
+  passed GitHub Actions #40540751599:
+  `python strokesense/quality.py` ran 4/4 legacy synthetic checks and
+  **37/37** unit tests (10 new registry tests). Read-only
+  `python strokesense/quality.py --doctor` exited successfully with
+  dependencies available; pose model remained uncached. No actual ONNX
+  inference, real-video evaluation or model-accuracy estimate.
+- `strokesense/.gitignore` now excludes SQLite and journal files; README
+  explains CLI usage and migration. The database stores a private local
+  source path and operator-entered permission/provenance, which do not
+  establish legal authorization. Human review of AI-assisted tests, coach
+  labels, live LLM adapter and end-to-end UI remain pending.
+
 ## Verification and assets
 
 Primary command (all offline tests, independent of the working directory):
@@ -288,14 +318,20 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-Continue the sprint with the minimal privacy-first video registry: write an
-Alpha user story/acceptance criteria in a GitHub issue and failing tests first,
-then implement a local clip registry that stores content SHA-256, a stable
-clip ID, permission/provenance and session metadata, duplicate handling, and
-safe private storage references. Do not commit any private videos/athlete data.
-Start with synthetic fixtures; coach labels and empirical accuracy are blocked
-until legitimately available. Keep the CLI and 4 legacy synthetic + 27 unit
-checks green. Include a real story/issue/test/commit traceability record.
+The output-collision and minimal local registry increments now pass offline CI.
+Next session: specify **immutable, versioned stroke/seat/fault evidence IDs**
+and clear insufficient-evidence states as an Alpha user story with explicit
+acceptance tests; confirm the tests fail before implementation. This forms the
+input contract for an independent LLM coaching validator and bounded retry.
+Preserve approved/unreviewed cue status; do not fabricate coach approval.
+Keep the CLI, 4 legacy synthetic checks and 37 current unit tests green.
+
+Follow-ups: registry import is a private *index*, not a permission enforcement
+gate for the analysis CLI. It neither validates video format nor prevents all
+athlete/crew/adjacent-frame split leakage. The existing cache/output folder is
+path-stable, so replacing media at the same path may overwrite earlier reports.
+Content-identical video files in different directories have one registry ID;
+the separate analysis output folders are still path-based.
 
 Remaining caveats: a clip replaced at the *same canonical path* shares its
 output directory, so re-analysis may replace prior reports there. Pose cache
@@ -309,7 +345,8 @@ not proof of consent or a complete confidentiality boundary.
 | Story/acceptance | Issue | Tests and commits | Status |
 | --- | --- | --- | --- |
 | Separate results for independent same-named clips, preserve legacy files, reuse valid same-source pose cache | #12 | `test_output_paths.py` (6 synthetic/mock tests), existing `test_cache.py`; red `079bb78a`, green `f7c22564` | CI green; student team inspection pending |
-| Registry, LLM evidence validator, bounded correction, local UI | Issues and tests to be created before code | No code or empirical validation claimed | Unfinished; plan issues separately |
+| Privacy-first local registry with content SHA-256, duplicate consent conflict handling and session-group split guard | #13 | `test_registry.py` (10 synthetic cases), red `b5a733e9`, green `1d4e6d99` | 4 synthetic + 37 unittests green in Actions; human test review pending |
+| LLM evidence contract, independent validator, bounded correction, local UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
 
 The eight selected-proposal criteria remain the project goals; this increment
 strengthens reproducible infrastructure and Alpha readiness, not the core LLM
@@ -439,6 +476,53 @@ unverified and requires human outreach/evidence.
   implement a small safe registry and retain green offline regression.
 - Communication: send one progress email after final CI/integration,
   avoiding duplicate subjects; no recipient metadata in repository logs.
+
+### 2026-10-27 12:16 sprint — local private clip library
+
+- Session key: `2026-10-27-1216-sprint`; immediate on-demand scheduled
+  occurrence at 12:16:24 EDT. Monotonic start recorded at **12:16:53 EDT**.
+  Engineering checkpoint **12:27:25 EDT**, measured **10 minutes 32 seconds**
+  to that checkpoint; verification/integration/email follow. Do not claim a
+  full 30-minute session or use scheduling budget as elapsed work.
+- Branch: `dev/2026-10-27-1216-video-registry`, based on verified integration
+  head `0f4ee92e6b2d2b6a8cdfb9199b4ba39c69fce068`. The prior noon
+  increment was already complete and was not repeated; `main` before
+  changes: `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
+- Story and acceptance criteria: GitHub issue #13; local private clip
+  import/list, streamed SHA-256 identity, immutable duplicate metadata,
+  unverified-by-default permission and explicit consent provenance for
+  `granted`, grouped development/heldout split collision checks,
+  path-private results and rejection of bad files/settings.
+- **Red first:** `strokesense/tests/test_registry.py` (10 unit tests) committed
+  as `b5a733e963f89620d31ac12ec2e748d90222a039` *before* production
+  registry code. `python strokesense/quality.py` in Actions #40539995106:
+  four synthetic checks passed; 27 old unittests passed; ten new tests errored
+  because the registry module was absent (expected missing behavior, not a
+  third-party dependency or flaky runtime failure).
+- **Green after implementation:** code commit
+  `1d4e6d99c17526c7410d64b18822d540f19a514e`;
+  `python strokesense/quality.py` in Actions #40540751599 exited
+  successfully: four synthetic checks + all 37 unittests, including ten new
+  registry cases. `python strokesense/quality.py --doctor` exited zero:
+  Python 3.11.17 and required modules present; ONNX model file not cached,
+  no video inference or real-world validation.
+- Files: new `strokesense/strokesense/registry.py` and
+  `strokesense/tests/test_registry.py`; updated
+  `strokesense/.gitignore`, `strokesense/README.md`, this `llm.md`.
+  Reviewed diff against integration base: these four product/test files plus
+  this log only. No real video, identifying metadata, secret or credential
+  added to GitHub.
+- Limitations: operator-entered permissions are not verified and not enforced
+  by existing analysis CLI; local SQLite references source paths and is not
+  encrypted; source changes after registration or moves require reinspection.
+  Grouping is not a complete athlete-level split isolation mechanism.
+  No coach-reviewed cues, permitted footage, LLM credentials or real labels
+  verified. Student-team inspection of AI-derived tests is **pending**.
+- Next action: create a narrow issue and failing tests for immutable evidence
+  IDs and explicit evidence sufficiency/abstention; then implement and run
+  full offline suite. Preserve earlier logs and do not touch `main`.
+- Communication: one sprint email after final CI/integration and duplicate
+  check; until confirmed, status is pending.
 
 ### Future session entry template
 

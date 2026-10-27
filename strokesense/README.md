@@ -327,6 +327,14 @@ python -m strokesense.web --port 8765
 # Visit http://127.0.0.1:8765/ in the browser.
 ```
 
+The homepage also lists the latest 20 persisted analyses, with links to
+reopen their status and successful reports after an app restart. The
+read-only `GET /api/jobs` endpoint returns at most 20 public status records
+(no private source locations or provenance), ordered newest first. The
+backend `JobQueue.list_recent(limit=20)` accepts limits 1–100 for local
+callers and never returns private registry paths. Jobs are retained until
+an operator separately removes their private database/results files.
+
 The interface binds only to IPv4 loopback, checks the Host/Origin headers,
 requires a randomized per-process anti-CSRF token on job submissions, caps
 request bodies and report sizes, and restricts report reads to successfully

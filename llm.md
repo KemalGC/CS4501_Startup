@@ -89,7 +89,38 @@ Base inspected: `main` at `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
 - Added 13 passing cache regression tests. The four existing synthetic analysis
   test functions also pass after the change.
 
+### 2026-10-27 AM quality and reproducibility
+
+- Added `strokesense/quality.py`, a cross-platform single offline test command
+  and a read-only `--doctor` preflight for Python/modules, cached ONNX model
+  presence, and optional FFmpeg availability; no network/model inference.
+- Added 5 new regression tests for the quality harness, including exit codes,
+  missing prerequisites, and ensuring both suites execute after a failure.
+- Added `.github/workflows/strokesense-quality.yml` on dev branches, using
+  Python 3.11 and dependencies from `requirements.txt`.
+- Corrected technical README cache name (`detections.npz`) and supported
+  `--tiles auto|none` flags, and documented test/doctor commands.
+- GitHub Actions first run on commit `d16f78c8` **passed** on 2026-10-27:
+  4 legacy synthetic functions and 18 discovered unittest cases,
+  including 13 cache regressions and 5 quality-tool regressions.
+- No real-video inference or empirical measurement was performed. The
+  checked execution container lacks ONNX Runtime and a cached model;
+  the CI job installed runtime dependencies but did not download/infer a model.
 ## Verification and assets
+
+Primary command (all offline tests, independent of the working directory):
+
+```sh
+python strokesense/quality.py
+python strokesense/quality.py --doctor
+```
+
+The first command executes both legacy synthetic tests and all discovered
+unittests. The second reports local runtime/module/model availability without
+downloading assets or running inference; it returns nonzero if a required
+runtime module is missing. The dev-only GitHub Actions workflow repeats these
+checks. On its initial commit, the workflow passed 4 legacy functions and 18
+unittest cases (13 cache, 5 quality), without a real-video validation run.
 
 Run from the repository root unless stated otherwise:
 
@@ -213,11 +244,13 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-Establish a repeatable test entry point and verify dependency/model availability without
-claiming real-video accuracy from synthetic fixtures. Inspect the technical
-README's tile options against the current CLI when selecting the next concrete
-reproducibility issue. The cache fix is complete; do not repeat it without a
-new observed failure.
+Evening session: add strict accepted values for `--tiles auto|none` (currently
+any unrecognized value silently disables tiling), with an argument-parser
+regression that rejects typos rather than degrading small-rower detection.
+Also plan collision-safe result identity for separate videos sharing a filename
+stem, including tests; keep any change backward-compatible or explicitly
+migrated. The first offline quality gate is working and should remain green.
+The cache fix is complete; do not repeat it without a new observed failure.
 
 Known follow-ups: the output directory still uses only the input video's stem,
 so different same-named inputs can overwrite reports even though cache reuse
@@ -258,6 +291,42 @@ can add content hashes. `--fresh` forces recomputation in the meantime.
 - Empirical accuracy change: not measured; no labeled real-video evaluation.
 - Communication: recurring development plus post-session email configured;
   the setup email will be sent after the commit is verified.
+
+### 2026-10-27 AM — offline quality and runtime preflight
+
+- Session key: `2026-10-27-am`; America/New_York start 09:03:53, verified
+  checkpoint 09:14:32 (10 minutes 39 seconds measured to that checkpoint);
+  no claim of a full 30-minute runtime. Further integration/email steps follow.
+- Topic branch: `dev/2026-10-27-am-quality-preflight`, branched from
+  integration commit `02bf9b9d944d71e0cb87ab0ccc0964307cafbe85`.
+- Files: `strokesense/quality.py`, `strokesense/tests/test_quality.py`,
+  `.github/workflows/strokesense-quality.yml`, `strokesense/README.md`,
+  and this log. Code commit: `d16f78c8184722dcc155fdd07dcc1f7e7779f1dc`.
+- Implemented a one-command offline quality suite and optional read-only
+  environment diagnostics, plus dev-branch CI and accurate CLI/cache docs.
+- Local verification: `python -m unittest discover -s
+  /mnt/data/strokesense_dev_am/strokesense/tests -p test_quality.py -v`
+  passed 5/5 harness tests; `python -m py_compile` and `ast.parse` passed
+  for new Python modules; a controlled fixture test of
+  `python <fixture>/quality.py` passed when both suites succeeded and
+  returned exit 1 when a discovered unittest intentionally failed.
+- GitHub Actions run on code commit:
+  `python strokesense/quality.py` passed the 4 legacy synthetic checks
+  and 18 unittests (13 existing cache + 5 new quality cases). The
+  diagnostic reported Python 3.11.17, runtime modules installed and model
+  file not cached; run conclusion `success`.
+- Current execution environment's `--doctor` found ONNX Runtime missing,
+  cached model missing, optional FFmpeg present, and other analysis modules
+  available. This does not contradict the clean CI environment.
+- Empirical performance improvement: **not measured**. The quality changes
+  catch regressions; they do not claim to improve rowing recognition accuracy.
+- Blocked/untested: no consented real rowing clip, coach-labeled benchmark,
+  actual ONNX model inference or live LLM provider configured in this run.
+- Next acceptance: bad `--tiles` values must fail argument parsing,
+  `auto` must remain the default, and valid `none` must disable tiling;
+  existing quality checks must pass on the topic branch.
+- Communication: post-session email to be verified and sent after
+  integration; no private recipient information stored here.
 
 ### Future session entry template
 

@@ -494,6 +494,12 @@ the revoked clip. Workers recheck permission before analysis and again before
 marking a result successful; queued or in-progress jobs whose permission was
 withdrawn fail with safe `permission_revoked` and no published report pointer.
 
+The local browser also checks the **current** registry permission when serving
+prior job status, report and evidence links. After withdrawal, these routes
+return a safe 403 and omit withdrawn clips from recent-job listings. Private
+previously generated files are retained on disk; the UI gate is not deletion
+and does not revoke previously downloaded copies.
+
 **Limitations:** Permission is only a local operator assertion, not verified
 athlete consent. Revocation does **not** delete the source file or historic
 reports, undo prior disclosures, forcibly terminate an already-running model,

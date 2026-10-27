@@ -23,7 +23,8 @@ from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue
 from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
-from .registry import DEFAULT_DB, RegistryError, list_clips, register_clip
+from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
+                       list_clips, register_clip)
 
 
 _JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -66,6 +67,13 @@ def create_server(
     result_root = jobs._results_root.resolve()  # Trusted local JobQueue directory.
     private_uploads = Path(upload_dir if upload_dir is not None
                            else result_root.parent / "uploads").expanduser().resolve()
+
+    def permitted_recent_jobs():
+        """Only display job links for clips currently permitted locally."""
+        return [
+            row for row in jobs.list_recent(limit=20)
+            if analysis_permission_granted(row["clip_id"], registry_path)
+        ]
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "StrokeSense"
@@ -150,7 +158,7 @@ def create_server(
                 controls = ("<p>No permission-claimed clips are registered. "
                             "Import a clip with the local registry CLI first.</p>")
             try:
-                recent = jobs.list_recent(limit=20)
+                recent = permitted_recent_jobs()
             except Exception:
                 self._error(503)
                 return
@@ -196,6 +204,16 @@ def create_server(
             if record is None:
                 self._error(404)
                 return
+            try:
+                permitted = analysis_permission_granted(
+                    record["clip_id"], registry_path
+                )
+            except Exception:
+                self._error(503)
+                return
+            if not permitted:
+                self._error(403)
+                return
             if api:
                 body = json.dumps(record, sort_keys=True).encode("utf-8")
                 self._send(200, body, mime="application/json; charset=utf-8")
@@ -220,6 +238,11 @@ def create_server(
                 return
             try:
                 record = jobs.get(job_id)
+                if record and not analysis_permission_granted(
+                    record["clip_id"], registry_path
+                ):
+                    self._error(403)
+                    return
                 if not record or record["status"] != "succeeded":
                     self._error(404)
                     return
@@ -256,6 +279,11 @@ def create_server(
                 return
             try:
                 record = jobs.get(job_id)
+                if record and not analysis_permission_granted(
+                    record["clip_id"], registry_path
+                ):
+                    self._error(403)
+                    return
                 if not record or record["status"] != "succeeded":
                     self._error(404)
                     return
@@ -357,7 +385,7 @@ def create_server(
                 self._home()
             elif route == "/api/jobs":
                 try:
-                    recent = jobs.list_recent(limit=20)
+                    recent = permitted_recent_jobs()
                 except Exception:
                     self._error(503)
                     return

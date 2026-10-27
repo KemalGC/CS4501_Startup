@@ -624,3 +624,25 @@ analysis or changing a permission claim. Uploads retain their own separate
 bounded size/read timeout and multipart validation. These are local-only
 defenses and are not a substitute for TLS, user authentication or an
 independent security assessment of a publicly exposed service.
+
+
+### Reproducible demo with *fabricated* review-shaped data
+
+From the `strokesense/` directory, this command prints an aggregate
+versioned JSON report and requires **no model, video, credentials or network**:
+
+```bash
+python -m strokesense.evaluation examples/synthetic_opportunities.json
+```
+
+This file contains exactly **eight fictional stroke/fault opportunities** in
+separate development and held-out *synthetic* recording groups. One development
+fault has one TP, FP, FN and TN, giving arithmetic precision=0.5 and
+recall=0.5; another has an undefined precision denominator. Its
+`review_status: "reviewed"` entries are intentionally fabricated to
+exercise the evaluator's strict schema: **no person or coach reviewed these
+strokes**. These numbers are sample software-test outputs, **NOT accuracy
+estimates** for rowing footage, and must never be presented as observed
+precision/recall. No raw clip/session/stroke IDs appear in the aggregate.
+For genuine evaluation, replace the fixture with independently annotated,
+permission-cleared footage with documented groups and denominators.

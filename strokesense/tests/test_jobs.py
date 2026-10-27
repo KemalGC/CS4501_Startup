@@ -185,5 +185,70 @@ class LocalJobsTests(unittest.TestCase):
         self.assertIsNone(finished["report_path"])
 
 
+    def test_production_worker_rejects_invalid_media_without_pose(self):
+        # No real model call: old behavior accepts fake runner output, while
+        # preflight must fail on intentionally non-decodable source bytes.
+        with patch("strokesense.cli.analyse_video", return_value={"report": "fake"}) as analyze:
+            with self.JobQueue(
+                registry_db=self.registry_db, job_db=self.jobs_db,
+                results_root=self.out_dir,
+            ) as queue:
+                item = queue.submit(self.clip_id)
+                finished = queue.wait(item["job_id"], timeout=5)
+        self.assertEqual(finished["status"], "failed")
+        self.assertEqual(finished["error_code"], "invalid_media")
+        self.assertIsNone(finished["report_path"])
+        self.assertNotIn(str(self.clip), json.dumps(finished))
+        analyze.assert_not_called()
+
+    def test_decoder_preflight_valid_frame_then_runs_existing_analyzer(self):
+        import cv2
+        from strokesense.jobs import _default_analyze
+        fake_capture = Mock()
+        fake_capture.isOpened.return_value = True
+        values = {
+            cv2.CAP_PROP_FRAME_WIDTH: 640.0,
+            cv2.CAP_PROP_FRAME_HEIGHT: 480.0,
+            cv2.CAP_PROP_FPS: 25.0,
+        }
+        fake_capture.get.side_effect = values.__getitem__
+        fake_capture.read.return_value = (
+            True, Mock(shape=(480, 640, 3)),
+        )
+        sentinel = {"report": "mocked successful analysis"}
+        with patch("cv2.VideoCapture", return_value=fake_capture) as opened, \
+                patch("strokesense.cli.analyse_video", return_value=sentinel) as analyze:
+            self.assertIs(
+                _default_analyze(self.clip, out_dir=self.out_dir), sentinel
+            )
+        opened.assert_called_once_with(str(self.clip))
+        fake_capture.release.assert_called_once_with()
+        analyze.assert_called_once_with(self.clip, out_dir=self.out_dir)
+
+    def test_decoder_preflight_rejects_bad_metadata_and_missing_frames(self):
+        import cv2
+        from strokesense.jobs import _default_analyze
+        for fps, shape, frame_ok in (
+            (float("nan"), (480, 640, 3), True),
+            (25.0, (480, 640, 3), False),
+            (25.0, (0, 640, 3), True),
+        ):
+            with self.subTest(fps=fps, shape=shape, frame_ok=frame_ok):
+                fake_capture = Mock()
+                fake_capture.isOpened.return_value = True
+                fake_capture.get.side_effect = lambda key: {
+                    cv2.CAP_PROP_FRAME_WIDTH: 640,
+                    cv2.CAP_PROP_FRAME_HEIGHT: 480,
+                    cv2.CAP_PROP_FPS: fps,
+                }[key]
+                fake_capture.read.return_value = (frame_ok, Mock(shape=shape))
+                with patch("cv2.VideoCapture", return_value=fake_capture), \
+                        patch("strokesense.cli.analyse_video") as analyze:
+                    with self.assertRaises(ValueError):
+                        _default_analyze(self.clip, out_dir=self.out_dir)
+                fake_capture.release.assert_called_once_with()
+                analyze.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

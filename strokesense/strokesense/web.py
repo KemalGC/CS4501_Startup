@@ -24,7 +24,7 @@ from .jobs import JobError, JobQueue
 from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
 from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
-                       list_clips, register_clip)
+                       list_clips, register_clip, revoke_clip)
 
 
 _JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -153,10 +153,17 @@ def create_server(
                     + '</select></label><input type="hidden" name="csrf" value="'
                     + html.escape(token, quote=True)
                     + '"><button type="submit">Analyze clip</button></form>'
+                    + '<form method="post" action="/revoke">'
+                    + '<label>Withdraw permission for clip <select name="clip_id">'
+                    + options + '</select></label>'
+                    + '<input type="hidden" name="csrf" value="'
+                    + html.escape(token, quote=True)
+                    + '"><button type="submit">Withdraw analysis permission</button>'
+                    + '</form>'
                 )
             else:
                 controls = ("<p>No permission-claimed clips are registered. "
-                            "Import a clip with the local registry CLI first.</p>")
+                            "Use the private import form below or the registry CLI.</p>")
             try:
                 recent = permitted_recent_jobs()
             except Exception:
@@ -526,10 +533,11 @@ def create_server(
             if not self._trusted_request():
                 self._error(403)
                 return
-            if urlsplit(self.path).path == "/upload":
+            route = urlsplit(self.path).path
+            if route == "/upload":
                 self._upload()
                 return
-            if urlsplit(self.path).path != "/jobs":
+            if route not in ("/jobs", "/revoke"):
                 self._error(404)
                 return
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
@@ -563,14 +571,19 @@ def create_server(
                 if not re.fullmatch(r"[0-9a-f]{64}", clip_id):
                     self._error(400)
                     return
-                record = jobs.submit(clip_id)
+                if route == "/revoke":
+                    revoke_clip(clip_id, registry_path)
+                    destination = "/"
+                else:
+                    record = jobs.submit(clip_id)
+                    destination = "/jobs/" + record["job_id"]
             except (UnicodeError, ValueError, JobError):
                 self._error(422)
                 return
             except Exception:
                 self._error(503)
                 return
-            self._send(303, b"", location="/jobs/" + record["job_id"])
+            self._send(303, b"", location=destination)
 
     class Server(ThreadingHTTPServer):
         daemon_threads = True

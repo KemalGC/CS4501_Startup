@@ -494,6 +494,12 @@ the revoked clip. Workers recheck permission before analysis and again before
 marking a result successful; queued or in-progress jobs whose permission was
 withdrawn fail with safe `permission_revoked` and no published report pointer.
 
+The loopback browser offers a separate **Withdraw analysis permission**
+form for granted clips. It reuses the same CSRF-protected, Host/Origin-checked
+local request path as starting jobs, then redirects to the private homepage.
+This is an explicit local operator action, not an independently validated
+consent withdrawal.
+
 The local browser also checks the **current** registry permission when serving
 prior job status, report and evidence links. After withdrawal, these routes
 return a safe 403 and omit withdrawn clips from recent-job listings. Private

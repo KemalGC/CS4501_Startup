@@ -222,5 +222,35 @@ class EvidenceInterfaceTests(unittest.TestCase):
                 self.assertNotIn(b"reviewed_supported", body)
 
 
+    def test_oversized_metrics_are_refused_without_parsing(self):
+        job_id = self.succeed()
+        with self.metrics_path.open("wb") as stream:
+            stream.truncate(16 * 1024 * 1024 + 1)
+        status, _, body = self.request(f"/api/jobs/{job_id}/evidence")
+        self.assertEqual(status, 413)
+        self.assertNotIn(str(self.root).encode(), body)
+
+    def test_unsupported_snapshot_schema_is_refused(self):
+        job_id = self.succeed()
+        status, _, body = self._serve_rehashed_snapshot(
+            job_id, lambda s: s.__setitem__("schema_version", 2))
+        self.assertEqual(status, 409)
+        self.assertNotIn(b"analysis_fixture", body)
+
+    def test_evidence_html_escapes_source_controlled_seat_names(self):
+        import copy
+        job_id = self.succeed()
+        snap = copy.deepcopy(self.snapshot)
+        snap["seats"][0]["seat"] = '<script>alert("unsafe")</script>'
+        snap["snapshot_sha256"] = evidence._digest({
+            key: val for key, val in snap.items() if key != "snapshot_sha256"
+        })
+        self.metrics_path.write_text(json.dumps({"evidence": snap}), encoding="utf-8")
+        status, _, body = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"<script>", body)
+        self.assertIn(b"&lt;script&gt;", body)
+
+
 if __name__ == "__main__":
     unittest.main()

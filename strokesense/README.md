@@ -367,6 +367,27 @@ known sources. Crash-recovery garbage collection for interrupted uploads is
 not yet implemented. Server tests are synthetic and use a fake analysis
 worker; they do not establish pose accuracy or a full end-to-end model run.
 
+
+### Saved evidence navigation (local browser, issue #22)
+
+Successful jobs expose an **unreviewed, read-only** evidence view at
+`/jobs/<job-id>/evidence` and allowlisted JSON at
+`/api/jobs/<job-id>/evidence`. Only a job-local `metrics.json` inside a
+verified result root is read; failed/unknown jobs, oversized files,
+traversal/symlinks outside the job root, corrupt checksums and malformed
+version-1 schemas fail closed. The checks cover frame/time numeric types,
+finite rates, measured denominators, seat/stroke/fault cross-references,
+and reject unsupported coaching-eligibility/approval claims even when a
+checksum has been recomputed. All label text is HTML-escaped.
+
+The UI always says `coaching_state=withheld`: none of the current version-1
+findings has independently reviewed eligibility or approved cues, and this
+page does not invoke an LLM. **SHA-256 integrity checks are not signatures**
+and cannot prove that an editor has not deliberately changed a file or
+that measurements are accurate. This local interface is not authenticated;
+do not expose it outside loopback. Tests use synthetic metric fixtures,
+not genuine coach-reviewed footage.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

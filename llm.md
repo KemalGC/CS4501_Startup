@@ -57,6 +57,9 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00: evidence navigation now rejects checksum-valid but structurally
+  inconsistent v1 metrics and false review states; generated coaching remains withheld.
+
 Base inspected: `main` at `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
 
 ### Implemented before this program
@@ -830,6 +833,52 @@ unverified and requires human outreach/evidence.
   withheld/verified coaching UI; no release without independent gate.
 - Communication: scheduled-session email after final CI/integration;
   pending confirmation.
+
+
+### 2026-10-27 15:00 sprint — evidence viewer schema hardening
+
+- Issue #22 (existing evidence viewer, continuing the last unfinished increment).
+  First integrated the 14:00 topic branch after confirming a clean two-commit
+  fast-forward, red Actions #40558145506 and green Actions #40558386951.
+  The viewer returns job-scoped, checksum-checked and allowlisted records and
+  explicitly withholds unreviewed AI advice; no third-party provider calls.
+- The 15:00 safety review found that the viewer verified a checksum but
+  did **not** verify typed measurements, evidence referential integrity,
+  counted denominators or false approval claims when a malicious record
+  recomputed its own SHA-256. This is a concrete correctness gap, not an
+  empirical performance metric.
+- Story: as a coach, I want invalid saved evidence rejected before display
+  so that malformed measurements or fabricated review states cannot appear
+  as usable feedback. Acceptance: finite FPS/times, ordered frames, unique
+  seats/strokes/findings, accurate counted observed fractions, known fault
+  links, unreviewed-only version-1 states and fail-closed HTTP 409.
+- Topic `dev/2026-10-27-1500-evidence-hardening`; integration base
+  `538e36675fd50a325f54df6bb72af5cca72babab`.
+  Tests were committed first at
+  `26191353c90e9f4730e5ef4488cadf941726b0f2`;
+  `python strokesense/quality.py` on Actions #40566398725
+  showed **12 expected assertion failures** within three new regression
+  test functions (HTTP 200 instead of 409), while older tests passed.
+- Code commit `4cb39aeec485ec08759d11b23784c4dc6875ead1`
+  added `validate_public_evidence_snapshot` in
+  `strokesense/strokesense/evidence.py`, enforced it in `web.py`,
+  and corrected the synthetic fixture to include the declared three
+  strokes. Green Actions #40566710311 passed **119 unittests and 4
+  legacy synthetic checks**, and the read-only doctor completed with
+  runtime libraries available but no cached ONNX model.
+- Additional green-only guard regressions verify rejecting oversized
+  `metrics.json`, unsupported schema versions and HTML-injection seat
+  names without echoing private paths. These test pre-existing expected
+  defenses, not the original observed missing-behavior failures.
+- No real video decoder/model inference, real-world coach agreement,
+  reviewed cue catalogue, external LLM generation or customer KPI
+  measurement was exercised. Consent claims are not independently
+  verified; a local SHA-256 check cannot provide adversarial integrity.
+  Human team inspection of AI-assisted tests remains pending.
+- Next: issue-based TDD for source-content hash freshness in the pose
+  cache when a video is replaced in place without changing its size or
+  modification time, with benchmarked digest overhead. Keep `main`
+  unchanged and preserve result-directory identity.
 
 ### Future session entry template
 

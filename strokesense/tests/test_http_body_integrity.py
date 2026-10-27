@@ -102,10 +102,10 @@ class IncompletePostBodyTests(unittest.TestCase):
 
     def request_with_framing(self, route, data, content_type, framing):
         headers = (
-            f"POST {route} HTTP/1.1\\r\\nHost: 127.0.0.1:{self.port}\\r\\n"
-            f"Content-Type: {content_type}\\r\\n"
-            + "".join(line + "\\r\\n" for line in framing)
-            + "Connection: close\\r\\n\\r\\n"
+            f"POST {route} HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n"
+            f"Content-Type: {content_type}\r\n"
+            + "".join(line + "\r\n" for line in framing)
+            + "Connection: close\r\n\r\n"
         ).encode("ascii")
         with socket.create_connection(("127.0.0.1", self.port), timeout=7) as client:
             client.settimeout(7)
@@ -153,16 +153,16 @@ class IncompletePostBodyTests(unittest.TestCase):
             ("provenance", "synthetic operator declaration"),
         ):
             blocks.append(
-                f'--{boundary}\\r\\nContent-Disposition: form-data; name="{key}"\\r\\n\\r\\n{value}\\r\\n'
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'
                 .encode()
             )
         blocks.append(
-            f'--{boundary}\\r\\nContent-Disposition: form-data; name="video"; filename="test.mp4"\\r\\nContent-Type: video/mp4\\r\\n\\r\\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="video"; filename="test.mp4"\r\nContent-Type: video/mp4\r\n\r\n'
             .encode()
-            + b"\\x00\\x00\\x00\\x18ftypisom" + b"\\x00" * 12
-            + b"\\r\\n"
+            + b"\x00\x00\x00\x18ftypisom" + b"\x00" * 12
+            + b"\r\n"
         )
-        blocks.append(f"--{boundary}--\\r\\n".encode())
+        blocks.append(f"--{boundary}--\r\n".encode())
         return b"".join(blocks), f"multipart/form-data; boundary={boundary}"
 
     def test_duplicate_conflicting_lengths_cannot_persist_upload(self):

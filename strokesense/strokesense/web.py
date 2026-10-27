@@ -587,12 +587,20 @@ def create_server(
                 self._error(403)
                 return
             route = urlsplit(self.path).path
-            if route == "/upload":
-                self._upload()
-                return
-            if route not in ("/jobs", "/revoke"):
+            if route not in ("/jobs", "/revoke", "/upload"):
                 allowed = _allowed_methods(route)
                 self._error(405, allow=allowed) if allowed == "GET" else self._error(404)
+                return
+            # Reject ambiguous framing before reading or mutating private data.
+            # The local server does not implement chunked request decoding.
+            lengths = self.headers.get_all("Content-Length") or []
+            if (len(lengths) != 1
+                    or re.fullmatch(r"[0-9]+", lengths[0]) is None
+                    or self.headers.get_all("Transfer-Encoding")):
+                self._error(400)
+                return
+            if route == "/upload":
+                self._upload()
                 return
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
             if content_type != "application/x-www-form-urlencoded":

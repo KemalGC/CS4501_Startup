@@ -359,6 +359,16 @@ backend `JobQueue.list_recent(limit=20)` accepts limits 1–100 for local
 callers and never returns private registry paths. Jobs are retained until
 an operator separately removes their private database/results files.
 
+Local API failures under `/api/` use machine-readable
+`application/problem+json` with `type=about:blank`, a generic `title`
+and numeric HTTP `status`. They carry no raw exception details, source
+paths, provenance, or file content and remain `Cache-Control: no-store`.
+Browser error pages (e.g., `/jobs/<missing-id>`) still return HTML;
+clients should branch on the HTTP status and media type, not parse error
+HTML. Test these failure routes with
+`python -m unittest discover -s strokesense/tests -p test_api_errors.py -v`
+from the repository root.
+
 The browser import form (also reachable with `POST /upload`) accepts a
 **maximum 25 MiB multipart request**, enforces nonempty bytes and a video
 extension allowlist (`.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`), and

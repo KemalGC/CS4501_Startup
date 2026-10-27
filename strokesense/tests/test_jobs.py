@@ -1,4 +1,7 @@
-"""Deterministic local analysis job lifecycle tests (no model/video inference)."""
+"""Deterministic local analysis job lifecycle tests (no model/video inference).
+
+Red-checkpoint branch deliberately retains the pre-fix job publisher for #25.
+"""
 from __future__ import annotations
 
 import json

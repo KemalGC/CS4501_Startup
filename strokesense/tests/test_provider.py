@@ -6,6 +6,7 @@ No test sends HTTP traffic or creates chargeable provider requests.
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import os
@@ -61,7 +62,10 @@ class ConfiguredProviderTests(unittest.TestCase):
         snap["private_source_path"] = "/private/sensitive-training-group"
         cues = copy.deepcopy(self.cues)
         cues["fixture-cue"]["reviewed_by"] = "private reviewer name"
-        self.assertEqual(snap["snapshot_sha256"], self.snapshot["snapshot_sha256"])
+        payload = {k: v for k, v in snap.items() if k != "snapshot_sha256"}
+        snap["snapshot_sha256"] = hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False).encode("utf-8")).hexdigest()
         with patch("strokesense.provider.urlopen", return_value=fake_response(self.candidate)) as open_url:
             self.generator(evidence_snapshot=snap, reviewed_cues=cues)(1, [])
         payload = open_url.call_args.args[0].data.decode()
@@ -126,7 +130,7 @@ class ConfiguredProviderTests(unittest.TestCase):
             b"{}",
             json.dumps({"choices": [{"message": {"content": "not-json"}}]}).encode(),
             json.dumps({"choices": [{"message": {"content": "[]"}}]}).encode(),
-            json.dumps({"choices": [{"message": {"content": "{}"}}]}).encode() if False else b"[]",
+            b"[]",
         )
         for data in malformed:
             with self.subTest(data=data[:20]), patch(

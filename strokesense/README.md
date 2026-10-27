@@ -12,7 +12,7 @@ Outputs (in `results/<video name>/`):
 | `<video>_annotated.mp4` | The clip with each rower's skeleton, seat label, live body angle and stroke rate |
 | `report.html` | Coaching report: per-seat score, top faults + cues, catch/finish snapshots, sequencing chart, crew timing chart |
 | `metrics.json` | Every stroke's numbers, for further analysis |
-| `pose.npz` | Cached joint positions (re-runs skip the slow step) |
+| `detections.npz` | Versioned cached person detections (re-runs skip pose inference when the input/settings/model match) |
 
 ## Setup (Windows, PowerShell)
 
@@ -46,7 +46,7 @@ python -m strokesense.cli "Z:\footage\IMG_3945.MOV" --start 5 --duration 30
 python -m strokesense.cli "Z:\footage\erg.mp4" --single
 ```
 
-Useful flags: `--tiles 1|2|3` (split wide frames so small, distant rowers are found; `auto` picks),
+Useful flags: `--tiles auto|none` (`auto` finds a person band and tiles it, `none` uses the whole frame),
 `--fps 30` (finer catch-timing resolution, ~2× slower), `--fresh` (ignore the cached pose).
 
 Speed: pose detection is the slow step — about 7 minutes for a 37 s 1080p clip of a full eight on a
@@ -105,10 +105,17 @@ Thresholds live in `strokesense/strokes.py` (`FAULTS` and `analyse`) so a coach 
 Side-on from the launch, level with the boat, whole crew in frame (e.g. IMG_3942, IMG_3951). Shots
 from behind the stern can't measure body angles.
 
-## Tests
+## Quality checks
+
+From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):
 
 ```powershell
-python tests\test_analysis.py
+python strokesense/quality.py
+python strokesense/quality.py --doctor
 ```
+
+`--doctor` is read-only: it reports local dependency discovery, whether the ONNX model file is cached, and optional FFmpeg availability. It does not download the model, run inference, decode footage, or establish real-video accuracy. It exits nonzero if required runtime modules are absent; the unit-test command works separately. For the older synthetic checks alone, run `python tests/test_analysis.py` from the `strokesense/` directory. CI also runs the offline suite for `dev/**` branches.
+
+**Output naming warning:** results are written under `results/<video stem>/`. Two videos with the same filename stem share a directory; process them into separate `--out` folders to avoid overwriting reports.
 Synthetic rowers with injected faults (shooting the slide, early arms, rushed slide, late body prep,
 excess layback, short catch) verify each detector fires and a clean stroke scores ≥ 85.

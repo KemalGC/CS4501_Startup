@@ -1,0 +1,31 @@
+name: StrokeSense offline quality
+
+on:
+  push:
+    branches:
+      - 'dev/**'
+    paths:
+      - 'strokesense/**'
+      - 'llm.md'
+      - '.github/workflows/strokesense-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis dependencies
+        run: python -m pip install -r strokesense/requirements.txt
+      - name: Run offline regression checks
+        run: python strokesense/quality.py
+      - name: Show runtime preflight (diagnostic only)
+        if: always()
+        run: python strokesense/quality.py --doctor

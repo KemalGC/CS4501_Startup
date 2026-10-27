@@ -373,9 +373,26 @@ publishing private content. This lightweight signature check is **not** a
 decoder, malware scanner, consent proof, or guarantee of a usable video stream.
 Some older QuickTime files without an initial `ftyp` box may be rejected and
 need conversion; real media decoding/codec compatibility are still untested.
-Uploading does **not** run an analysis or verify video
-decodability/consent. Local files cannot be downloaded using HTTP routes.
+The browser upload form now offers an explicit **Analyze immediately after
+import** checkbox (checked by default). With it selected, a valid
+permission-attested upload first registers/deduplicates the private clip,
+then submits one bounded job and redirects to `/jobs/<opaque-job-id>`.
+Uncheck it for register-only behavior: `POST /upload` without the optional
+`analyze=now` field still redirects to the homepage without running analysis.
+A full/unavailable job queue returns a generic HTTP 503; the registered
+clip remains available for a manual retry rather than falsely claiming success.
+Malformed or repeated analyze fields are rejected before upload persistence.
+Decoder verification occurs later in the worker, not at upload time;
+a queueing success does **not** prove decodability or permission.
+Local files cannot be downloaded using HTTP routes.
 Set `--uploads` to move the private upload directory.
+
+Offline integrated-flow checks are available via
+`python -m unittest discover -s strokesense/tests -p test_upload_analyze.py -v`
+from the repository root. These use **synthetic container headers and a fake
+analysis callback** to exercise upload, job status, report reopen, validated
+evidence, explicit coaching withholding and failure paths. They are not a
+real rowing video demo, live model execution, consent audit or accuracy result.
 
 The interface binds only to IPv4 loopback, checks the Host/Origin headers,
 requires a randomized per-process anti-CSRF token on job submissions

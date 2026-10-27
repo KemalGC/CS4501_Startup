@@ -209,11 +209,63 @@ cannot amend validator inputs via references during the loop. A persistent
 failure or generator exception produces `status: withheld` and
 `released: null`. Invalid attempt caps are rejected.
 
-The offline tests use explicit synthetic generators and fictional review
-fixtures. This is **not a live LLM adapter or a production-approved cue
-catalogue**; all current v1 evidence still fails the release gate.
-Real provider configuration, structured generation prompts, live integration,
-and HTML output of only validated responses remain future work.
+The correction tests use explicit synthetic generators and fictional review
+fixtures; they do not establish real provider correctness or human review.
+A configurable HTTPS chat adapter is available below, but it has not been run
+against a live provider. All current v1 evidence still fails the release gate,
+and HTML integration of validated coaching remains future work.
+
+## Optional LLM adapter (configured, not yet live-verified)
+
+\`strokesense.provider.OpenAIChatGenerator\` implements an OpenAI-compatible
+HTTPS Chat Completions JSON adapter and can be passed directly to
+\`strokesense.correction.run_correction()\`. It is an **optional integration**,
+not an automatically running cloud service: importing or constructing the
+adapter performs no HTTP request. It requires explicit model/provider choice,
+credentials, and a separate permission decision before external inference.
+
+Set these environment variables locally (do not commit their values):
+
+- \`STROKESENSE_LLM_MODEL\` — explicitly selected compatible chat model ID.
+- \`STROKESENSE_LLM_API_KEY\` — secret bearer token; never print or commit.
+- \`STROKESENSE_LLM_ENDPOINT\` — optional HTTPS Chat Completions endpoint
+  (defaults to \`https://api.openai.com/v1/chat/completions\`).
+  Redirects are blocked rather than forwarding tokens to another host.
+
+The Python call sequence, **only when you have consent and approved cues**, is:
+
+\`\`\`python
+from strokesense.provider import OpenAIChatGenerator
+from strokesense.correction import run_correction
+
+# Obtain evidence_snapshot from a saved metrics.json and a separately
+# verified cue catalogue. Do not invent approval/coverage for live use.
+generator = OpenAIChatGenerator.from_env(evidence_snapshot, reviewed_cues)
+result = run_correction(
+    generator, evidence_snapshot=evidence_snapshot,
+    reviewed_cues=reviewed_cues, max_attempts=3,
+)
+# Present only result["released"] when status == "released".
+\`\`\`
+
+The adapter sends **only** allowlisted evidence IDs, validated eligible
+finding counts/timestamps, and approved cue IDs/fault mappings; raw source
+paths, video bytes, private registry fields, reviewer identities, and full
+snapshots are not sent. Nevertheless, measurements may still be personal
+data: an external API request requires a deliberate consent/privacy decision
+and may incur provider charges. The configured server must be trusted.
+The adapter rejects insecure URLs, unexpected redirects, malformed/oversized
+responses and provider exceptions, returning sanitized error codes to the
+fail-closed correction loop. A 60-second timeout ceiling and 128-KiB response
+ceiling bound individual attempts. No provider calls occur in the offline tests.
+
+**Current blockers:** the repository contains no verified human-approved
+cue catalogue or independently eligible real-video evidence; the v1 report
+snapshot marks all findings unreviewed, so the adapter refuses a provider call.
+Real model generation, accuracy, content moderation, pricing and advice quality
+have **not** been tested. A passing structural validator still cannot prove
+free-text truth or coaching effectiveness. The UI must display only validated,
+safely escaped text and clearly distinguish withheld results.
 
 ## Quality checks
 

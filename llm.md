@@ -318,16 +318,21 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-The output-isolation, private registry, versioned evidence snapshot,
-independent **fail-closed coaching validator**, and bounded **three-attempt
-correction loop** all pass offline CI on the sprint development branches.
-Next highest-priority Alpha story: implement a configurable real LLM provider
-adapter that produces structured candidate JSON without changing evidence,
-review rules, or the deterministic validator; mock the HTTP boundary first,
-test errors/timeouts without network or spending, and enable live provider
-verification only when credentials and permission are actually configured.
-Then integrate validated coaching with local results/UI. No approved cue
-catalogue, verified real-video labels, or live LLM execution exists now.
+The code-level Alpha now includes collision-safe outputs, a private
+content-addressed clip registry, versioned evidence, fail-closed independent
+coaching validation, a bounded three-attempt correction loop, and an explicit
+HTTPS LLM chat adapter with sanitized, minimal evidence projection.
+The new adapter passes mocked offline CI, **not** live provider verification.
+No approved real cue catalogue or independently eligible real-video evidence
+exists yet, so the adapter appropriately refuses live generation without
+those prerequisites.
+
+Next highest-priority issue: implement a minimal **local** analysis job and
+results interface with bounded uploads, clear queued/running/failed states,
+and safely escaped navigation to saved metrics/evidence. Prefer established
+maintainable components, robust path isolation and security controls. Write
+acceptance tests before implementation. Preserve existing CLI and release
+validator. Do not expose unapproved coaching or private video footage.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
 gate for the analysis CLI. It neither validates video format nor prevents all
@@ -632,6 +637,58 @@ unverified and requires human outreach/evidence.
   then local results/UI integration. Student review pending; main
   remains excluded from all write operations.
 - Communication: final progress email after CI/integration.
+
+
+### 2026-10-27 13:00 sprint (continued) — configured HTTPS LLM adapter
+
+- Session key: \`2026-10-27-1300-sprint\` (continuation following issues
+  #14–#16). This coding checkpoint began at **13:27:07 EDT**, after inspecting
+  the already-green integrations. Monotonic timer used; **8m51s measured**
+  to the **13:35:58 EDT** documentation checkpoint. Remaining verification,
+  integration and email steps occur afterward; this is not a 30m claim.
+- Issue #17: as a coach, request generated structured explanations using
+  preverified evidence and reviewed cue identifiers without bypassing the
+  independent release gate. Topic branch:
+  \`dev/2026-10-27-1300-provider-adapter\`, from integration SHA
+  \`edd43d7db51658d236dd5b5bc21761bc51daf723\`. Original \`main\` head
+  \`3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc\`.
+- Test-first commit \`965e01eaf2b8397515719f6bea7f5025a13e8e6c\`
+  specifies network-safe initialization, secure URL/config behavior,
+  allowlisted privacy-safe request projection, response shape/size,
+  sanitization, correction-loop use, persistent withholding. Human review
+  tightened the test fixture checksum before implementation in test commit
+  \`b3207b8bfd56268b625c3311b98aca8611efe88b\`.
+  GitHub Actions red run #40551302223 failed with the expected missing
+  \`strokesense.provider\` module, while four prior synthetic checks passed;
+  there was no live network traffic.
+- Implementation commit \`d4b44669b37a6f1f022ecc93553e984940c21403\`
+  added \`strokesense/strokesense/provider.py\`: explicit HTTPS Chat
+  Completions adapter, env-configured model/key/endpoint, minimal whitelisted
+  eligible evidence/approved cue payload, JSON parsing, timeout/size limit,
+  sanitized provider failures, and direct compatibility with independent
+  correction/validation. Initial green Actions #40551592658 passed four
+  synthetic functions + 74 unittests, including ten provider cases.
+- Security review added a **separate failing redirect test** first:
+  \`652a6932703952b4e6e1a850928681c797319d00\`,
+  GitHub Actions #40551829700 confirmed missing redirect-rejection handler
+  before code changes. Fix commit \`02364e53ef74ef690e880960e10f4d0705bd9c3d\`
+  uses a dedicated no-redirect HTTPS opener, avoiding global mutation and
+  preventing forwarding credentials to redirected destinations.
+- Final green Actions #40551950563: \`python strokesense/quality.py\`
+  passed **4/4 existing synthetic analysis checks plus all 75 unittests**,
+  including 11 provider tests; \`python strokesense/quality.py --doctor\`
+  succeeded with installed runtime deps but no cached ONNX model. All
+  provider responses and approvals were fictional test doubles; no real
+  provider was contacted and no empirical accuracy was measured.
+- Files: new provider module + tests; updated README and durable log.
+  Team inspection of AI-assisted tests is still pending. Limitations:
+  no verified cue approvals, no consented external-provider transmission,
+  no live inference, no real labeled accuracy data, and no full UI.
+  Privacy decision still required before sending even allowlisted
+  biomechanics data to third parties. Old source path/stat cache limitation
+  remains. Avoid any actual spending without consent.
+- Next: issue-based TDD for local job/result upload interface and strict
+  release-only coaching display. Progress email after verification/integration.
 
 ### Future session entry template
 

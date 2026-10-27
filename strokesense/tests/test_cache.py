@@ -41,7 +41,7 @@ class PoseCacheTests(unittest.TestCase):
         self.model = self.root / "pose.onnx"
         self.model.write_bytes(b"model placeholder")
         self.out = self.root / "results"
-        self.cache = self.out / self.video.stem / "detections.npz"
+        self.cache = cli._result_directory(self.video, self.out) / "detections.npz"
         self.dets = [(np.zeros((1, 4)), np.zeros((1, 17, 3)))]
         self.meta = {"fps": 15.0, "width": 640, "height": 480, "start": 0.0, "stride": 2}
         self.messages = []

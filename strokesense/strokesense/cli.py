@@ -60,11 +60,24 @@ def _cache_identity(video, start, duration, tiles, fps, model):
     return json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def _result_directory(video, out_dir):
+    """Path-scoped results for one canonical clip, independent of filename collisions.
+
+    The suffix is a stable hash of the *canonical source path*, not footage data:
+    it avoids disclosing the source's parent directory and does not read large
+    video files. Results from a prior results/<stem> layout remain untouched.
+    Source changes at the same path invalidate pose caches via _cache_identity.
+    """
+    video = Path(video).expanduser().resolve()
+    source_key = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:20]
+    return Path(out_dir) / f"{video.stem[:72]}--{source_key}"
+
+
 def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="auto", fps=15.0,
                   model=None, single=False, reuse=True, log=print):
     video = Path(video).expanduser().resolve()
     model = Path(model).expanduser().resolve() if model is not None else None
-    out = Path(out_dir) / video.stem
+    out = _result_directory(video, out_dir)
     out.mkdir(parents=True, exist_ok=True)
     cache = out / "detections.npz"
 

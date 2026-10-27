@@ -5,7 +5,7 @@ maps their joints with a pretrained pose model (no markers, no sensors), splits 
 strokes, and flags technique faults with coaching cues. For crews it also measures **who is early or
 late at the catch**.
 
-Outputs (in `results/<video name>/`):
+Outputs (by default in `results/<video stem>--<source-path hash>/`):
 
 | File | What it is |
 |---|---|
@@ -116,6 +116,25 @@ python strokesense/quality.py --doctor
 
 `--doctor` is read-only: it reports local dependency discovery, whether the ONNX model file is cached, and optional FFmpeg availability. It does not download the model, run inference, decode footage, or establish real-video accuracy. It exits nonzero if required runtime modules are absent; the unit-test command works separately. For the older synthetic checks alone, run `python tests/test_analysis.py` from the `strokesense/` directory. CI also runs the offline suite for `dev/**` branches.
 
-**Output naming warning:** results are written under `results/<video stem>/`. Two videos with the same filename stem share a directory; process them into separate `--out` folders to avoid overwriting reports.
+**Collision-safe results:** Since the October 27 sprint, each video uses a stable
+`results/<video stem>--<20-character source-path SHA-256 prefix>/` directory.
+The hash is computed from the canonical absolute input path (so path aliases
+such as symlinks resolve to the same directory), not the video contents.
+Different videos named `crew.mp4` in different folders no longer overwrite
+each other's detection caches, `report.html`, `metrics.json`, annotated
+videos, or snapshots. Identical source paths keep their result directories
+across reruns; changed input file stats/settings/model still invalidate the
+cached detections.
+
+**Existing output folders:** Previous releases used `results/<video stem>/`.
+These legacy folders are left untouched rather than being automatically
+migrated or replaced, because the original source owner cannot always be
+verified. You can still open old `report.html` files directly. To regenerate
+a clip with the new version, rerun the CLI; its results will appear in the
+new path-scoped directory. Re-inference may be required on the first run.
+The suffix is based on source *path*, not content: replacing a clip at that
+same path reuses the output directory and invalidates caches when its path/stat
+identity changes; a same-size, same-mtime replacement remains an unverified
+edge case, pending stronger content fingerprints in the video registry.
 Synthetic rowers with injected faults (shooting the slide, early arms, rushed slide, late body prep,
 excess layback, short catch) verify each detector fires and a clean stroke scores ≥ 85.

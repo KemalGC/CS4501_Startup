@@ -1512,3 +1512,14 @@ template as a run.
 - Blockers, unavailable assets/configuration, and remaining risks.
 - Next concrete action and its acceptance criteria.
 - Communication status (without personal addresses or private identifiers).
+
+
+### 2026-10-27 17:00 scheduled sprint, delayed actual run — truncated POST forms
+
+- Session key `2026-10-27-1700-sprint` (continued after prior recovery), actual start **17:56:56 EDT** as supplied by runtime; checkpoint **10/27/2026, 18:02:59 EDT**, **363 seconds wall-clock elapsed to checkpoint**, not a 30-minute claim or monotonic measurement.
+- Issue **#42**: as a local coach, incomplete or stalled POST `/jobs` and `/revoke` forms must fail closed without adding a job or changing permission.
+- TDD topic `dev/2026-10-27-1700-post-body-integrity`, original integration base `006badb354cdb9f09a9eec0bb9b6f058f6094f59`. Tests first commit `e1d30b85fa46a318117298e0f5fdc74c99f70085` added four synthetic loopback tests. GitHub Actions **#40591344656** ran `python strokesense/quality.py` and recorded **two expected 303-versus-400 behavioral failures** (mismatched declared length was accepted for job/revoke), plus one socket timeout and a cleanup error from the hung server; normal valid submission test passed. These failures were NOT import or missing-dependency errors.
+- Implementation `0f38c3e5da546328e7c1783a13d0b09e512e1111` enforces complete byte count before parsing or mutation and a finite 5-second socket body-read timeout, emitting generic 400 on EOF/timeout. Safe Host/Origin, CSRF, and valid requests continue working; no raw body/source path/token is returned. Changed `strokesense/strokesense/web.py` and `strokesense/tests/test_http_body_integrity.py` only before reconciliation.
+- Actions **#40591478097** ran the complete `python strokesense/quality.py` **GREEN: 197/197 unittests and four existing synthetic analysis functions passed**. Read-only `--doctor` found Python dependencies but no cached ONNX pose model. All new tests are synthetic local HTTP; no real video inference, customer KPI, genuine coach approval, consent verification, LLM calls or empirical accuracy was measured. Human inspection pending.
+- Integration moved to `1bf240c0f620eddca28a1f755e30fe9fe650e927` during work (#41 evaluation CLI); preserving that concurrent change by replaying only verified nonoverlapping web/test additions on reconciled dated branch `dev/2026-10-27-1700-post-body-integrity-reconcile`. Do not move the integration ref until the reconciled combined suite is green with a matching expected SHA. No `main` changes.
+- Next: confirm reconciled CI green and guarded integration; assess duplicate/conflicting Content-Length fields as next narrowly scoped local HTTP issue if time remains. Communication pending verified Sent check.

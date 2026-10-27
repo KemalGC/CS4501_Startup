@@ -363,12 +363,18 @@ published outputs remain available and are not deleted or instantly recalled.
 The independent LLM adapter has *not* run with live provider credentials;
 actual rowing pose accuracy and customer validation are unmeasured.
 
-**Next focused engineering action:** implement a versioned, non-destructive
-local permission-withdrawal audit (schema migration and first-revocation
-timestamp) with test-first cases. #31 HTTP Problem Details/error coverage now
-includes real 409/413/503 routes, 403/404, and a test-only serializer probe
-for other codes. Do not delete existing files or imply independent consent.
-Preserve loopback-only, CSRF, Host and Origin gates.
+The 17:00 sprint added fail-closed HTTP method handling and complete
+synthetic regression coverage for the #31 API Problem Details contract.
+The private registry now has additive SQLite schema v2 with a UTC timestamp
+of the first explicit operator permission withdrawal; legacy/denied entries
+are preserved without inventing past times. No prior files are deleted.
+
+**Next focused engineering action:** test-first persistence of the independent
+coaching validator's released/withheld outcome with saved job evidence and
+explicit status in the local UI, without exposing unreviewed cues or trusting
+generator-authored measurements/rules. Verify failure paths with offline fake
+provider inputs. Continue to preserve loopback-only, CSRF, Host/Origin,
+privacy and no-default-branch writes.
 
 Remaining research/validation blockers: genuinely permitted rowing media,
 downloaded ONNX pose model for empirical inference, coach-reviewed cue
@@ -390,7 +396,8 @@ and deliberate concurrent file mutation remains a race to analyze.
 | One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; red Actions 40583792311 and 40584165377; green Actions 40584304598; route coverage Actions 40585010706 | #31 acceptance tested; team inspection pending, no real footage |
 | Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Integrated; team inspection pending |
 | Withhold revoked prior results and recent history in browser/API | #33 | `test_revoked_web.py` (3 synthetic HTTP cases): red Actions 40580738910; green Actions 40580961440 | Integrated at `842f4663`, team inspection pending |
-| CSRF/Host/Origin-protected withdrawal form in loopback UI | #34 | `test_web_revoke.py` (3 HTTP fixture cases): red Actions 40581464304; green Actions 40581629204 | Green topic, integration pending; human review pending |
+| CSRF/Host/Origin-protected withdrawal form in loopback UI | #34 | `test_web_revoke.py` (3 HTTP fixture cases): red Actions 40581464304; green Actions 40581629204 | Integrated; human review pending |
+| Versioned private permission-withdrawal UTC audit, no file deletion | #35 | `test_registry_audit.py`: red Actions 40585546897 (1 expected failure, 4 missing-field errors); green Actions 40585729715 and 40585891198 (177 cases + four synthetic) | Integrated pending final guard; team review pending |
 
 These tests are **synthetic or mocked**. The eight selected-proposal
 criteria map to Alpha implementation goals, not a verified official grade.
@@ -1361,6 +1368,62 @@ not offline unit tests.
   before production. Keep files intact and do not touch `main`.
 - Communication: one consolidated factual email after final safe
   integration; pending.
+
+### 2026-10-27 17:00 sprint (continued) — private SQLite audit schema
+
+- New issue **#35**: as a local coach/data custodian, know when an
+  operator permission claim was first withdrawn without disclosing
+  identifying source metadata or deleting historic files. Topic
+  `dev/2026-10-27-1700-revocation-audit`, created from verified
+  integration base `01ebc9eee6842f596833ffaa4c93e4cc6f7a2ef1`.
+- Test-first commit `81a2250d67d987194fa049ecb8b51b4ee9a05d27`
+  added five synthetic SQLite tests. GitHub Actions **#40585546897**
+  ran `python strokesense/quality.py` and observed **1 expected
+  behavioral assertion failure plus 4 missing `revoked_utc` errors**
+  in 175 unittests, not an import or missing-dependency failure.
+  No production change preceded that red checkpoint.
+- Production `a8b0723e9d0fe06b80e902f560ccaf0d9b7f9346`
+  uses additive `PRAGMA user_version=2` migration under a SQLite
+  write transaction, refuses newer/inconsistent versions, adds nullable
+  `revoked_utc` to safe visible metadata, and atomically stamps the
+  first grant-to-denied transition only once. Existing denied entries
+  without known history remain null; source files and provenance are
+  left intact. GitHub Actions **#40585729715** was GREEN:
+  **175/175 unittests and four synthetic stroke checks**.
+- Two additional **post-implementation regression tests** (not claimed
+  as red-to-green) in `de99ea5eb2822c2b98ea9dbf9a2346a66736f451`
+  verify v1 migration and inconsistent v2 fail-closed behavior.
+  GitHub Actions **#40585891198** passed **177/177 unittests and
+  four synthetic functions**. README documentation commit
+  `11879395934b3a64287b36a05e2d10e3c8a0044e`
+  passed Actions **#40585945875** on the same suite. Diagnostics
+  `python strokesense/quality.py --doctor` were read-only:
+  dependencies present, ONNX model absent, no inference.
+- Diff inspection against base: changed
+  `strokesense/strokesense/registry.py`,
+  `strokesense/tests/test_registry_audit.py`,
+  `strokesense/README.md`, and this `llm.md` log; schema and
+  permission-check behavior remain private/local. This migration
+  executes when opening an older private database and should be
+  preceded by a backup in real deployments. It is not a verified
+  consent audit, data erasure, legal compliance assertion, or
+  defense against malicious on-disk modification.
+- Measured overall actual run start **17:01:44 EDT**
+  (`time.monotonic_ns` 101463822631) to engineering checkpoint
+  **17:21:09 EDT** (`time.monotonic_ns` 1265256149258),
+  **19m 25s elapsed** to that point, with integration/email
+  following; no claim of 30 minutes. Earlier work in the same
+  17:00 occurrence is logged above.
+- All tests are synthetic or offline mocks. No permitted real-video
+  labels, actual ONNX model run, empirical precision/recall/timing,
+  genuine coach cue approval, customer KPI or live LLM provider
+  execution was measured. Human inspection of AI-assisted tests
+  remains pending.
+- Next: wire deterministic validator release/withheld decisions to
+  stored per-job evidence with a dedicated, tested local UI state;
+  ensure unapproved cues and unsafe free text remain withheld.
+- Communication: consolidated email pending verified Sent check and
+  guarded integration; no private addresses stored here.
 
 ### Future session entry template
 

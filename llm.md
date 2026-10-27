@@ -57,6 +57,8 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 17:29 recovery continued: #40 now explicitly shows persisted withheld coaching in local job/history, rejects unsupported release state; 193 offline unit + four synthetic checks green, no actual LLM release or real footage accuracy.
+
 - 2026-10-27 17:29 recovery continued: #39 introduced strict synthetic-only, grouped-split evaluation counts with explicit denominators, avoiding real-video accuracy claims (192/192 offline tests plus four synthetic functions green). No actual human annotation or empirical fault accuracy available.
 
 - 2026-10-27 17:29 recovery: #38 independently validated release/provider inputs now fail closed on rehashed invalid chronology/IDs/references; offline CI 188/188 unittests and four synthetic checks, no live model/provider. Real review and footage remain blocked.
@@ -1476,6 +1478,16 @@ not offline unit tests.
 - Work used synthetic fixtures only. No permitted real footage, coach-labeled ground truth, heldout accuracy, catch timing error, consent verification, LLM provider call or empirical KPI was measured. The `review_status` string is an input declaration, **not proof** of a human review; correct group assignments remain caller's responsibility. No private IDs or media were committed.
 - Actual worker started 17:31:07 EDT and reached this checkpoint **17:50:09 EDT** (monotonic 30.86797716 to 1173.087283761), **19m 02s measured**. Final checkpoint, integration and email may follow; no full 30-minute claim.
 - Next explicit task: connect this evaluator to independently reviewed, permission-cleared real-video annotations once they exist; meanwhile prioritize bounded local report/UI tests and preserve withheld LLM coaching. No automatic data download or fabricated evaluation. Communication pending duplicate-Sent search and verified email.
+
+### 2026-10-27 17:29 recovery sprint (continued) — explicit withheld coaching UI
+
+- New issue **#40**, topic `dev/2026-10-27-1729-ui-withheld`, base verified integration `6124392805ae809fe24cc8f1cdf73dccb9884a79`. User story: coach reopening a saved job sees an explicit persisted withheld state in job detail and recent local history, never inferred approval from a bare persisted flag.
+- TESTS FIRST `cd2ecd825e2206059f32380d1d74df3c304b4a3f`: GitHub Actions [#40590394523](https://github.com/KemalGC/CS4501_Startup/actions/runs/40590394523) ran `python strokesense/quality.py` with **one expected behavior assertion failure among 193 unittests** because the new explicit job status label was missing; no import failure, other tests passed.
+- Production `6d302dd3a6d8009c30684315da76e0cd9dc5c36d` updates `strokesense/strokesense/web.py` to show `Coaching: withheld` on reopened status and `coaching: withheld` in recent history. Current local Alpha cannot release independently verified coaching, so unsupported/tampered `released` or other state gets safe 409 in job status rather than an unearned approval; recent history omits such rows. API status continues to expose the persisted `withheld` with no raw sensitive metadata.
+- Additional **post-implementation** regression `14294ec320f81024ffb5cd365cb79bb247077949` simulates a locally altered persisted `released` flag; status HTML and API both reject 409 and history omits the row. That regression is not described as new test-first evidence.
+- Actions [#40590536758](https://github.com/KemalGC/CS4501_Startup/actions/runs/40590536758) is GREEN with **193/193 unit tests plus four legacy synthetic analysis checks**, actual `python strokesense/quality.py`; `--doctor` is read-only, packages present, pose model absent, no inference. No permission evidence, coach-approved cue, live LLM request or empirically measured performance. Team review pending.
+- Actual run start 17:31:07 EDT; verification checkpoint **17:54:28 EDT** (monotonic 30.86797716 to approximately 1432), around **23m 21s elapsed**, with guarded integration and one consolidated email remaining. Never claim 30 minutes unless actually measured. No main change.
+- Next: narrow offline security/error-path issue or finish handoff and one email. Preserve all existing dated topic branches, do not expose private footage.
 
 ### Future session entry template
 

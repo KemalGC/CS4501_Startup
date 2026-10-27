@@ -140,6 +140,38 @@ Thresholds live in `strokesense/strokes.py` (`FAULTS` and `analyse`) so a coach 
 Side-on from the launch, level with the boat, whole crew in frame (e.g. IMG_3942, IMG_3951). Shots
 from behind the stern can't measure body angles.
 
+## Evidence snapshot for coaching verification (Alpha)
+
+The CLI now includes a versioned `evidence` snapshot inside `metrics.json`
+without changing the existing `rowers` and `sync` fields. Each successful
+analysis with detected rowing motion records deterministic, analysis-scoped
+seat, stroke and observed-fault IDs; catch/finish/next-catch frames and source
+timestamps; and explicitly counted fault observations. IDs are computed from
+the analysis identity (source path/stat metadata, clip options and model
+identity), package version and single-rower mode, **not from athlete names**.
+The private source path is hashed and does not appear in evidence IDs.
+
+`observed_fraction` is **observed fault strokes / analyzed strokes**, not
+the fraction of strokes independently confirmed *eligible* for that fault.
+The per-fault eligible-stroke denominator is currently unknown
+(`eligible_strokes: null`). Every finding has
+`coaching_eligible: false`, including those with three or more segmented
+strokes; the distinction between `candidate_unreviewed` and
+`insufficient_evidence` only describes a provisional sample-size rule. No
+existing fixed coaching cue has documented approval. The independent LLM
+validator must not treat candidate status or heuristic scores as approval.
+
+`snapshot_sha256` detects accidental alterations to the serialized
+snapshot when checked with
+`strokesense.evidence.verify_evidence_snapshot()`. It is **not a signed
+attestation, an append-only data store, or a proof of accuracy**: an editor can
+change the file and recompute the digest. The cache identity still relies on
+source path, size, and modification time; a same-size/same-time in-place
+replacement may not invalidate it. A later quality/validation increment
+must record trustworthy eligible denominators, versioned labels and
+independently reviewed cues before any generated coaching is released.
+No real-video accuracy or live LLM generation is established by these tests.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

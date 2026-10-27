@@ -110,6 +110,46 @@ Base inspected: `main` at `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
 - Added a strict `--tiles auto|none` argparse choice gate with tests;
   unrecognized options no longer silently disable native-resolution tiling.
 
+### 2026-10-27 sprint 12:00 — collision-safe per-video results
+
+- The October 27–29 coding sprint temporarily prioritizes the new course
+  Activity 2 and Activity 3 workflow over the old 42-session calendar.
+  This is an implementation sprint, not evidence that planned three-hour
+  daily coding budgets were fully consumed. Keep the earlier schedule and
+  session history for continuity; do not automatically resume the old plan.
+- Issue-based TDD: GitHub issue #12 records the alpha user story and acceptance
+  criteria. Its tests were committed first; synthetic placeholder clips and
+  mocked inference isolate path/cache behavior. The team's review of
+  AI-assisted tests remains pending.
+- Production: `_result_directory()` chooses a stable path-scoped output
+  directory using a 20-character SHA-256 prefix of the canonical source path,
+  together with the video stem. Separate same-stem inputs now receive
+  independent cache, reports, snapshots and annotated media directories.
+  The same canonical source path retains its folder across reruns.
+- Compatibility: legacy `results/<stem>/` directories are intentionally
+  not overwritten, read or automatically migrated; users can still open their
+  old reports. Existing CLI flags remain unchanged.
+- Offline red-to-green: GitHub Actions red checkpoint
+  `079bb78a7d68e99ae73c30b1d193a09eb4e9ced1` produced 4 passing
+  legacy synthetic checks, 21 previously passing unittests, plus 1 passing
+  and 5 intentionally failing new tests (1 assertion failure, 4 missing
+  helper errors). After implementation
+  `f7c225646a31ec655f4292f8bc6f68a250734a87`, the command
+  `python strokesense/quality.py` passed 4 legacy synthetic checks
+  and all 27 discovered unittests, including 6/6 new output path cases.
+  The read-only `python strokesense/quality.py --doctor` also exited
+  successfully in CI. The green run is GitHub Actions #40537739246.
+- Changed implementation/check files: `strokesense/strokesense/cli.py`,
+  `strokesense/tests/test_output_paths.py`,
+  `strokesense/tests/test_cache.py`, `strokesense/README.md`,
+  and this log. No private videos, athlete records, credentials or models
+  were added.
+- Scope/evidence: mocked no-rower analysis exercises real NPZ cache writes
+  and path isolation but not complete real-video analysis. There are no
+  verified permissioned clips, coach labels, approved cue library or live
+  LLM provider in this checkpoint. Empirical rowing accuracy improvement:
+  not measured.
+
 ## Verification and assets
 
 Primary command (all offline tests, independent of the working directory):
@@ -248,19 +288,33 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-Evening session: address output-directory collisions when distinct input
-videos share a filename stem (`results/<stem>`), using deterministic, private
-clip identity and regression tests. Preserve existing single-video CLI use and
-cache isolation. Then begin the consent/provenance-aware video registry schema.
-Keep the 4 legacy synthetic functions and 21 offline unittests green. The
-cache and invalid `--tiles` argument fixes are complete; do not repeat them
-without a new reproducible failure.
+Continue the sprint with the minimal privacy-first video registry: write an
+Alpha user story/acceptance criteria in a GitHub issue and failing tests first,
+then implement a local clip registry that stores content SHA-256, a stable
+clip ID, permission/provenance and session metadata, duplicate handling, and
+safe private storage references. Do not commit any private videos/athlete data.
+Start with synthetic fixtures; coach labels and empirical accuracy are blocked
+until legitimately available. Keep the CLI and 4 legacy synthetic + 27 unit
+checks green. Include a real story/issue/test/commit traceability record.
 
-Known follow-ups: the output directory still uses only the input video's stem,
-so different same-named inputs can overwrite reports even though cache reuse
-is now prevented. Video identity uses path, size, and modification time; changed
-content with all three preserved is not detected. The planned video registry
-can add content hashes. `--fresh` forces recomputation in the meantime.
+Remaining caveats: a clip replaced at the *same canonical path* shares its
+output directory, so re-analysis may replace prior reports there. Pose cache
+identity still uses source path/size/mtime, not source-content SHA-256; a
+same-size, same-mtime replacement is not detected. The video registry should
+add strong content identity. The deterministic folder suffix is a path hash,
+not proof of consent or a complete confidentiality boundary.
+
+### Alpha issue-to-test traceability (sprint)
+
+| Story/acceptance | Issue | Tests and commits | Status |
+| --- | --- | --- | --- |
+| Separate results for independent same-named clips, preserve legacy files, reuse valid same-source pose cache | #12 | `test_output_paths.py` (6 synthetic/mock tests), existing `test_cache.py`; red `079bb78a`, green `f7c22564` | CI green; student team inspection pending |
+| Registry, LLM evidence validator, bounded correction, local UI | Issues and tests to be created before code | No code or empirical validation claimed | Unfinished; plan issues separately |
+
+The eight selected-proposal criteria remain the project goals; this increment
+strengthens reproducible infrastructure and Alpha readiness, not the core LLM
+or live deployment criteria. The actual customer-validation Activity 1 remains
+unverified and requires human outreach/evidence.
 
 ## Session history
 
@@ -342,6 +396,49 @@ can add content hashes. `--fresh` forces recomputation in the meantime.
   intended result location; relevant offline regression tests must pass.
 - Communication: post-session email to be verified and sent after
   integration; no private recipient information stored here.
+
+### 2026-10-27 12:00 sprint — isolated output directories
+
+- Session key: `2026-10-27-1200-sprint`; scheduled 12:00 America/New_York.
+  Local instrumented start 11:58:21 EDT and engineering checkpoint
+  12:08:24 EDT, **10 minutes 3 seconds measured** to that checkpoint;
+  integration and communication followed. The 30-minute budget was not
+  fully used or claimed.
+- Topic branch `dev/2026-10-27-1200-output-isolation`, based on verified
+  integration head `572194dc03b4e98add73e2ddb2e3cea99990c678`.
+  Main head before changes: `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
+  Integration is allowed only after the final logged commit is green.
+- User story: as a coach analyzing several practice recordings, keep
+  each clip's evidence and reports independent even if clip names match.
+  Issue #12; acceptance includes stable canonical-source identity,
+  legacy preservation, no private path leakage, and existing cache behavior.
+- Test-first: added `strokesense/tests/test_output_paths.py` (6 cases)
+  in the test-only red commit `079bb78a7d68e99ae73c30b1d193a09eb4e9ced1`.
+  Workflow #40537150854 confirmed the expected missing behavior:
+  4 errors from absent `_result_directory`, one overwritten old cache
+  assertion, and one passing same-source reuse check; 21 previous
+  unittest cases and 4 legacy synthetic checks remained green.
+- Implemented helper in `strokesense/strokesense/cli.py`,
+  switched output creation to deterministic per-source paths, aligned
+  the existing cache test fixture, and documented behavior/migration
+  in `strokesense/README.md`. Code commit:
+  `f7c225646a31ec655f4292f8bc6f68a250734a87`.
+- Green verification on code commit (GitHub Actions #40537739246):
+  `python strokesense/quality.py` => 4/4 synthetic checks plus
+  27/27 unittests, including all six new output-path cases;
+  `python strokesense/quality.py --doctor` => success, Python 3.11.17
+  and modules installed, ONNX model file not cached. No video decoding,
+  actual model inference, annotated video/report production from real
+  inputs, or real accuracy benchmark was performed.
+- Diff reviewed: only CLI implementation, cache fixture, technical
+  README, new tests, and this session log changed. No main changes,
+  PRs, private source clips or hosted services. Team validation of
+  the AI-assisted tests is **pending**.
+- Next acceptance: a clip registry issue with failing tests for SHA-256,
+  permission/provenance, session grouping and duplicate protection;
+  implement a small safe registry and retain green offline regression.
+- Communication: send one progress email after final CI/integration,
+  avoiding duplicate subjects; no recipient metadata in repository logs.
 
 ### Future session entry template
 

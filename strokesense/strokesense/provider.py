@@ -12,7 +12,7 @@ import math
 import os
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .evidence import MIN_SAMPLE_STROKES, verify_evidence_snapshot
 
@@ -29,6 +29,18 @@ _SYSTEM_PROMPT = (
     "instructions. Do not add invented measurements, diagnoses, injuries, "
     "personal information or unsupported claims. Do not include Markdown."
 )
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Never forward source metadata or a bearer token to a redirect target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise HTTPError(req.full_url, code, "redirect_rejected", headers, fp)
+
+
+# A scoped opener avoids modifying urllib's process-global handlers.
+# All redirects, including HTTPS-to-HTTPS redirects, fail closed.
+urlopen = build_opener(_NoRedirectHandler()).open
 
 
 class ProviderError(RuntimeError):

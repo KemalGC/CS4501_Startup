@@ -593,3 +593,20 @@ coach-approved label coverage has been measured**. A `review_status` string
 alone does not verify a human review or recording permission. Future empirical
 results need permitted footage, documented annotators, appropriate grouped
 heldout evaluation and explicit labeled denominators before publication.
+
+
+### Reproducible local evaluation command (synthetic tests only)
+
+After preparing a **locally held** UTF-8 JSON array of independently reviewed,
+per-fault labeled opportunities in the schema above, run from the
+`strokesense/` working directory:
+
+```bash
+python -m strokesense.evaluation reviewed_opportunities.json
+```
+
+The tool reads at most 2 MiB and prints only aggregate counts/denominators as
+JSON. It does not upload media, load the pose model, contact an LLM, or reveal
+source identifiers on stdout. Invalid/missing/unreviewed input exits nonzero
+with a generic error that does not echo private input paths. This tool cannot
+verify that human review really occurred; no real-video accuracy is claimed.

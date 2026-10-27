@@ -172,6 +172,31 @@ must record trustworthy eligible denominators, versioned labels and
 independently reviewed cues before any generated coaching is released.
 No real-video accuracy or live LLM generation is established by these tests.
 
+## Independent coaching release gate (Alpha, offline)
+
+`strokesense.validation.validate_candidate(candidate, *, evidence_snapshot,
+reviewed_cues)` is a pure deterministic validator for future structured LLM
+messages. The caller supplies evidence and a coach-reviewed cue catalogue
+**separately from model output**. Only explicitly supported reference IDs,
+measured counts/fractions, an eligible/reviewed finding and an approved cue
+can release a candidate. It rejects unexpected fields that try to smuggle
+`coaching_eligible`, approvals or rewritten measurements into the generated
+candidate. Invalid results contain errors but **never the rejected advice**.
+
+Every current v1 evidence finding has `coaching_eligible: false` and an unknown
+per-fault eligible-stroke denominator, and this project has no verified
+coach-approved cue catalogue. Thus **real generated coaching cannot pass
+this gate yet**. Offline success tests use explicitly synthetic approval and
+reliability fixtures; no actual coach review or real-video accuracy is inferred.
+The existing deterministic heuristic cues in legacy HTML reports are not
+LLM-generated or reviewed under this gate.
+
+Passing deterministic ID/number checks **cannot verify arbitrary explanatory
+free text or the effectiveness/safety of advice**. The return value warns
+`free_text_unverified`; a later upload/UI integration must escape text for
+HTML and withhold unverified model output. `snapshot_sha256` is not a
+signature; upstream storage and approval data require separate trust controls.
+
 ## Quality checks
 
 From the repository root, run the complete offline regression suite (legacy synthetic stroke checks, cache regressions, and quality-tool tests):

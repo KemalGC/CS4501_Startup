@@ -7,10 +7,12 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from strokesense.jobs import JobQueue
+from strokesense.registry import register_clip
 from strokesense.web import create_server
 
 
@@ -19,15 +21,17 @@ class ApiErrorContractTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
+        self.root = root
+        self.registry_db = root / "registry.sqlite3"
         self.jobs = JobQueue(
-            registry_db=root / "registry.sqlite3",
+            registry_db=self.registry_db,
             job_db=root / "jobs.sqlite3",
             results_root=root / "results",
             analyze_fn=lambda *a, **k: None,
         )
         self.addCleanup(self.jobs.close)
         self.server = create_server(
-            self.jobs, registry_db=root / "registry.sqlite3", port=0,
+            self.jobs, registry_db=self.registry_db, port=0,
         )
         self.addCleanup(self.server.server_close)
         thread = threading.Thread(
@@ -158,6 +162,75 @@ class ApiErrorContractTests(unittest.TestCase):
         self.assertEqual(code, 403)
         self.assertEqual(headers["Content-Type"], "application/problem+json")
         self.assertEqual(json.loads(body)["status"], 403)
+
+    def make_synthetic_completed_job(self):
+        """Generate fake report paths locally; never decode/analyze footage."""
+        source = self.root / "synthetic.mov"
+        source.write_bytes(b"synthetic bytes, not rowing footage")
+        clip_id = register_clip(
+            source, self.registry_db, permission="granted",
+            provenance="test-only operator assertion",
+        )[0]["clip_id"]
+
+        def fake_analyze(video, *, out_dir):
+            report = Path(out_dir) / "fixture" / "report.html"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("<h1>synthetic fixture</h1>", encoding="utf-8")
+            (report.parent / "metrics.json").write_text("{}", encoding="utf-8")
+            return {"report": report}
+
+        self.jobs._analyze_fn = fake_analyze
+        item = self.jobs.submit(clip_id)
+        record = self.jobs.wait(item["job_id"], timeout=5)
+        self.assertEqual(record["status"], "succeeded")
+        return item["job_id"], self.jobs._results_root / record["report_path"]
+
+    def test_invalid_saved_evidence_is_409_problem_not_untrusted_body(self):
+        job_id, report = self.make_synthetic_completed_job()
+        metrics = report.parent / "metrics.json"
+        metrics.write_text('{"untrusted": "/tmp/private_video.mov"}', encoding="utf-8")
+        self.assert_problem(f"/api/jobs/{job_id}/evidence", 409)
+        code, headers, body = self.get(f"/jobs/{job_id}/evidence")
+        self.assertEqual(code, 409)
+        self.assertTrue(headers["Content-Type"].startswith("text/html"))
+        self.assertIn(b"Request unavailable", body)
+        self.assertNotIn(b"private_video", body)
+
+    def test_oversized_saved_evidence_is_413_problem_without_reading_content(self):
+        job_id, report = self.make_synthetic_completed_job()
+        metrics = report.parent / "metrics.json"
+        with metrics.open("wb") as stream:
+            stream.truncate(16 * 1024 * 1024 + 1)
+        self.assert_problem(f"/api/jobs/{job_id}/evidence", 413)
+
+    def test_status_storage_fault_is_503_without_private_error_details(self):
+        with patch.object(self.jobs, "get",
+                          side_effect=RuntimeError("secret /tmp/private-clips.db")):
+            self.assert_problem("/api/jobs/" + "0" * 32, 503)
+        with patch.object(self.jobs, "list_recent",
+                          side_effect=RuntimeError("secret connection details")):
+            self.assert_problem("/api/jobs", 503)
+
+    def test_problem_serializer_maps_all_documented_error_codes(self):
+        # Test only the shared responder with an injected test-only route.
+        # This is NOT a claim every status has an existing production endpoint.
+        handler = self.server.RequestHandlerClass
+        original = handler.do_GET
+
+        def synthetic_error_route(instance):
+            if instance.path.startswith("/api/_contract_test/"):
+                if not instance._trusted_request():
+                    instance._error(403)
+                    return
+                instance._error(int(instance.path.rsplit("/", 1)[-1]))
+                return
+            return original(instance)
+
+        handler.do_GET = synthetic_error_route
+        self.addCleanup(setattr, handler, "do_GET", original)
+        for code in (400, 403, 404, 405, 409, 413, 415, 422, 503):
+            with self.subTest(status=code):
+                self.assert_problem(f"/api/_contract_test/{code}", code)
 
 
 if __name__ == "__main__":

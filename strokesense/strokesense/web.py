@@ -610,7 +610,14 @@ def create_server(
                 self._error(400)
                 return
             try:
-                body = self.rfile.read(length).decode("utf-8")
+                # Never parse or act on a partial form, even if it looks valid.
+                # Bound a stalled local connection rather than leaving a worker thread.
+                self.connection.settimeout(5)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._error(400)
+                    return
+                body = raw.decode("utf-8")
                 params = parse_qs(body, keep_blank_values=True, strict_parsing=True,
                                   max_num_fields=3)
                 if set(params) != {"csrf", "clip_id"} or any(
@@ -631,6 +638,9 @@ def create_server(
                 else:
                     record = jobs.submit(clip_id)
                     destination = "/jobs/" + record["job_id"]
+            except TimeoutError:
+                self._error(400)
+                return
             except (UnicodeError, ValueError, JobError):
                 self._error(422)
                 return

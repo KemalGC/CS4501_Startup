@@ -420,6 +420,13 @@ def create_server(
         do_TRACE = _reject_unsupported_method
         do_CONNECT = _reject_unsupported_method
 
+        def __getattr__(self, name):
+            # Python's handler otherwise emits unsanitized 501 HTML for
+            # extension verbs (e.g. PROPFIND), bypassing Host/Origin checks.
+            if name.startswith("do_") and len(name) > 3:
+                return self._reject_unsupported_method
+            raise AttributeError(name)
+
         def do_GET(self):
             if not self._trusted_request():
                 self._error(403)

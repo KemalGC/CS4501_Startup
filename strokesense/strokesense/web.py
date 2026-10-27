@@ -19,6 +19,7 @@ import re
 import secrets
 from urllib.parse import parse_qs, urlsplit
 
+from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue
 from .registry import DEFAULT_DB, RegistryError, list_clips, register_clip
 
@@ -180,6 +181,8 @@ def create_server(
             err = record.get("error_code")
             message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
             link = (f'<p><a href="/reports/{job_id}">Open technique report</a></p>'
+                    f'<p><a href="/jobs/{job_id}/evidence">Inspect saved evidence</a>'
+                    ' (generated coaching withheld)</p>'
                     if status == "succeeded" else "")
             content = (f"<p>Job: <code>{job_id}</code></p>"
                        f"<p>Status: <strong>{status}</strong></p>"
@@ -223,6 +226,105 @@ def create_server(
                 return
             self._send(200, data, csp=_REPORT_CSP)
 
+
+        def _evidence(self, job_id: str, *, api=False):
+            if not _JOB_ID.fullmatch(job_id):
+                self._error(404)
+                return
+            try:
+                record = jobs.get(job_id)
+                if not record or record["status"] != "succeeded":
+                    self._error(404)
+                    return
+                raw = record.get("report_path")
+                if not isinstance(raw, str):
+                    self._error(404)
+                    return
+                report_rel = Path(raw)
+                if (report_rel.is_absolute() or not report_rel.parts
+                        or report_rel.parts[0] != job_id
+                        or ".." in report_rel.parts
+                        or report_rel.name != "report.html"):
+                    self._error(404)
+                    return
+                job_root = (result_root / job_id).resolve(strict=True)
+                report = (result_root / report_rel).resolve(strict=True)
+                if not report.is_file() or not report.is_relative_to(job_root):
+                    self._error(404)
+                    return
+                metrics = (report.parent / "metrics.json").resolve(strict=True)
+                if (metrics.name != "metrics.json" or not metrics.is_file()
+                        or not metrics.is_relative_to(job_root)):
+                    self._error(404)
+                    return
+                if metrics.stat().st_size > 16 * 1024 * 1024:
+                    self._error(413)
+                    return
+                data = json.loads(metrics.read_text(encoding="utf-8"))
+                snapshot = data.get("evidence") if isinstance(data, dict) else None
+                if not verify_evidence_snapshot(snapshot):
+                    self._error(409)
+                    return
+                columns = {
+                    "seats": ("id", "seat", "analyzed_strokes", "status"),
+                    "strokes": ("id", "seat_id", "index", "catch_frame",
+                                "finish_frame", "next_catch_frame", "catch_seconds",
+                                "finish_seconds", "next_catch_seconds", "fault_codes"),
+                    "findings": ("id", "seat_id", "fault_code", "stroke_ids",
+                                 "observed_count", "analyzed_strokes",
+                                 "observed_fraction", "eligible_strokes",
+                                 "status", "coaching_eligible"),
+                }
+                curated = {key: snapshot[key] for key in
+                           ("schema_version", "analysis_id", "fps",
+                            "start_seconds", "status")}
+                for collection, fields in columns.items():
+                    values = snapshot.get(collection)
+                    if not isinstance(values, list) or len(values) > 5000:
+                        raise ValueError("invalid evidence collection")
+                    curated[collection] = [
+                        {key: row[key] for key in fields if key in row}
+                        for row in values if isinstance(row, dict)
+                    ]
+                    if len(curated[collection]) != len(values):
+                        raise ValueError("invalid evidence entry")
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                self._error(409)
+                return
+            except Exception:
+                self._error(503)
+                return
+            if api:
+                response = {"coaching_state": "withheld", "evidence": curated}
+                self._send(200, json.dumps(response, allow_nan=False).encode("utf-8"),
+                           mime="application/json; charset=utf-8")
+                return
+            seats = "".join(
+                "<li>" + html.escape(str(row.get("seat", "unknown")))
+                + " — " + html.escape(str(row.get("status", "unknown")))
+                + "</li>" for row in curated["seats"]
+            )
+            strokes = "".join(
+                "<li>Stroke " + html.escape(str(row.get("index", "?")))
+                + " at " + html.escape(str(row.get("catch_seconds", "?")))
+                + " seconds; faults: "
+                + html.escape(", ".join(str(x) for x in row.get("fault_codes", [])))
+                + "</li>" for row in curated["strokes"]
+            )
+            findings = "".join(
+                "<li>" + html.escape(str(row.get("fault_code", "unknown")))
+                + " — " + html.escape(str(row.get("status", "unknown")))
+                + "</li>" for row in curated["findings"]
+            )
+            body = ("<p><strong>Generated coaching withheld.</strong> "
+                    "These measurements are unreviewed evidence, not "
+                    "coach-approved advice or verified model accuracy.</p>"
+                    "<h2>Seats</h2><ul>" + seats + "</ul>"
+                    "<h2>Stroke times</h2><ul>" + strokes + "</ul>"
+                    "<h2>Candidate findings</h2><ul>" + findings + "</ul>"
+                    + f'<p><a href="/jobs/{job_id}">Back to job</a></p>')
+            self._send(200, _document("Saved evidence", body))
+
         def do_GET(self):
             if not self._trusted_request():
                 self._error(403)
@@ -238,6 +340,10 @@ def create_server(
                     return
                 self._send(200, json.dumps(recent, sort_keys=True).encode("utf-8"),
                            mime="application/json; charset=utf-8")
+            elif route.startswith("/api/jobs/") and route.endswith("/evidence"):
+                self._evidence(route[len("/api/jobs/"):-len("/evidence")], api=True)
+            elif route.startswith("/jobs/") and route.endswith("/evidence"):
+                self._evidence(route[len("/jobs/"):-len("/evidence")])
             elif route.startswith("/api/jobs/"):
                 self._status(route[len("/api/jobs/"):], api=True)
             elif route.startswith("/jobs/"):

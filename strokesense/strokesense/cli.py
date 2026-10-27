@@ -15,6 +15,7 @@ from zipfile import BadZipFile
 
 import numpy as np
 
+from . import __version__ as PACKAGE_VERSION
 from . import crew, render, report
 from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video,
                    save_detections, load_detections, result_from_detections, crew_tracks)
@@ -150,7 +151,11 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         reqs.append((ref.strokes[len(ref.strokes) // 2].catch, None, out / "crew_catch.jpg"))
     render.snapshots(video, pose, rowers, reqs)
     html_path = report.build_html(video.name, pose, rowers, sync, snaps, out / "report.html")
-    report.build_json(rowers, sync, out / "metrics.json")
+    report.build_json(
+        rowers, sync, out / "metrics.json",
+        analysis_key=identity + f"|single={single}|app={PACKAGE_VERSION}",
+        fps=pose.fps, start_seconds=pose.start,
+    )
     log(f"Done in {time.time() - t0:.0f}s → {out}")
     return {"dir": out, "video": vid, "report": html_path, "rowers": rowers, "sync": sync, "pose": pose}
 

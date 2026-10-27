@@ -141,6 +141,24 @@ class ApiErrorContractTests(unittest.TestCase):
                 self.assertIn(b"Request unavailable", body)
                 self.assertEqual(headers["Cache-Control"], "no-store")
 
+    def test_extension_http_verbs_do_not_escape_to_framework_501(self):
+        # Python's HTTP handler falls back to unsanitized 501 HTML for an
+        # arbitrary unrecognized method unless we provide a safe fallback.
+        for method in ("BREW", "PROPFIND"):
+            with self.subTest(method=method):
+                code, headers, body = self.request(method, "/api/jobs")
+                self.assertEqual(code, 405)
+                self.assertEqual(headers["Content-Type"],
+                                 "application/problem+json")
+                self.assertEqual(headers["Allow"], "GET")
+                self.assertEqual(json.loads(body)["status"], 405)
+                self.assertEqual(headers["Cache-Control"], "no-store")
+        code, headers, body = self.request(
+            "BREW", "/api/jobs", headers={"Origin": "https://evil.invalid"})
+        self.assertEqual(code, 403)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
+        self.assertEqual(json.loads(body)["status"], 403)
+
 
 if __name__ == "__main__":
     unittest.main()

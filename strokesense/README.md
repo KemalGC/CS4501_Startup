@@ -312,11 +312,11 @@ synthetic file bytes; no real video/model/LLM execution was performed.
 
 ## Local browser Alpha (registered clips to completed reports)
 
-The standard-library `strokesense.web` module provides a minimal **local-only**
-browser flow: choose an already indexed clip with an explicit operator
-permission claim, submit a bounded local analysis job, inspect the status,
-and open its job-scoped HTML report. It does not require installing a
-third-party web framework. From the `strokesense/` directory:
+The standard-library `strokesense.web` module provides a **local-only**
+browser flow: import a small video file with a permission/provenance claim
+(or choose an existing registered clip), submit a bounded local analysis job,
+inspect the status, and open its job-scoped HTML report. It does not require
+installing a third-party web framework. From the `strokesense/` directory:
 
 ```powershell
 # Register a permitted existing video locally; no upload or copying occurs.
@@ -335,23 +335,37 @@ backend `JobQueue.list_recent(limit=20)` accepts limits 1–100 for local
 callers and never returns private registry paths. Jobs are retained until
 an operator separately removes their private database/results files.
 
+The browser import form (also reachable with `POST /upload`) accepts a
+**maximum 25 MiB multipart request**, enforces nonempty bytes and a video
+extension allowlist (`.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`), and
+requires a checked operator permission attestation plus a nonempty
+provenance statement. Files are stored locally in a private uploads directory
+under randomized opaque names with restrictive permissions; the registry
+computes a full SHA-256 and deduplicates identical content, without exposing
+private source paths. Uploading does **not** run an analysis or verify video
+decodability/consent. Local files cannot be downloaded using HTTP routes.
+Set `--uploads` to move the private upload directory.
+
 The interface binds only to IPv4 loopback, checks the Host/Origin headers,
-requires a randomized per-process anti-CSRF token on job submissions, caps
-request bodies and report sizes, and restricts report reads to successfully
-completed jobs' own result directories. Hostile path traversal/symlinks do
-not expose unrelated files; it sends no source paths or raw worker exceptions
-to browser clients. Rendered reports use a sandboxing Content Security Policy.
+requires a randomized per-process anti-CSRF token on job submissions
+**and uploads**, caps form, upload and report sizes, and restricts report reads
+to successfully completed jobs' own result directories. Hostile path
+traversal/symlinks do not expose unrelated files; it sends no source paths or
+raw worker exceptions to browser clients. Rendered reports use a sandboxing
+Content Security Policy.
 The browser does not receive credentials or automatically call any LLM; all
 existing heuristic cues are unreviewed and **not** validated LLM output.
 The app and reports are **not authenticated**: anyone using this local
 computer/browser session can inspect reports. Do not port-forward, proxy,
 or deploy it to a public interface.
 
-**Not implemented yet:** browser upload/import (clips must be registered
-through the CLI), production authentication, durable distributed execution,
-independent proof of footage consent, coach-approved cues, and real-video
-evaluation. Server tests are synthetic and use a fake analysis worker; they
-do not establish pose accuracy or a full end-to-end model run.
+**Not implemented yet:** production authentication, durable distributed
+execution, verified file type/codec safety, independently proven footage
+consent, coach-approved cues, and real-video evaluation. Uploads are not
+virus-scanned; treat footage as untrusted and use only permitted files from
+known sources. Crash-recovery garbage collection for interrupted uploads is
+not yet implemented. Server tests are synthetic and use a fake analysis
+worker; they do not establish pose accuracy or a full end-to-end model run.
 
 ## Quality checks
 

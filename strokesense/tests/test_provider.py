@@ -179,5 +179,20 @@ class ConfiguredProviderTests(unittest.TestCase):
         self.assertNotIn(invalid["explanation"], json.dumps(result))
 
 
+    def test_authorization_is_never_forwarded_to_redirect_targets(self):
+        """Redirects must be rejected before urllib replays a bearer token."""
+        from urllib.request import Request
+        from strokesense import provider
+        handler = provider._NoRedirectHandler()
+        original = Request("https://example.test/v1/chat/completions",
+                           headers={"Authorization": "Bearer fixture-token"})
+        with self.assertRaises(HTTPError):
+            handler.redirect_request(
+                original, None, 302, "Found", {},
+                "https://unexpected-host.example.test/collect")
+        opener = provider.urlopen.__self__
+        self.assertTrue(any(isinstance(h, provider._NoRedirectHandler)
+                            for h in opener.handlers))
+
 if __name__ == "__main__":
     unittest.main()

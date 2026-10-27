@@ -26,31 +26,44 @@ from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video
 POSE_CACHE_VERSION = 1
 
 
-def _file_identity(path):
+def _file_identity(path, *, hash_content=False):
+    """Return stable metadata and optionally a streamed SHA-256 fingerprint.
+
+    Read in 1 MiB chunks: never load an entire video into memory. A post-hash
+    stat check rejects detectable concurrent edits (not an adversarial lock).
+    """
     path = Path(path).expanduser().resolve()
     stat = path.stat()
-    return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    identity = {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    if hash_content:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        after = path.stat()
+        if (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns,
+                stat.st_dev, stat.st_ino) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns,
+                after.st_dev, after.st_ino):
+            raise OSError("media changed while computing SHA-256")
+        identity["sha256"] = digest.hexdigest()
+    return identity
 
 
 def _cache_identity(video, start, duration, tiles, fps, model):
-    """Identify the exact source/request/model behind cached pose detections.
+    """Identify source bytes, request settings, and actual model bytes.
 
-    Videos use path and stat data to avoid hashing large footage on every run.
-    Model files are small enough to hash, including custom models at the same path.
+    Strong content fingerprints prevent same-size/same-mtime replacements from
+    silently reusing stale detections; this incurs linear read I/O per check.
     """
     model_path = Path(model if model is not None else DEFAULT_MODEL).expanduser().resolve()
     try:
-        model_id = _file_identity(model_path)
-        digest = hashlib.sha256()
-        with model_path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        model_id["sha256"] = digest.hexdigest()
+        model_id = _file_identity(model_path, hash_content=True)
     except FileNotFoundError:
         model_id = {"path": str(model_path), "missing": True, "download_url": MODEL_URL}
     identity = {
         "version": POSE_CACHE_VERSION,
-        "source": _file_identity(video),
+        "source": _file_identity(video, hash_content=True),
         "settings": {
             "start": float(start), "duration": None if duration is None else float(duration),
             "tiles": tiles if isinstance(tiles, (str, type(None))) else np.asarray(tiles).tolist(),

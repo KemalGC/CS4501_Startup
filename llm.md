@@ -57,6 +57,8 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 17:29 recovery continued: #41 bounded private offline evaluation CLI has synthetic tests-first evidence; await green latest CI and safe integration before claiming publication.
+
 - 2026-10-27 17:29 recovery continued: #40 now explicitly shows persisted withheld coaching in local job/history, rejects unsupported release state; 193 offline unit + four synthetic checks green, no actual LLM release or real footage accuracy.
 
 - 2026-10-27 17:29 recovery continued: #39 introduced strict synthetic-only, grouped-split evaluation counts with explicit denominators, avoiding real-video accuracy claims (192/192 offline tests plus four synthetic functions green). No actual human annotation or empirical fault accuracy available.
@@ -1488,6 +1490,14 @@ not offline unit tests.
 - Actions [#40590536758](https://github.com/KemalGC/CS4501_Startup/actions/runs/40590536758) is GREEN with **193/193 unit tests plus four legacy synthetic analysis checks**, actual `python strokesense/quality.py`; `--doctor` is read-only, packages present, pose model absent, no inference. No permission evidence, coach-approved cue, live LLM request or empirically measured performance. Team review pending.
 - Actual run start 17:31:07 EDT; verification checkpoint **17:54:28 EDT** (monotonic 30.86797716 to approximately 1432), around **23m 21s elapsed**, with guarded integration and one consolidated email remaining. Never claim 30 minutes unless actually measured. No main change.
 - Next: narrow offline security/error-path issue or finish handoff and one email. Preserve all existing dated topic branches, do not expose private footage.
+
+### 2026-10-27 17:29 recovery sprint (continued) — private evaluation JSON CLI
+
+- New issue **#41**, topic `dev/2026-10-27-1729-eval-cli`, started from known integrated baseline `006badb354cdb9f09a9eec0bb9b6f058f6094f59`. User story: evaluation reviewer can reproduce per-fault confusion counts and denominators from a bounded local JSON file without a custom script or exposing source IDs.
+- TESTS FIRST `fe86f4e1a14037104b92bc24805f48e8505e421d`, Actions [#40590914329](https://github.com/KemalGC/CS4501_Startup/actions/runs/40590914329): one expected missing-behavior assertion failure among 195 tests (CLI entrypoint absent) and invalid-input negative cases passing because missing entrypoint returns nonzero. Not an import/environment failure. Never misrepresent those already-green negatives as newly proven red-to-green.
+- Implementation `4460b6ec133f0c0a6b7e936332a80c21e2b4d0bd`: `python -m strokesense.evaluation PATH.json` now locally loads bounded 2 MiB UTF-8 JSON lists, validates through the previously reviewed-only evaluator, prints aggregate schema v1 JSON with denominators, and emits sanitized nonzero failures without path contents or tracebacks. README documentation `3f99bd97adde820f23bbbefdeed2f5aa496430e9` explains command and non-empirical limitations. No external model/provider/network or real footage is used.
+- CI for post-production and README commits must be checked before guarded publication; do **not** integrate if failing. Measured current run from **17:31:07 EDT** start to **17:58:06 EDT** checkpoint (monotonic 30.86797716 → 1650.106922611), **26m 59s** elapsed; finishing safely before the 30-minute budget. Four earlier TDD increments were integrated with green synthetic CI, no `main` change.
+- Tests are offline mocked/synthetic only, not true accuracy measurements. No independently verified consent, real coach annotations/approvals, real ONNX inference, or live provider. Team inspection pending. Next: if green and time allows, integrate this branch and add verified evidence to the issue, then send one factual consolidated progress email after checking Sent for duplicates.
 
 ### Future session entry template
 

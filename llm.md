@@ -363,11 +363,11 @@ published outputs remain available and are not deleted or instantly recalled.
 The independent LLM adapter has *not* run with live provider credentials;
 actual rowing pose accuracy and customer validation are unmeasured.
 
-**Next focused engineering action:** apply the current permission status to
-read-only browser report and evidence routes as well, so a *previously*
-successful but later-withdrawn clip cannot be reopened through the local UI;
-test existing status endpoints and HTML/API response behavior. Do not
-silently delete past media or imply an atomic revocation barrier.
+**Next focused engineering action:** add an explicit loopback-only browser
+permission-withdrawal action with CSRF and Origin protections, following the
+working CLI, so coaches can withdraw a clip without a terminal. Keep private
+historical files retained pending a documented deletion policy; never imply
+revocation can recall data already downloaded.
 
 Remaining research/validation blockers: genuinely permitted rowing media,
 downloaded ONNX pose model for empirical inference, coach-reviewed cue
@@ -387,7 +387,8 @@ and deliberate concurrent file mutation remains a race to analyze.
 | Versioned evidence + independent validation + three-attempt correction | #14–#16 | `test_evidence.py`, `test_validation.py`, `test_correction.py`; red/green CI in session history | Offline tests green, no live approved cues |
 | Configurable provider adapter, local jobs, browser and evidence | #17–#28 | Issue-based test/CI history below | Offline tests, no live inference |
 | One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; red/green CI logged below | Integrated; team inspection pending |
-| Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Green topic branch; final integration check pending |
+| Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Integrated; team inspection pending |
+| Withhold revoked prior results and recent history in browser/API | #33 | `test_revoked_web.py` (3 synthetic HTTP cases): red Actions 40580738910; green Actions 40580961440 | Green and integration pending; team inspection pending |
 
 These tests are **synthetic or mocked**. The eight selected-proposal
 criteria map to Alpha implementation goals, not a verified official grade.
@@ -1201,6 +1202,40 @@ not offline unit tests.
 - Next: enforce revocation when reopening historical reports and evidence
   via the browser, with new issue and independent test-first evidence.
   `main` remains excluded; communication pending Sent confirmation.
+
+### 2026-10-27 16:00 sprint (continued) — withhold browser access to revoked clips
+
+- Issue **#33**, topic `dev/2026-10-27-1600-revoked-web-access`
+  based on verified integration `fdfef67b`. As a coach, when a clip's
+  local operator permission is withdrawn, prior job reports/evidence and
+  status links must no longer be served by the loopback UI/API. Other
+  permitted clips must remain accessible.
+- Tests-first commit `ed5751c3dfe6d2e3564ffc41726f1dffc398ffc3`
+  added 3 synthetic HTTP cases. GitHub Actions **#40580738910** ran
+  `python strokesense/quality.py` against the unfixed baseline and
+  observed **six expected behavior assertion failures** within
+  159 unittests: five direct revoked job/status/report/evidence routes
+  returned 200 instead of 403, and the homepage history retained a
+  revoked job. Other tests, including allowed-clip behavior, passed.
+- Code commit `7ed13608212028ddb995f308053b9ed021e66076`
+  adds current registry permission checks before serving historical
+  job status, report and evidence, plus filters homepage/API recent
+  history. `/api/` errors continue using sanitized Problem Details;
+  browser errors remain HTML, with no-store and existing security
+  headers. Only `web.py`, README and the new test file changed.
+- GitHub Actions **#40580961440** completed green:
+  `python strokesense/quality.py` passed **159/159 unittests**
+  and four legacy synthetic technique functions; the read-only
+  `--doctor` reported installed runtime modules but no cached
+  ONNX pose model. No real footage, model inference or actual
+  consent evidence was tested. Revocation blocks current read routes
+  but does not delete historical files or recall previously downloaded
+  copies; a read/revoke race remains possible. Team review pending.
+- Measured worker checkpoint: **16:46:34 EDT**, ~14 minutes 38 seconds
+  after 16:31:56 EDT actual start, not a claimed 30-minute session.
+- Next action: browser permission-withdrawal form guarded by
+  CSRF and Host/Origin checks, with test-first negative cases.
+  Communication pending consolidated email after safe publication.
 
 ### Future session entry template
 

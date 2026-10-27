@@ -210,6 +210,7 @@ class LocalJobsTests(unittest.TestCase):
             cv2.CAP_PROP_FRAME_WIDTH: 640.0,
             cv2.CAP_PROP_FRAME_HEIGHT: 480.0,
             cv2.CAP_PROP_FPS: 25.0,
+            cv2.CAP_PROP_FRAME_COUNT: 60.0,
         }
         fake_capture.get.side_effect = values.__getitem__
         fake_capture.read.return_value = (
@@ -240,6 +241,7 @@ class LocalJobsTests(unittest.TestCase):
                     cv2.CAP_PROP_FRAME_WIDTH: 640,
                     cv2.CAP_PROP_FRAME_HEIGHT: 480,
                     cv2.CAP_PROP_FPS: fps,
+                    cv2.CAP_PROP_FRAME_COUNT: 60.0,
                 }[key]
                 fake_capture.read.return_value = (frame_ok, Mock(shape=shape))
                 with patch("cv2.VideoCapture", return_value=fake_capture), \
@@ -275,6 +277,36 @@ class LocalJobsTests(unittest.TestCase):
         with patch("strokesense.cli.analyse_video", return_value=sentinel) as analyze:
             self.assertIs(_default_analyze(clip, out_dir=self.out_dir), sentinel)
         analyze.assert_called_once_with(clip, out_dir=self.out_dir)
+
+    def test_decoder_preflight_refuses_unknown_or_overlong_video_metadata(self):
+        import cv2
+        from strokesense.jobs import _default_analyze
+        cases = (
+            ("missing frame count", 0.0),
+            ("nonfinite frame count", float("nan")),
+            ("negative frame count", -2.0),
+            ("over two minutes", 30.0 * 121.0),
+        )
+        for label, frame_count in cases:
+            with self.subTest(case=label):
+                fake_capture = Mock()
+                fake_capture.isOpened.return_value = True
+                fake_capture.get.side_effect = lambda key: {
+                    cv2.CAP_PROP_FRAME_WIDTH: 640.0,
+                    cv2.CAP_PROP_FRAME_HEIGHT: 480.0,
+                    cv2.CAP_PROP_FPS: 30.0,
+                    cv2.CAP_PROP_FRAME_COUNT: frame_count,
+                }[key]
+                fake_capture.read.return_value = (
+                    True, Mock(shape=(480, 640, 3)),
+                )
+                with patch("cv2.VideoCapture", return_value=fake_capture), \
+                        patch("strokesense.cli.analyse_video") as analyze:
+                    with self.assertRaises(ValueError):
+                        _default_analyze(self.clip, out_dir=self.out_dir)
+                analyze.assert_not_called()
+                fake_capture.read.assert_not_called()
+                fake_capture.release.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -7,21 +7,26 @@ is revalidated against the job's trusted results root.
 from __future__ import annotations
 
 import argparse
+from email import policy
+from email.parser import BytesParser
 import hmac
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import secrets
 from urllib.parse import parse_qs, urlsplit
 
 from .jobs import JobError, JobQueue
-from .registry import DEFAULT_DB, list_clips
+from .registry import DEFAULT_DB, RegistryError, list_clips, register_clip
 
 
 _JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
 _MAX_FORM = 2048
+_MAX_UPLOAD = 25 * 1024 * 1024
+_VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
 _MAX_REPORT = 32 * 1024 * 1024
 _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
              "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
@@ -46,6 +51,7 @@ def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
 
 def create_server(
     jobs: JobQueue, *, registry_db, host: str = "127.0.0.1", port: int = 0,
+    upload_dir=None,
 ) -> ThreadingHTTPServer:
     """Return an explicit loopback-only server; caller owns its lifecycle."""
     if host != "127.0.0.1":
@@ -55,6 +61,8 @@ def create_server(
     token = secrets.token_urlsafe(32)
     registry_path = Path(registry_db).expanduser().resolve()
     result_root = jobs._results_root.resolve()  # Trusted local JobQueue directory.
+    private_uploads = Path(upload_dir if upload_dir is not None
+                           else result_root.parent / "uploads").expanduser().resolve()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "StrokeSense"
@@ -132,10 +140,24 @@ def create_server(
             )
             history = ("<h2>Recent analyses</h2><ol>" + history_items + "</ol>"
                        if history_items else "<h2>Recent analyses</h2><p>None yet.</p>")
+            upload_form = (
+                '<h2>Register a new local clip</h2>'
+                '<form method="post" action="/upload" enctype="multipart/form-data">'
+                '<label>Video (.mp4, .mov, .mkv, .avi, .webm): '
+                '<input type="file" name="video" required></label>'
+                '<label>Permission attestation: '
+                '<input type="checkbox" name="permission" value="granted" required>'
+                'I attest I have permission to analyze this recording</label>'
+                '<label>Permission source / provenance: '
+                '<input type="text" name="provenance" maxlength="256" required></label>'
+                '<input type="hidden" name="csrf" value="'
+                + html.escape(token, quote=True)
+                + '"><button type="submit">Import locally</button></form>'
+            )
             body = ("<p>Local prototype. Permission is an operator assertion, "
                     "not independent consent verification. Analysis runs on "
                     "your computer. No generated LLM advice is released here.</p>"
-                    + controls + history)
+                    + controls + upload_form + history)
             self._send(200, _document("StrokeSense local Alpha", body))
 
         def _status(self, job_id: str, *, api=False):
@@ -225,9 +247,107 @@ def create_server(
             else:
                 self._error(404)
 
+        def _upload(self):
+            content_type = self.headers.get("Content-Type", "")
+            if (len(content_type) > 200 or not content_type.lower().startswith(
+                    "multipart/form-data;") or
+                    any(ord(char) < 32 or ord(char) > 126 for char in content_type)):
+                self._error(415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                self._error(411)
+                return
+            if length > _MAX_UPLOAD:
+                self._error(413)
+                return
+            if length < 1:
+                self._error(400)
+                return
+            try:
+                self.connection.settimeout(15)
+                content = self.rfile.read(length)
+                if len(content) != length:
+                    raise ValueError("incomplete upload")
+                raw = (b"Content-Type: " + content_type.encode("ascii")
+                       + b"\\r\\nMIME-Version: 1.0\\r\\n\\r\\n" + content)
+                message = BytesParser(policy=policy.default).parsebytes(raw)
+                if not message.is_multipart():
+                    self._error(400)
+                    return
+                parts = list(message.iter_parts())
+                fields = {}
+                for part in parts:
+                    if part.is_multipart() or part.get_content_disposition() != "form-data":
+                        raise ValueError("invalid upload field")
+                    key = part.get_param("name", header="content-disposition")
+                    if not key or key in fields:
+                        raise ValueError("duplicate upload field")
+                    fields[key] = part
+                if set(fields) != {"csrf", "permission", "provenance", "video"}:
+                    raise ValueError("incorrect upload fields")
+                def field(name):
+                    data = fields[name].get_payload(decode=True)
+                    if data is None or len(data) > 1024:
+                        raise ValueError("invalid text field")
+                    return data.decode("utf-8")
+                if not hmac.compare_digest(field("csrf"), token):
+                    self._error(403)
+                    return
+                permission = field("permission")
+                provenance = field("provenance").strip()
+                if permission != "granted" or not provenance or len(provenance) > 256:
+                    self._error(422)
+                    return
+                filename = fields["video"].get_filename()
+                if not filename or not isinstance(filename, str):
+                    self._error(400)
+                    return
+                extension = Path(filename).suffix.lower()
+                if extension not in _VIDEO_EXTENSIONS:
+                    self._error(415)
+                    return
+                video = fields["video"].get_payload(decode=True)
+                if not isinstance(video, bytes) or not video:
+                    self._error(422)
+                    return
+            except (UnicodeError, ValueError, TypeError, OSError):
+                self._error(400)
+                return
+
+            try:
+                private_uploads.mkdir(parents=True, exist_ok=True, mode=0o700)
+                destination = private_uploads / (secrets.token_hex(16) + extension)
+                fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                try:
+                    with os.fdopen(fd, "wb") as stream:
+                        stream.write(video)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    _, created = register_clip(
+                        destination, registry_path, permission="granted",
+                        provenance=provenance,
+                    )
+                except BaseException:
+                    destination.unlink(missing_ok=True)
+                    raise
+                if not created:
+                    destination.unlink(missing_ok=True)
+            except RegistryError:
+                self._error(422)
+                return
+            except Exception:
+                self._error(503)
+                return
+            self._send(303, b"", location="/")
+
         def do_POST(self):
             if not self._trusted_request():
                 self._error(403)
+                return
+            if urlsplit(self.path).path == "/upload":
+                self._upload()
                 return
             if urlsplit(self.path).path != "/jobs":
                 self._error(404)
@@ -286,12 +406,13 @@ def main(argv=None):
     private_root = Path(__file__).resolve().parents[1] / "results"
     parser.add_argument("--jobs-db", default=str(private_root / "analysis_jobs.sqlite3"))
     parser.add_argument("--results", default=str(private_root / "jobs"))
+    parser.add_argument("--uploads", default=str(private_root / "uploads"))
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
     with JobQueue(registry_db=args.registry_db, job_db=args.jobs_db,
                   results_root=args.results) as jobs:
         with create_server(jobs, registry_db=args.registry_db,
-                           port=args.port) as server:
+                           upload_dir=args.uploads, port=args.port) as server:
             print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")
             try:
                 server.serve_forever()

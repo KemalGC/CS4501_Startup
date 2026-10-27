@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue
+from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
 from .registry import DEFAULT_DB, RegistryError, list_clips, register_clip
 
@@ -418,6 +419,9 @@ def create_server(
                 video = fields["video"].get_payload(decode=True)
                 if not isinstance(video, bytes) or not video:
                     self._error(422)
+                    return
+                if not plausible_container(video, extension):
+                    self._error(415)
                     return
             except (UnicodeError, ValueError, TypeError, OSError):
                 self._error(400)

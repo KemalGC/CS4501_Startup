@@ -353,7 +353,14 @@ requires a checked operator permission attestation plus a nonempty
 provenance statement. Files are stored locally in a private uploads directory
 under randomized opaque names with restrictive permissions; the registry
 computes a full SHA-256 and deduplicates identical content, without exposing
-private source paths. Uploading does **not** run an analysis or verify video
+private source paths. The upload handler also rejects obviously incorrect container headers (ISO BMFF
+`ftyp` for MP4/MOV; RIFF/AVI; EBML for MKV/WebM) before writing private files
+or indexing a clip. Invalid or truncated headers return HTTP 415 without
+publishing private content. This lightweight signature check is **not** a
+decoder, malware scanner, consent proof, or guarantee of a usable video stream.
+Some older QuickTime files without an initial `ftyp` box may be rejected and
+need conversion; real media decoding/codec compatibility are still untested.
+Uploading does **not** run an analysis or verify video
 decodability/consent. Local files cannot be downloaded using HTTP routes.
 Set `--uploads` to move the private upload directory.
 

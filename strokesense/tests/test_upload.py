@@ -18,8 +18,8 @@ from strokesense.web import create_server
 # NOT decodable videos and do not establish codec safety or inference accuracy.
 SYNTHETIC_MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 12
 SYNTHETIC_MOV = b"\x00\x00\x00\x18ftypqt  " + b"\x00" * 12
-SYNTHETIC_AVI = b"RIFF" + (28).to_bytes(4, "little") + b"AVI " + b"\x00" * 20
-SYNTHETIC_EBML = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01"
+SYNTHETIC_AVI = b"RIFF" + (28).to_bytes(4, "little") + b"AVI " + b"\x00" * 24
+SYNTHETIC_EBML = b"\x1a\x45\xdf\xa3\x84\x42\x86\x81\x01"
 
 def multipart(csrf, *, permission="granted", provenance="synthetic local attestation",
               filename="practice.mp4", data=SYNTHETIC_MP4, extras=()):

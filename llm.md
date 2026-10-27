@@ -363,11 +363,11 @@ published outputs remain available and are not deleted or instantly recalled.
 The independent LLM adapter has *not* run with live provider credentials;
 actual rowing pose accuracy and customer validation are unmeasured.
 
-**Next focused engineering action:** finish independent #31 API error
-contract coverage for real 409/413/503 evidence/job paths and retain route-level
-browser compatibility tests; then implement a bounded local privacy-retention
-audit increment without unauthorized deletion. The 17:00 sprint now handles
-known and extension HTTP methods without leaking framework 501 HTML.
+**Next focused engineering action:** implement a versioned, non-destructive
+local permission-withdrawal audit (schema migration and first-revocation
+timestamp) with test-first cases. #31 HTTP Problem Details/error coverage now
+includes real 409/413/503 routes, 403/404, and a test-only serializer probe
+for other codes. Do not delete existing files or imply independent consent.
 Preserve loopback-only, CSRF, Host and Origin gates.
 
 Remaining research/validation blockers: genuinely permitted rowing media,
@@ -387,7 +387,7 @@ and deliberate concurrent file mutation remains a race to analyze.
 | Private clip registry and grouped split integrity | #13 | `test_registry.py`; red `b5a733e9` / green `1d4e6d99` | Integrated; review pending |
 | Versioned evidence + independent validation + three-attempt correction | #14–#16 | `test_evidence.py`, `test_validation.py`, `test_correction.py`; red/green CI in session history | Offline tests green, no live approved cues |
 | Configurable provider adapter, local jobs, browser and evidence | #17–#28 | Issue-based test/CI history below | Offline tests, no live inference |
-| One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; unsupported-method red Actions 40583792311 and 40584165377; green Actions 40584304598 | Integration in progress; #31 broader status-route coverage open, team review pending |
+| One-step upload, synthetic browser demo and machine-readable API errors | #29–#31 | `test_upload_analyze.py`, `test_demo.py`, `test_api_errors.py`; red Actions 40583792311 and 40584165377; green Actions 40584304598; route coverage Actions 40585010706 | #31 acceptance tested; team inspection pending, no real footage |
 | Withdraw local claim, deny queued/running result publication | #32 | `test_revocation.py` (5 synthetic cases): red Actions 40579650482; green Actions 40580034840 | Integrated; team inspection pending |
 | Withhold revoked prior results and recent history in browser/API | #33 | `test_revoked_web.py` (3 synthetic HTTP cases): red Actions 40580738910; green Actions 40580961440 | Integrated at `842f4663`, team inspection pending |
 | CSRF/Host/Origin-protected withdrawal form in loopback UI | #34 | `test_web_revoke.py` (3 HTTP fixture cases): red Actions 40581464304; green Actions 40581629204 | Green topic, integration pending; human review pending |
@@ -1326,6 +1326,41 @@ not offline unit tests.
   local routes, then consider a versioned privacy/data-retention audit
   mechanism that does not erase data without authorization.
 - Communication: pending confirmed Sent search after integration.
+
+### 2026-10-27 17:00 sprint (continued) — complete #31 API error paths
+
+- Reused issue #31 after integrating the preceding tests-first code
+  fix. New dated topic `dev/2026-10-27-1700-api-status-coverage`,
+  base `ee48e6b77b14c605ee2d16b0bc78d8d537505f46`.
+- Added four **regression tests for existing behavior**, not incorrectly
+  described as new TDD implementation: fake successful local job with
+  invalid metrics => actual API 409 and browser HTML 409; oversized
+  metrics => API 413 without loading content; jobs database failures =>
+  API 503 without internal exception text. A clearly labeled test-only
+  handler injection checks the shared Problem Details serializer for
+  400/403/404/405/409/413/415/422/503. This does not create public API
+  routes for every status. Tests use only synthetic bytes/fake analysis.
+- Test/commit `f53221a79dd45255cca8561e2971c9b09fb28d28`;
+  GitHub Actions **#40585010706** ran
+  `python strokesense/quality.py` with **170/170 unittests and all four
+  synthetic stroke checks passing**, and read-only
+  `python strokesense/quality.py --doctor` found dependencies installed,
+  cached ONNX model absent. No production change was necessary for these
+  existing API response paths; no import or environmental failures.
+- The issue's method behavior was separately demonstrated RED before
+  GREEN in the first 17:00 topic. This continuation is additional green
+  route-level coverage, not an invented red checkpoint. Team inspection
+  of AI-assisted tests remains pending.
+- Actual session start **17:01:44 EDT**, measured checkpoint
+  **17:14:44 EDT**, about **13 minutes**; any later work will be
+  separately measured. No full 30-minute claim. No live LLM, permitted
+  real footage, athlete-consent verification, coach labels or empirical
+  video accuracy was measured.
+- Next: a non-destructive, privacy-safe schema migration for a first
+  permission-withdrawal timestamp; create a new issue and red tests
+  before production. Keep files intact and do not touch `main`.
+- Communication: one consolidated factual email after final safe
+  integration; pending.
 
 ### Future session entry template
 

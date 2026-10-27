@@ -327,14 +327,14 @@ No approved real cue catalogue or independently eligible real-video evidence
 exists yet, so the adapter appropriately refuses live generation without
 those prerequisites.
 
-The local bounded queue is implemented and CI-green. Next priority: a small
-**loopback-only upload / results UI** that uses JobQueue, enforces file-size
-and extension limits, requires an explicit permission-provenance claim,
-provides queued/running/failed/succeeded states, and safely navigates
-saved report/evidence without exposing absolute private paths. Write HTTP
-acceptance tests before production code. Do not expose a debug or unauthenticated
-public server, and never show generated text that fails the release validator. Preserve existing CLI and release
-validator. Do not expose unapproved coaching or private video footage.
+The bounded local queue and loopback-only registered-clip/browser results UI
+are implemented and CI-green, including durable recent-job browsing and
+reopenable completed reports. No file upload is supported yet: the immediate
+next priority is a bounded, private browser upload with extension/size checks
+and explicit permission/provenance attestation, using tests-first workflow.
+Keep HTTP bound to loopback, CSRF and Host/Origin checks, report path
+confinement, the existing CLI and independent coaching release validator.
+Never expose unapproved generated advice or private footage publicly.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
 gate for the analysis CLI. It neither validates video format nor prevents all
@@ -734,6 +734,56 @@ unverified and requires human outreach/evidence.
   with safe artifact navigation and independent coaching withholding.
 - Communication: report completion only after integration and email.
 
+
+### 2026-10-27 14:00 sprint — local clip-to-report browser and durable history
+
+- Session key `2026-10-27-1400-sprint`; scheduled 14:00 EDT, tools
+  instrumented at 13:51:26 EDT; engineering checkpoint 14:05:06 EDT,
+  **13m40s elapsed** to that checkpoint. This is not 30 minutes.
+- Base: verified integration `f60989fa66ea9cf4dfdebe2a7663ac31dd091559`
+  after the earlier CI-green local jobs service. Original main remains
+  `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
+- Issue #19: as a coach select permission-claimed registered clips, queue
+  a job, inspect status and safely reopen reports in a local browser.
+  Topic `dev/2026-10-27-1400-local-web`. Test-only
+  `28434e2dea9ea1e63108e40e8bf9a4478f1172d4` preceded implementation
+  and GitHub Actions #40555229072 **failed as expected**: ten offline
+  UI tests reported missing `strokesense.web`, while 84 existing unittest
+  cases and four synthetic checks passed. Code commit
+  `0bdb9155ef01e162ebbd59af17325c3eeaf6046b`: standard-library
+  127.0.0.1-only browser pages, CSRF/Host/Origin enforcement,
+  bounded form input, public job JSON, scoped/sandboxed report serving,
+  no raw private paths. Green Actions #40555569413: 94 unittests
+  plus four synthetic analysis checks passed. Docs commit
+  `82db151e1bd4b83d6003f9b87e89af9ec1ff7233` passed Actions
+  #40555754839. Integration fast-forwarded; main untouched.
+- Issue #20: as a coach browse newest finished/pending/failed jobs
+  without memorizing IDs and reopen reports after restart.
+  Topic `dev/2026-10-27-1400-job-library`, from integration
+  `82db151e1bd4b83d6003f9b87e89af9ec1ff7233`.
+  Test-only `b7b5f1f3472f723662f57f436c67f8c0dd9a2a0a` was
+  observed red in Actions #40556141769 (seven new tests, missing
+  `list_recent` and `/api/jobs`, 94 existing unittests passed).
+  Added bounded parameterized newest-first SQLite public job history,
+  homepage links, safe JSON endpoint and restart reopen tests in
+  `strokesense/strokesense/jobs.py`,
+  `strokesense/strokesense/web.py`,
+  `strokesense/tests/test_job_history.py`. Implementation commit
+  `fbc1d573c9538560ccf7e58d7556dfef6e9bea0f` passed
+  GitHub Actions #40556359759: **all 101 unittests and four legacy
+  synthetic functions passed**; read-only doctor found runtime
+  modules available but no downloaded ONNX model. README revised.
+- No empirical accuracy, actual video decoding/inference, verified
+  consent, human-coach review, live LLM call, externally verified
+  usability/customer data or public hosting occurred. These are
+  synthetic/mock offline tests. The browser is **not authenticated**,
+  for local loopback use only; source cache still has path/stat identity.
+  Student-team inspection of AI-assisted tests remains pending.
+- Next: scoped issue-based test-driven **private browser upload** with
+  limited bytes/types and explicit permission/provenance claim; do not
+  auto-release unreviewed LLM coaching. Preserve all older history.
+- Communication: final session email after completed integration and
+  duplicate check; pending until confirmed.
 
 ### Future session entry template
 

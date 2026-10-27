@@ -57,6 +57,9 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00 continued: CLI now rejects invalid/nonfinite start,
+  duration and FPS settings before any analysis; 128 unittests + 4 synthetic
+  checks passed with the added regression coverage.\n
 - 2026-10-27 15:00 continued: cache identity now includes streamed SHA-256
   for source footage and model; same-size/same-mtime replacement forces
   inference rather than stale pose reuse. Full video decode still untested.
@@ -922,6 +925,40 @@ unverified and requires human outreach/evidence.
 - Next: input argument validation for finite positive clip processing
   settings, then an end-to-end local demo on genuinely permitted media
   when available. Record real-asset blockers honestly.
+
+
+### 2026-10-27 15:00 sprint (continued) — finite CLI numeric inputs
+
+- Issue #24: As a coach, receive actionable argument errors rather than
+  undefined or costly inference for negative/nonfinite time/rate parameters.
+  Topic `dev/2026-10-27-1500-cli-numeric-validation`, based on
+  `8dc17eaa522cd5562c89a5a9a1ad58862667ddb0`.
+- **Tests committed before code:** `f119e2a461efb066e9186bbc67939ca0e548b409`
+  added three tests with 12 invalid argument subcases and valid fractional
+  forwarding. GitHub did not schedule the original test-only branch's
+  push, so a separate unmodified-parser test checkpoint was pushed at
+  `bfec0c2976b3d56696fa383a2ae70c697cb68f05` on
+  `dev/2026-10-27-1500-cli-numeric-red` and Actions #40568709051
+  **failed with 10 expected behavior assertions**. Note chronology
+  accurately: the tests preceded implementation, but this red CI
+  observation occurred *after* the code commit on the separate green
+  branch. Do not claim it ran before code was written.
+- Code commit `f9c1f388d75f57d702b8d6cbc4db9dbe21b46e06`:
+  `strokesense/strokesense/cli.py` uses strict finite
+  nonnegative/positive argparse conversion for start/duration/FPS,
+  exits 2 for invalid input before analysis, preserves valid decimals
+  and omitted whole-clip duration. No external model/footage accessed.
+- Green GitHub Actions #40568413093 ran
+  `python strokesense/quality.py`: **128 unittests and four legacy
+  synthetic analysis checks passed**; `--doctor` detected runtime
+  dependencies but no cached model.
+- Files: CLI implementation, `strokesense/tests/test_cli.py`,
+  technical README, and this handoff. Existing CLI commands remain
+  unchanged for valid arguments. No real inference, new accuracy estimate,
+  live LLM, human coach review, or customer evidence was performed.
+  Team inspection of AI-assisted tests remains pending.
+- Next: fail-closed local job completion if source changes during
+  analysis, followed by permitted real-video end-to-end verification.
 
 ### Future session entry template
 

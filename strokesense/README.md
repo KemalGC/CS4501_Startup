@@ -49,6 +49,13 @@ python -m strokesense.cli "Z:\footage\erg.mp4" --single
 Useful flags: `--tiles auto|none` (`auto` finds a person band and tiles it, `none` uses the whole frame),
 `--fps 30` (finer catch-timing resolution, ~2× slower), `--fresh` (ignore the cached pose).
 
+CLI numeric options are validated **before analyzing any footage**: `--start`
+requires finite nonnegative seconds (zero is valid), `--duration` requires
+finite positive seconds when supplied (omit it for a whole-clip run), and
+`--fps` must be finite and positive. Bad values such as `nan`, `inf`,
+negative time, or zero FPS fail with an argparse error (exit code 2)
+instead of invoking inference. Valid fractional rates/times remain supported.
+
 Speed: pose detection is the slow step — about 7 minutes for a 37 s 1080p clip of a full eight on a
 2-core CPU (faster with more cores). It is cached in `detections.npz`, so re-running the analysis or
 re-rendering takes ~2 minutes.

@@ -153,6 +153,8 @@ def create_server(
                 'I attest I have permission to analyze this recording</label>'
                 '<label>Permission source / provenance: '
                 '<input type="text" name="provenance" maxlength="256" required></label>'
+                '<label><input type="checkbox" name="analyze" value="now" checked>'
+                ' Analyze immediately after import</label>'
                 '<input type="hidden" name="csrf" value="'
                 + html.escape(token, quote=True)
                 + '"><button type="submit">Import locally</button></form>'
@@ -393,7 +395,8 @@ def create_server(
                     if not key or key in fields:
                         raise ValueError("duplicate upload field")
                     fields[key] = part
-                if set(fields) != {"csrf", "permission", "provenance", "video"}:
+                required = {"csrf", "permission", "provenance", "video"}
+                if set(fields) not in (required, required | {"analyze"}):
                     raise ValueError("incorrect upload fields")
                 def field(name):
                     data = fields[name].get_payload(decode=True)
@@ -403,6 +406,12 @@ def create_server(
                 if not hmac.compare_digest(field("csrf"), token):
                     self._error(403)
                     return
+                analyze_now = False
+                if "analyze" in fields:
+                    if field("analyze") != "now":
+                        self._error(400)
+                        return
+                    analyze_now = True
                 permission = field("permission")
                 provenance = field("provenance").strip()
                 if permission != "granted" or not provenance or len(provenance) > 256:
@@ -436,7 +445,7 @@ def create_server(
                         stream.write(video)
                         stream.flush()
                         os.fsync(stream.fileno())
-                    _, created = register_clip(
+                    clip, created = register_clip(
                         destination, registry_path, permission="granted",
                         provenance=provenance,
                     )
@@ -450,6 +459,19 @@ def create_server(
                 return
             except Exception:
                 self._error(503)
+                return
+            if analyze_now:
+                try:
+                    job = jobs.submit(clip["clip_id"])
+                except JobError:
+                    # The imported clip remains listed for a manual retry.
+                    # Do not misreport an unavailable queue as success.
+                    self._error(503)
+                    return
+                except Exception:
+                    self._error(503)
+                    return
+                self._send(303, b"", location="/jobs/" + job["job_id"])
                 return
             self._send(303, b"", location="/")
 

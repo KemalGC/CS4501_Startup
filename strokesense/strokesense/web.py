@@ -82,7 +82,8 @@ def create_server(
         """Only display job links for clips currently permitted locally."""
         return [
             row for row in jobs.list_recent(limit=20)
-            if analysis_permission_granted(row["clip_id"], registry_path)
+            if (analysis_permission_granted(row["clip_id"], registry_path)
+                and row.get("coaching_state") == "withheld")
         ]
 
     class Handler(BaseHTTPRequestHandler):
@@ -188,7 +189,8 @@ def create_server(
             history_items = "".join(
                 '<li><a href="/jobs/' + html.escape(row["job_id"], quote=True)
                 + '">Analysis ' + html.escape(row["job_id"][:12])
-                + '</a> — ' + html.escape(row["status"]) + '</li>'
+                + '</a> — ' + html.escape(row["status"])
+                + ' — coaching: withheld</li>'
                 for row in recent if _JOB_ID.fullmatch(row["job_id"])
             )
             history = ("<h2>Recent analyses</h2><ol>" + history_items + "</ol>"
@@ -237,6 +239,11 @@ def create_server(
             if not permitted:
                 self._error(403)
                 return
+            # This Alpha has no verified, persisted LLM release pathway.
+            # Do not trust an unexpected (including tampered 'released') flag.
+            if record.get("coaching_state") != "withheld":
+                self._error(409)
+                return
             if api:
                 body = json.dumps(record, sort_keys=True).encode("utf-8")
                 self._send(200, body, mime="application/json; charset=utf-8")
@@ -250,6 +257,7 @@ def create_server(
                     if status == "succeeded" else "")
             content = (f"<p>Job: <code>{job_id}</code></p>"
                        f"<p>Status: <strong>{status}</strong></p>"
+                       '<p>Coaching: <strong>withheld</strong></p>'
                        + message + link
                        + '<p><a href="/">Choose another clip</a></p>')
             self._send(200, _document("Analysis status", content,

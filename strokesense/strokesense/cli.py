@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 import time
 import zlib
@@ -173,15 +174,43 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
     return {"dir": out, "video": vid, "report": html_path, "rowers": rowers, "sync": sync, "pose": pose}
 
 
+
+def _finite_cli_value(text: str, *, name: str, allow_zero: bool) -> float:
+    """Reject non-finite/negative input before model or file access."""
+    try:
+        value = float(text)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(f"{name} must be a finite number") from exc
+    if not math.isfinite(value) or value < 0 or (value == 0 and not allow_zero):
+        requirement = "nonnegative" if allow_zero else "positive"
+        raise argparse.ArgumentTypeError(
+            f"{name} must be a finite {requirement} number"
+        )
+    return value
+
+
+def _start_arg(text):
+    return _finite_cli_value(text, name="start", allow_zero=True)
+
+
+def _duration_arg(text):
+    return _finite_cli_value(text, name="duration", allow_zero=False)
+
+
+def _fps_arg(text):
+    return _finite_cli_value(text, name="fps", allow_zero=False)
+
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Markerless rowing technique analysis")
     ap.add_argument("video")
     ap.add_argument("--out", default="results")
-    ap.add_argument("--start", type=float, default=0.0, help="seconds into the video to start")
-    ap.add_argument("--duration", type=float, default=None, help="seconds to analyse")
+    ap.add_argument("--start", type=_start_arg, default=0.0, help="seconds into the video to start")
+    ap.add_argument("--duration", type=_duration_arg, default=None, help="seconds to analyse")
     ap.add_argument("--tiles", choices=("auto", "none"), default="auto",
                     help="'auto' (find the boat and tile it at full resolution) or 'none'")
-    ap.add_argument("--fps", type=float, default=15.0, help="analysis frame rate")
+    ap.add_argument("--fps", type=_fps_arg, default=15.0, help="analysis frame rate")
     ap.add_argument("--single", action="store_true", help="analyse only the clearest rower (erg / single scull)")
     ap.add_argument("--fresh", action="store_true", help="ignore cached pose results")
     a = ap.parse_args(argv)

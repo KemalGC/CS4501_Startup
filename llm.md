@@ -318,14 +318,15 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-The collision-safe output, private registry, and v1 content-addressed **evidence
-snapshot** are now present on development branches and verified by offline CI.
-Next: an **independent deterministic coaching release validator** with
-negative tests for fabricated seat/stroke/fault IDs, numeric claims, cue IDs,
-and insufficient evidence. Every v1 finding has `coaching_eligible: false`:
-eligibility and cue approval are not established. Start issue and failing
-tests before implementing. Live LLM/provider and empirical validation remain
-unverified.
+The collision-safe output, private clip registry, v1 evidence snapshot, and
+**independent fail-closed coaching release validator** now pass offline CI.
+Next highest-priority story: implement and test the bounded LLM revision
+loop (at most three total generation attempts), including rejected-then-corrected
+success and persistent rejection/withholding; use a deterministic fake
+provider in offline tests, never imply a live model was run. Then build a
+real configurable provider adapter and separate coach-reviewed cue catalogue.
+Current evidence is unreviewed and eligible denominator unknown; no
+real generated coaching may be released by the validator.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
 gate for the analysis CLI. It neither validates video format nor prevents all
@@ -348,7 +349,8 @@ not proof of consent or a complete confidentiality boundary.
 | Separate results for independent same-named clips, preserve legacy files, reuse valid same-source pose cache | #12 | `test_output_paths.py` (6 synthetic/mock tests), existing `test_cache.py`; red `079bb78a`, green `f7c22564` | CI green; student team inspection pending |
 | Privacy-first local registry with content SHA-256, duplicate consent conflict handling and session-group split guard | #13 | `test_registry.py` (10 synthetic cases), red `b5a733e9`, green `1d4e6d99` | 4 synthetic + 37 unittests green in Actions; human test review pending |
 | v1 stroke/fault references, observed denominators, and abstention | #14 | `test_evidence.py` (11 synthetic cases); red `33cee429`, green `7adcfe3b` | Offline CI green; coaching withheld pending eligibility/review; human test inspection pending |
-| Independent validator, bounded correction, local UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
+| Independent fail-closed candidate validation, strict IDs/counts and cue checks | #15 | `test_validation.py` (9 synthetic cases); red `26154fe9`, green `0cbf6d5d` | 57 unittests and 4 synthetic checks green; no live cue approval |
+| Bounded correction, live provider adapter and local UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
 
 The eight selected-proposal criteria remain the project goals; this increment
 strengthens reproducible infrastructure and Alpha readiness, not the core LLM
@@ -562,6 +564,41 @@ unverified and requires human outreach/evidence.
   Source cache identity still path/stat-based.
 - Next: issue-based negative tests for independent coaching release
   validation, then fail-closed implementation. Communication pending.
+
+### 2026-10-27 13:00 sprint (continued) — independent release validator
+
+- Issue #15: as a coach, prevent unsupported LLM coaching from being
+  released. Branch `dev/2026-10-27-1300-coaching-validator` based
+  on verified integration head `6b3736820ef12309f9c46e9991dc1c99afc247c4`
+  from the same 13:00 session (issue #14 was CI-green and integrated).
+- Test-only commit `26154fe959cb94757ee14df5ac3b97e370dc0908`
+  introduced nine offline fixture/negative cases. GitHub Actions
+  #40548518387 ran against that unchanged preimplementation commit and
+  produced the expected missing-module ImportErrors (9 errors) while
+  the previous 48 unittests and four synthetic functions passed.
+  The workflow was queued for several minutes and **reported the red
+  failure after implementation was already committed**; therefore
+  strict observe-red-*before*-implementation chronology was not met
+  for this second increment, although tests were committed first.
+- Code commit `0cbf6d5dfdf4e4b80e6394097524a5ba31433bee`:
+  added `strokesense/strokesense/validation.py` with strict schema,
+  independent measured ID/count/denominator checks, verified snapshot
+  digest, approved cue/fault mapping, reviewed eligibility and fail-closed
+  withholding. Rejected candidates never appear in response payload;
+  passing candidates warn `free_text_unverified`.
+- Green GitHub Actions #40549113205:
+  `python strokesense/quality.py` passed **4/4 synthetic analysis checks
+  and 57/57 unittests** including all nine validator cases. `--doctor`
+  succeeded but no ONNX model file or live inference was available.
+  README updated to distinguish entirely fictional test approvals from
+  actual coach review. No real approved cues exist in the repository.
+- Measured checkpoint for the overall session **13:18:24 EDT**,
+  **18m53s elapsed** since 12:59:31 EDT start. Final integration/email
+  follow. This does not imply 30 minutes of work.
+- Human review of AI-assisted tests remains pending; no actual real-video
+  validation, live model access, deployment, or user validation.
+- Next: bounded three-attempt correction loop, negative retry tests and
+  separately configurable provider. Communication pending.
 
 ### Future session entry template
 

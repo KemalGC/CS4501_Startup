@@ -152,5 +152,38 @@ class LocalJobsTests(unittest.TestCase):
                 manager.wait("unknown-id", timeout=1)
 
 
+    def test_source_mutates_during_analysis_never_publishes_report(self):
+        def mutate_during_run(video, *, out_dir):
+            result = self.fake_runner(video, out_dir=out_dir)
+            info = self.clip.stat()
+            prior = self.clip.read_bytes()
+            self.clip.write_bytes(b"x" * len(prior))
+            os.utime(self.clip, ns=(info.st_atime_ns, info.st_mtime_ns))
+            return result
+
+        self.calls.side_effect = mutate_during_run
+        with self.queue() as manager:
+            queued = manager.submit(self.clip_id)
+            finished = manager.wait(queued["job_id"], timeout=5)
+        self.assertEqual(finished["status"], "failed")
+        self.assertEqual(finished["error_code"], "source_changed")
+        self.assertIsNone(finished["report_path"])
+        self.assertNotIn(str(self.clip), json.dumps(finished))
+
+    def test_source_removed_during_analysis_never_publishes_report(self):
+        def delete_during_run(video, *, out_dir):
+            result = self.fake_runner(video, out_dir=out_dir)
+            self.clip.unlink()
+            return result
+
+        self.calls.side_effect = delete_during_run
+        with self.queue() as manager:
+            queued = manager.submit(self.clip_id)
+            finished = manager.wait(queued["job_id"], timeout=5)
+        self.assertEqual(finished["status"], "failed")
+        self.assertEqual(finished["error_code"], "source_changed")
+        self.assertIsNone(finished["report_path"])
+
+
 if __name__ == "__main__":
     unittest.main()

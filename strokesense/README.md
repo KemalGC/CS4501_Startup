@@ -566,3 +566,30 @@ chunks, so reruns incur additional disk I/O proportional to clip size.
 A digest does not prove authorship or eliminate adversarial file-edit races.
 Synthetic rowers with injected faults (shooting the slide, early arms, rushed slide, late body prep,
 excess layback, short catch) verify each detector fires and a clean stroke scores ≥ 85.
+
+
+## Offline evaluation from reviewed opportunities (Alpha)
+
+For future empirical tests, `strokesense.evaluation.evaluate_fault_records(rows)`
+accepts a **nonempty, bounded list** of independently reviewed stroke/fault
+opportunities. Every row must have these keys: `clip_id`, `seat_id`,
+`stroke_id`, `fault_code`, `actual` (strict boolean truth),
+`predicted` (strict boolean algorithm flag), `review_status="reviewed"`,
+`group_id` (whole recording/session/athlete group as appropriate), and
+`split` (`development` or `heldout`). **Explicit false labels are required**
+to measure false positives and true negatives; unlabeled strokes are not
+silently treated as negative. The helper does not access footage or a model.
+
+The returned version-1 report includes per-split/per-fault TP, FP, FN, TN,
+reviewed opportunity counts, precision and recall with their **numerators and
+denominators**. An undefined rate (zero denominator) is JSON `null`, not zero
+or a fabricated accuracy. The aggregate omits clip, athlete and group IDs.
+Duplicates and the same group across evaluation splits are rejected. Accurate
+leakage prevention still depends on trustworthy real annotation and group IDs.
+
+Only synthetic unit tests are available in this repository; **no per-fault
+real-video precision/recall, catch-timing error, confidence intervals or
+coach-approved label coverage has been measured**. A `review_status` string
+alone does not verify a human review or recording permission. Future empirical
+results need permitted footage, documented annotators, appropriate grouped
+heldout evaluation and explicit labeled denominators before publication.

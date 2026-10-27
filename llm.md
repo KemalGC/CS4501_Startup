@@ -57,6 +57,12 @@ the advice improves performance.
 
 ## Current state
 
+- 2026-10-27 15:00 continued: local job preflight also requires finite,
+  positive reported frame count and rejects nominal clips longer than
+  120 seconds before decoding/inference. Frame count/FPS metadata can lie
+  or be absent; this is not a hard execution timeout.
+
+
 - 2026-10-27 15:00 continued: default local worker now opens and decodes one
   initial frame before running pose; nondecodable or invalid-size/FPS source
   returns a sanitized `invalid_media` result without starting inference.
@@ -1104,6 +1110,49 @@ unverified and requires human outreach/evidence.
   tested increments and is not a 30-minute work claim.
 - Communication: consolidated issue/branch/CI progress report after
   final safe integration and duplicate Sent check; pending.
+
+
+### 2026-10-27 15:00 sprint (continued) — bounded local video duration
+
+- Issue #28: as a local coach, prevent a compressed multi-hour or
+  unmeasurable clip from monopolizing pose processing. Topic
+  `dev/2026-10-27-1500-video-duration` from verified integration
+  `1a02a6c6d1b92353789c331f8e4624944c109135`.
+- Test-first `c70571bf01f005f355302079df6f7f56d52b5d8d`
+  updated the mocked known-frame-count setup and added four negative
+  duration subcases (zero, NaN, negative, 121 s at 30 fps).
+  GitHub Actions #40572872909 executed `python strokesense/quality.py`
+  and recorded **four expected assertion failures** against unbounded
+  production behavior, all prior cases green.
+- Implementation `d81fd2c50d4bed0ad588b50971b308230dc13eda`
+  enforces finite, positive reported frame count and `count/fps <= 120`
+  before reading the first frame. It reuses the existing typed
+  `UndecodableMediaError` and sanitized `invalid_media` job status.
+  README describes conservative limits and false rejections for
+  unindexed/variable-frame-rate files.
+- GitHub Actions #40573038496 completed **successfully**:
+  `python strokesense/quality.py` passed **137 unittests plus
+  four synthetic legacy analysis functions**, including the new
+  duration test. `python strokesense/quality.py --doctor` found
+  analysis modules installed but no downloaded ONNX pose model.
+  No real rowing footage, coach comparison, reviewed cues, live provider
+  inference, end-to-end pose runtime or customer KPIs were measured.
+- Native OpenCV has actually decoded the separate generated toy AVI
+  in the previous issue, but there was no real user clip and the
+  duration bound trusts potentially inaccurate container metadata.
+  It is not a hard CPU timeout, malware scan, consent verification,
+  security sandbox or guarantee of fully decodable video.
+  Human team inspection of AI-assisted tests remains pending.
+- Measured checkpoint 15:53:50 EDT from 15:32:37 EDT
+  (21 minutes 13 seconds). This three-increment continuation does
+  **not** claim the full 30-minute work budget.
+- Next: a reproducible local end-to-end browser happy/error-path demo
+  with explicitly synthetic fixtures and a fake analysis adapter,
+  showing upload, job status, report reopen and withheld advice; use
+  genuinely permitted video/model only if available and label gaps.
+  Prioritize code quality over decorative UI. Do not touch main.
+- Communication: send one consolidated factual progress email after
+  integration and duplicate-Sent check; pending.
 
 ### Future session entry template
 

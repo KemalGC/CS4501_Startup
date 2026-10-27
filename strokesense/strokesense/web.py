@@ -53,6 +53,16 @@ def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
             f'<h1>{safe_title}</h1>{content}</main></body></html>').encode("utf-8")
 
 
+def _allowed_methods(route: str) -> str | None:
+    """HTTP Allow for known local endpoints; unknown routes stay 404."""
+    if (route in ("/", "/api/jobs") or route.startswith("/api/jobs/")
+            or route.startswith("/jobs/") or route.startswith("/reports/")):
+        return "GET"
+    if route in ("/jobs", "/upload", "/revoke"):
+        return "POST"
+    return None
+
+
 def create_server(
     jobs: JobQueue, *, registry_db, host: str = "127.0.0.1", port: int = 0,
     upload_dir=None,
@@ -84,7 +94,7 @@ def create_server(
             pass
 
         def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",
-                  csp=_PAGE_CSP, location=None):
+                  csp=_PAGE_CSP, location=None, allow=None):
             self.send_response(code)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))
@@ -95,11 +105,14 @@ def create_server(
             self.send_header("Content-Security-Policy", csp)
             if location is not None:
                 self.send_header("Location", location)
+            if allow is not None:
+                self.send_header("Allow", allow)
             self.end_headers()
-            if data:
+            # RFC 9110: HEAD responses must contain no message body.
+            if data and self.command != "HEAD":
                 self.wfile.write(data)
 
-        def _error(self, status):
+        def _error(self, status, *, allow=None):
             if urlsplit(self.path).path.startswith("/api/"):
                 # Safe, machine-readable Problem Details for local API clients.
                 # Never include exceptions, filesystem paths or request contents.
@@ -107,6 +120,7 @@ def create_server(
                     400: "Bad Request",
                     403: "Forbidden",
                     404: "Not Found",
+                    405: "Method Not Allowed",
                     409: "Conflict",
                     413: "Content Too Large",
                     415: "Unsupported Media Type",
@@ -117,10 +131,12 @@ def create_server(
                     {"type": "about:blank", "title": title, "status": status},
                     sort_keys=True,
                 ).encode("utf-8")
-                self._send(status, body, mime="application/problem+json")
+                self._send(status, body, mime="application/problem+json",
+                           allow=allow)
                 return
             self._send(status, _document("Request unavailable",
-                                         "<p>The requested action is unavailable.</p>"))
+                                         "<p>The requested action is unavailable.</p>"),
+                       allow=allow)
 
         def _trusted_request(self):
             hosts = self.headers.get_all("Host") or []
@@ -383,6 +399,27 @@ def create_server(
                     + f'<p><a href="/jobs/{job_id}">Back to job</a></p>')
             self._send(200, _document("Saved evidence", body))
 
+        def _reject_unsupported_method(self):
+            # BaseHTTPRequestHandler defaults to 501 HTML without the local
+            # Host/Origin gates or our defensive headers. Never use it for
+            # common unsupported methods, including TRACE or OPTIONS.
+            if not self._trusted_request():
+                self._error(403)
+                return
+            allowed = _allowed_methods(urlsplit(self.path).path)
+            if allowed is None:
+                self._error(404)
+                return
+            self._error(405, allow=allowed)
+
+        do_HEAD = _reject_unsupported_method
+        do_PUT = _reject_unsupported_method
+        do_PATCH = _reject_unsupported_method
+        do_DELETE = _reject_unsupported_method
+        do_OPTIONS = _reject_unsupported_method
+        do_TRACE = _reject_unsupported_method
+        do_CONNECT = _reject_unsupported_method
+
         def do_GET(self):
             if not self._trusted_request():
                 self._error(403)
@@ -409,7 +446,8 @@ def create_server(
             elif route.startswith("/reports/"):
                 self._report(route[len("/reports/"):])
             else:
-                self._error(404)
+                allowed = _allowed_methods(route)
+                self._error(405, allow=allowed) if allowed == "POST" else self._error(404)
 
         def _upload(self):
             content_type = self.headers.get("Content-Type", "")
@@ -538,7 +576,8 @@ def create_server(
                 self._upload()
                 return
             if route not in ("/jobs", "/revoke"):
-                self._error(404)
+                allowed = _allowed_methods(route)
+                self._error(405, allow=allowed) if allowed == "GET" else self._error(404)
                 return
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
             if content_type != "application/x-www-form-urlencoded":

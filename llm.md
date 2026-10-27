@@ -318,13 +318,14 @@ configuration; build and verify the unblocked parts when those are unavailable.
 
 ## Next action
 
-The output-collision and minimal local registry increments now pass offline CI.
-Next session: specify **immutable, versioned stroke/seat/fault evidence IDs**
-and clear insufficient-evidence states as an Alpha user story with explicit
-acceptance tests; confirm the tests fail before implementation. This forms the
-input contract for an independent LLM coaching validator and bounded retry.
-Preserve approved/unreviewed cue status; do not fabricate coach approval.
-Keep the CLI, 4 legacy synthetic checks and 37 current unit tests green.
+The collision-safe output, private registry, and v1 content-addressed **evidence
+snapshot** are now present on development branches and verified by offline CI.
+Next: an **independent deterministic coaching release validator** with
+negative tests for fabricated seat/stroke/fault IDs, numeric claims, cue IDs,
+and insufficient evidence. Every v1 finding has `coaching_eligible: false`:
+eligibility and cue approval are not established. Start issue and failing
+tests before implementing. Live LLM/provider and empirical validation remain
+unverified.
 
 Follow-ups: registry import is a private *index*, not a permission enforcement
 gate for the analysis CLI. It neither validates video format nor prevents all
@@ -346,7 +347,8 @@ not proof of consent or a complete confidentiality boundary.
 | --- | --- | --- | --- |
 | Separate results for independent same-named clips, preserve legacy files, reuse valid same-source pose cache | #12 | `test_output_paths.py` (6 synthetic/mock tests), existing `test_cache.py`; red `079bb78a`, green `f7c22564` | CI green; student team inspection pending |
 | Privacy-first local registry with content SHA-256, duplicate consent conflict handling and session-group split guard | #13 | `test_registry.py` (10 synthetic cases), red `b5a733e9`, green `1d4e6d99` | 4 synthetic + 37 unittests green in Actions; human test review pending |
-| LLM evidence contract, independent validator, bounded correction, local UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
+| v1 stroke/fault references, observed denominators, and abstention | #14 | `test_evidence.py` (11 synthetic cases); red `33cee429`, green `7adcfe3b` | Offline CI green; coaching withheld pending eligibility/review; human test inspection pending |
+| Independent validator, bounded correction, local UI | Issues/tests required before each increment | No live provider or empirical validation claimed | Unfinished; create narrow issues first |
 
 The eight selected-proposal criteria remain the project goals; this increment
 strengthens reproducible infrastructure and Alpha readiness, not the core LLM
@@ -523,6 +525,43 @@ unverified and requires human outreach/evidence.
   full offline suite. Preserve earlier logs and do not touch `main`.
 - Communication: one sprint email after final CI/integration and duplicate
   check; until confirmed, status is pending.
+
+### 2026-10-27 13:00 sprint — deterministic evidence snapshots
+
+- Session key: `2026-10-27-1300-sprint`. Scheduled 13:00 ET.
+  Instrumented local start **12:59:31 EDT**, checkpoint **13:09:46 EDT**;
+  **10m15s** measured to checkpoint; integration/email followed. Not a
+  claim of 30 minutes.
+- Branch `dev/2026-10-27-1300-evidence-records`; integration base
+  `8d79bd29723a73fde8568d98cc1773d74acd71e7`. Main started at
+  `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`.
+- Issue #14 user story: versioned, analysis-scoped seat/stroke/fault
+  IDs; valid source timeline; exact observed numerator and total analyzed
+  denominator; insufficient-sample status and unknown eligible denominator;
+  all coaching withheld until evidence/coach review. Digest is not signed.
+- Test-first record: test-only `05ac7f65` had an unmatched parenthesis,
+  causing a syntax error in Actions #40546983871 (not a valid red behavior
+  test). Corrected test-only `33cee429492ff2c9cdb1276f4e3bf4ee44644853`
+  failed for *missing evidence module* as expected in Actions
+  #40547207380: existing 4 synthetic and 37 unittests passed, 11 new
+  test functions raised missing-module errors (21 reports with subtests).
+- Implemented `strokesense/strokesense/evidence.py`, 11 synthetic tests
+  in `strokesense/tests/test_evidence.py`, backward-compatible optional
+  evidence field in `strokesense/strokesense/report.py`, automatic
+  `strokesense/strokesense/cli.py` integration, and README contract.
+- Green GitHub Actions #40547758797: `python strokesense/quality.py`
+  passed **4/4 legacy synthetic checks and 48/48 unittests**. The
+  read-only `--doctor` check succeeded, runtime modules installed;
+  pose ONNX file absent, no real inference or accuracy benchmark.
+- Diff reviewed: evidence, tests, CLI, report, README and this log.
+  No private clips, secrets, provider spending or main writes.
+  Student review of AI-derived tests remains pending.
+- Limitations: snapshot SHA-256 detects unintentional alterations but
+  not a malicious editor recomputing the digest; per-fault eligibility and
+  real-video reliability unknown, all cues unreviewed, no LLM output released.
+  Source cache identity still path/stat-based.
+- Next: issue-based negative tests for independent coaching release
+  validation, then fail-closed implementation. Communication pending.
 
 ### Future session entry template
 

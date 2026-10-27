@@ -148,7 +148,8 @@ def main(argv=None):
     ap.add_argument("--out", default="results")
     ap.add_argument("--start", type=float, default=0.0, help="seconds into the video to start")
     ap.add_argument("--duration", type=float, default=None, help="seconds to analyse")
-    ap.add_argument("--tiles", default="auto", help="'auto' (find the boat and tile it at full resolution) or 'none'")
+    ap.add_argument("--tiles", choices=("auto", "none"), default="auto",
+                    help="'auto' (find the boat and tile it at full resolution) or 'none'")
     ap.add_argument("--fps", type=float, default=15.0, help="analysis frame rate")
     ap.add_argument("--single", action="store_true", help="analyse only the clearest rower (erg / single scull)")
     ap.add_argument("--fresh", action="store_true", help="ignore cached pose results")

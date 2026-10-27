@@ -100,5 +100,91 @@ class IncompletePostBodyTests(unittest.TestCase):
         conn.close()
 
 
+    def request_with_framing(self, route, data, content_type, framing):
+        headers = (
+            f"POST {route} HTTP/1.1\\r\\nHost: 127.0.0.1:{self.port}\\r\\n"
+            f"Content-Type: {content_type}\\r\\n"
+            + "".join(line + "\\r\\n" for line in framing)
+            + "Connection: close\\r\\n\\r\\n"
+        ).encode("ascii")
+        with socket.create_connection(("127.0.0.1", self.port), timeout=7) as client:
+            client.settimeout(7)
+            client.sendall(headers + data)
+            client.shutdown(socket.SHUT_WR)
+            result = b""
+            while True:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                result += chunk
+        return int(result.split(b" ", 2)[1]), result
+
+    def test_duplicate_equal_lengths_cannot_enqueue(self):
+        payload = urlencode({
+            "csrf": self.server.csrf_token, "clip_id": self.clip_id,
+        }).encode()
+        length = f"Content-Length: {len(payload)}"
+        status, response = self.request_with_framing(
+            "/jobs", payload, "application/x-www-form-urlencoded",
+            [length, length],
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(self.jobs.list_recent(), [])
+        self.assertNotIn(self.server.csrf_token.encode(), response)
+
+    def test_transfer_encoding_with_length_cannot_revoke(self):
+        payload = urlencode({
+            "csrf": self.server.csrf_token, "clip_id": self.clip_id,
+        }).encode()
+        status, response = self.request_with_framing(
+            "/revoke", payload, "application/x-www-form-urlencoded",
+            [f"Content-Length: {len(payload)}", "Transfer-Encoding: chunked"],
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(list_clips(self.registry)[0]["permission"], "granted")
+        self.assertNotIn(self.server.csrf_token.encode(), response)
+
+    def _upload_body(self):
+        boundary = "SyntheticFramingBoundary"
+        blocks = []
+        for key, value in (
+            ("csrf", self.server.csrf_token),
+            ("permission", "granted"),
+            ("provenance", "synthetic operator declaration"),
+        ):
+            blocks.append(
+                f'--{boundary}\\r\\nContent-Disposition: form-data; name="{key}"\\r\\n\\r\\n{value}\\r\\n'
+                .encode()
+            )
+        blocks.append(
+            f'--{boundary}\\r\\nContent-Disposition: form-data; name="video"; filename="test.mp4"\\r\\nContent-Type: video/mp4\\r\\n\\r\\n'
+            .encode()
+            + b"\\x00\\x00\\x00\\x18ftypisom" + b"\\x00" * 12
+            + b"\\r\\n"
+        )
+        blocks.append(f"--{boundary}--\\r\\n".encode())
+        return b"".join(blocks), f"multipart/form-data; boundary={boundary}"
+
+    def test_duplicate_conflicting_lengths_cannot_persist_upload(self):
+        payload, mime = self._upload_body()
+        status, response = self.request_with_framing(
+            "/upload", payload, mime,
+            [f"Content-Length: {len(payload)}",
+             f"Content-Length: {len(payload) + 10}"],
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(len(list_clips(self.registry)), 1)
+        self.assertNotIn(self.server.csrf_token.encode(), response)
+
+    def test_chunked_upload_without_content_length_rejected(self):
+        payload, mime = self._upload_body()
+        status, response = self.request_with_framing(
+            "/upload", payload, mime, ["Transfer-Encoding: chunked"],
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(len(list_clips(self.registry)), 1)
+        self.assertNotIn(self.server.csrf_token.encode(), response)
+
+
 if __name__ == "__main__":
     unittest.main()

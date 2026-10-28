@@ -428,6 +428,12 @@ def create_server(
                    + html.escape(row["job_id"], quote=True)
                    + '">Open technique report</a>'
                    if row["status"] == "succeeded" else "")
+                + (' — <a href="/jobs/'
+                   + html.escape(row["job_id"], quote=True)
+                   + '/evidence">Inspect saved evidence</a>'
+                   if (row["status"] == "succeeded"
+                       and jobs.metrics_sha256(row["job_id"]) is not None)
+                   else '')
                 + ' — coaching: withheld</li>'
                 for row in _visible_history(
                     recent, camera_by_clip, camera_filter, status_filter,

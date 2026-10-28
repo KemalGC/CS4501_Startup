@@ -238,5 +238,91 @@ class JobHistoryTests(unittest.TestCase):
 
 
 
+    def test_home_filters_recent_jobs_by_permitted_clip_with_camera_and_status(self):
+        import sqlite3
+        with sqlite3.connect(self.registry) as db:
+            db.execute("UPDATE clips SET camera='side-on' WHERE clip_id=?",
+                       (self.clip_id,))
+        second_source = self.root / "different-session.mp4"
+        second_source.write_bytes(b"independent invented footage bytes")
+        second_clip = register_clip(
+            second_source, self.registry, permission="granted",
+            provenance="synthetic operator consent", camera="bow-on",
+        )[0]["clip_id"]
+        first_job = self.finish()
+        other_job = self.worker.submit(second_clip)["job_id"]
+        self.assertEqual(self.worker.wait(other_job, timeout=4)["status"],
+                         "succeeded")
+        code, _, all_jobs = self.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + first_job).encode(), all_jobs)
+        self.assertIn(("/jobs/" + other_job).encode(), all_jobs)
+        self.assertIn(b'<select name="clip">', all_jobs)
+
+        code, headers, first = self.get("/?clip=" + self.clip_id)
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + first_job).encode(), first)
+        self.assertNotIn(("/jobs/" + other_job).encode(), first)
+        self.assertIn(
+            f'<option value="{self.clip_id}" selected>'.encode(), first
+        )
+        self.assertIn("no-store", headers["Cache-Control"])
+        code, _, both_filters = self.get(
+            f"/?status=succeeded&camera=side-on&clip={self.clip_id}"
+        )
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + first_job).encode(), both_filters)
+        self.assertNotIn(("/jobs/" + other_job).encode(), both_filters)
+        code, _, no_matches = self.get(
+            f"/?camera=side-on&clip={second_clip}"
+        )
+        self.assertEqual(code, 200)
+        self.assertIn(b"None yet.", no_matches)
+        code, _, other_page = self.get("/?clip=" + second_clip)
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + other_job).encode(), other_page)
+        self.assertNotIn(("/jobs/" + first_job).encode(), other_page)
+        # The API and user data storage are never scoped/mutated by HTML query.
+        code, _, api = self.get("/api/jobs")
+        self.assertEqual(code, 200)
+        self.assertEqual(len(json.loads(api)), 2)
+        self.assertNotIn(str(self.root).encode(), first + other_page)
+        self.assertNotIn(b"synthetic operator consent", first + other_page)
+
+    def test_home_clip_filter_rejects_unknown_duplicate_malformed_and_revoked(self):
+        from strokesense.registry import revoke_clip
+        job_id = self.finish()
+        for query in (
+            "clip=not-hex",
+            "clip=" + "0" * 64,
+            "clip",
+            f"clip={self.clip_id}&clip={self.clip_id}",
+            f"clip={self.clip_id}&other=1",
+            f"clip={self.clip_id}&camera=side-on&status=failed&extra=1",
+            "clip=%3Cscript%3E",
+            "clip=" + "a" * 250,
+        ):
+            with self.subTest(query=query):
+                code, headers, page = self.get("/?" + query)
+                self.assertEqual(code, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(("/jobs/" + job_id).encode(), page)
+                self.assertNotIn(str(self.root).encode(), page)
+        code, _, unfiltered = self.get("/?clip=")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + job_id).encode(), unfiltered)
+        revoke_clip(self.clip_id, self.registry)
+        code, _, page = self.get("/?clip=" + self.clip_id)
+        self.assertEqual(code, 400)
+        self.assertNotIn(str(self.root).encode(), page)
+
+    def test_permitted_clip_with_no_jobs_has_reversible_empty_history(self):
+        code, _, page = self.get("/?clip=" + self.clip_id)
+        self.assertEqual(code, 200)
+        self.assertIn(b"None yet.", page)
+        self.assertIn(f'href="/"'.encode(), page)
+        self.assertNotIn(str(self.root).encode(), page)
+
+
 if __name__ == "__main__":
     unittest.main()

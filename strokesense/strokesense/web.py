@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 import re
 import secrets
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue, MAX_MEDIA_BYTES
@@ -102,9 +102,40 @@ def _spreadsheet_text(value: str) -> str:
     return value
 
 
+def _history_filters(query: str) -> tuple[str, str, str]:
+    """Parse one bounded, fail-closed set of browser/history CSV filters."""
+    if len(query) > 128:
+        raise ValueError("history filter too long")
+    params = parse_qs(query, keep_blank_values=True, max_num_fields=3,
+                      strict_parsing=True)
+    camera = params.get("camera", [""])[0]
+    status = params.get("status", [""])[0]
+    clip = params.get("clip", [""])[0]
+    if (not set(params).issubset({"camera", "status", "clip"})
+            or any(len(values) != 1 for values in params.values())
+            or camera not in {"", "side-on", "bow-on", "stern-on", "unspecified"}
+            or status not in {"", "queued", "running", "succeeded", "failed"}
+            or (clip and re.fullmatch(r"[0-9a-f]{64}", clip) is None)):
+        raise ValueError("invalid history filter")
+    return camera, status, clip
+
+
+def _visible_history(rows, camera_by_clip, camera_filter, status_filter,
+                     clip_filter):
+    """Apply identical local permission-scoped filters to HTML and CSV."""
+    return [
+        row for row in rows
+        if (_JOB_ID.fullmatch(row["job_id"])
+            and row["clip_id"] in camera_by_clip
+            and (not camera_filter or camera_by_clip[row["clip_id"]] == camera_filter)
+            and (not status_filter or row["status"] == status_filter)
+            and (not clip_filter or row["clip_id"] == clip_filter))
+    ]
+
+
 def _allowed_methods(route: str) -> str | None:
     """HTTP Allow for known local endpoints; unknown routes stay 404."""
-    if (route in ("/", "/api/jobs") or route.startswith("/api/jobs/")
+    if (route in ("/", "/api/jobs", "/history.csv") or route.startswith("/api/jobs/")
             or route.startswith("/jobs/") or route.startswith("/reports/")
             or route.startswith("/media/")):
         return "GET"
@@ -186,7 +217,7 @@ def create_server(
 
         def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",
                   csp=_PAGE_CSP, location=None, allow=None,
-                  content_range=None, accept_ranges=False):
+                  content_range=None, accept_ranges=False, download_name=None):
             self.send_response(code)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))
@@ -203,6 +234,9 @@ def create_server(
                 self.send_header("Location", location)
             if allow is not None:
                 self.send_header("Allow", allow)
+            if download_name is not None:
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{download_name}"')
             self.end_headers()
             # RFC 9110: HEAD responses must contain no message body.
             if data and self.command != "HEAD":
@@ -301,12 +335,10 @@ def create_server(
                    + '">Open technique report</a>'
                    if row["status"] == "succeeded" else "")
                 + ' — coaching: withheld</li>'
-                for row in recent
-                if (_JOB_ID.fullmatch(row["job_id"]) and
-                    (not camera_filter or camera_by_clip.get(
-                        row["clip_id"], "unspecified") == camera_filter) and
-                    (not status_filter or row["status"] == status_filter) and
-                    (not clip_filter or row["clip_id"] == clip_filter))
+                for row in _visible_history(
+                    recent, camera_by_clip, camera_filter, status_filter,
+                    clip_filter,
+                )
             )
             camera_options = (("", "All"), ("side-on", "Side-on"),
                               ("bow-on", "Bow-on"), ("stern-on", "Stern-on"),
@@ -333,6 +365,13 @@ def create_server(
                 + html.escape(c.get("camera") or "unspecified")
                 + '</option>' for c in clips
             )
+            history_q = urlencode([
+                (field, value) for field, value in (
+                    ("camera", camera_filter), ("status", status_filter),
+                    ("clip", clip_filter),
+                ) if value
+            ])
+            history_csv_link = "/history.csv" + ("?" + history_q if history_q else "")
             history = ('<h2>Recent analyses</h2>'
                        '<form method="get" action="/">'
                        '<label>Filter analyses by camera <select name="camera">'
@@ -343,6 +382,9 @@ def create_server(
                        + clip_select + '</select></label>'
                        '<button type="submit">Filter</button></form>'
                        '<p><a href="/">Clear filters</a></p>'
+                       '<p><a href="' + html.escape(history_csv_link, quote=True)
+                       + '">Download analysis history CSV</a>'
+                       ' (current filters, up to 20 permission-allowed jobs)</p>'
                        + ('<ol>' + history_items + '</ol>' if history_items
                           else '<p>None yet.</p>'))
             upload_form = (
@@ -372,6 +414,50 @@ def create_server(
                     "your computer. No generated LLM advice is released here.</p>"
                     + controls + upload_form + history)
             self._send(200, _document("StrokeSense local Alpha", body))
+
+
+        def _history_csv(self, *, camera_filter="", status_filter="",
+                         clip_filter=""):
+            """Export only the bounded public history already visible locally."""
+            try:
+                clips = [c for c in list_clips(registry_path)
+                         if c["permission"] == "granted"]
+                camera_by_clip = {
+                    c["clip_id"]: c.get("camera") or "unspecified"
+                    for c in clips
+                }
+                if clip_filter and clip_filter not in camera_by_clip:
+                    self._error(400)
+                    return
+                selected = _visible_history(
+                    permitted_recent_jobs(), camera_by_clip, camera_filter,
+                    status_filter, clip_filter,
+                )
+            except Exception:
+                self._error(503)
+                return
+            output = io.StringIO(newline="")
+            writer = csv.writer(output, lineterminator="\r\n")
+            writer.writerow((
+                "job_id", "clip_id", "camera", "status", "created_utc",
+                "finished_utc", "coaching_state", "report_available",
+            ))
+            for row in selected:
+                values = (
+                    row["job_id"], row["clip_id"],
+                    camera_by_clip[row["clip_id"]], row["status"],
+                    row["created_utc"], row["finished_utc"],
+                    "withheld", "yes" if row["status"] == "succeeded" else "no",
+                )
+                writer.writerow([
+                    _spreadsheet_text("" if value is None else str(value))
+                    for value in values
+                ])
+            self._send(
+                200, output.getvalue().encode("utf-8"),
+                mime="text/csv; charset=utf-8",
+                download_name="strokesense-history.csv",
+            )
 
         def _status(self, job_id: str, *, api=False, at=None):
             if not _JOB_ID.fullmatch(job_id):
@@ -955,30 +1041,20 @@ def create_server(
                 self._error(403)
                 return
             route = urlsplit(self.path).path
-            if route == "/":
-                query = urlsplit(self.path).query
-                if len(query) > 128:
-                    self._error(400)
-                    return
+            if route in ("/", "/history.csv"):
                 try:
-                    params = parse_qs(query, keep_blank_values=True,
-                                      max_num_fields=3, strict_parsing=True)
+                    camera, status, clip = _history_filters(
+                        urlsplit(self.path).query
+                    )
                 except ValueError:
                     self._error(400)
                     return
-                camera_choices = {"", "side-on", "bow-on", "stern-on", "unspecified"}
-                status_choices = {"", "queued", "running", "succeeded", "failed"}
-                clip_value = params.get("clip", [""])[0]
-                if (not set(params).issubset({"camera", "status", "clip"}) or
-                        any(len(values) != 1 for values in params.values()) or
-                        params.get("camera", [""])[0] not in camera_choices or
-                        params.get("status", [""])[0] not in status_choices or
-                        (clip_value and re.fullmatch(r"[0-9a-f]{64}", clip_value) is None)):
-                    self._error(400)
-                    return
-                self._home(camera_filter=params.get("camera", [""])[0],
-                           status_filter=params.get("status", [""])[0],
-                           clip_filter=clip_value)
+                if route == "/":
+                    self._home(camera_filter=camera, status_filter=status,
+                               clip_filter=clip)
+                else:
+                    self._history_csv(camera_filter=camera,
+                                      status_filter=status, clip_filter=clip)
             elif route == "/api/jobs":
                 try:
                     recent = permitted_recent_jobs()

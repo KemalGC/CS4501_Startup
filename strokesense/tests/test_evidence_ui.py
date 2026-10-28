@@ -398,5 +398,54 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertIn(b"&lt;script&gt;", body)
 
 
+    def test_findings_link_to_exact_saved_stroke_times(self):
+        """Coach can jump from a finding to its real stored stroke reference."""
+        job_id = self.succeed()
+        status, headers, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn("no-store", headers["Cache-Control"])
+        html_page = page.decode("utf-8")
+        self.assertIn('id="stroke-0"', html_page)
+        self.assertIn('href="#stroke-0"', html_page)
+        self.assertIn("1 of 3 analyzed strokes", html_page)
+        self.assertIn("Catch 1.2 s", html_page)
+        self.assertIn("finish 1.8 s", html_page)
+        self.assertIn("Generated coaching withheld", html_page)
+        self.assertNotIn(str(self.root), html_page)
+        self.assertNotIn("test-only operator claim", html_page)
+
+    def test_findings_link_multiple_strokes_with_bounded_html(self):
+        """The HTML link list is bounded; JSON retains all saved references."""
+        import copy
+        snap = copy.deepcopy(self.snapshot)
+        snap["strokes"][1]["fault_codes"] = ["early_arms"]
+        snap["findings"][0]["stroke_ids"] = ["stroke_fixture", "stroke_fixture_2"]
+        snap["findings"][0]["observed_count"] = 2
+        snap["findings"][0]["observed_fraction"] = 2 / 3
+        snap["snapshot_sha256"] = evidence._digest({
+            key: value for key, value in snap.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(snap))
+        self.snapshot = snap
+        job_id = self.succeed()
+        # Use a smaller limit in this offline test without manufacturing
+        # thousands of synthetic observations.
+        with patch.object(web, "_MAX_LINKED_STROKES_PER_FINDING", 1, create=True):
+            status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="stroke-0"', page)
+        self.assertIn(b'id="stroke-1"', page)
+        self.assertIn(b'href="#stroke-0"', page)
+        self.assertNotIn(b'href="#stroke-1"', page)
+        self.assertIn(b"1 more supporting stroke", page)
+        status, _, raw = self.request(f"/api/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            json.loads(raw)["evidence"]["findings"][0]["stroke_ids"],
+            ["stroke_fixture", "stroke_fixture_2"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -650,19 +650,22 @@ permission-cleared footage with documented groups and denominators.
 
 ## Saved local result integrity (Alpha)
 
-Jobs database schema version 3 records a **private SHA-256 digest** of the
-completed HTML report upon successful processing. The local browser rechecks
-these exact bytes before serving the report **or** its associated evidence;
-missing/mismatched digests return HTTP 409. The report and metrics readers
-also enforce the 32 MiB / 16 MiB limits on bytes actually read, not merely
-potentially stale file metadata. Status/history JSON never includes the digest
-or private source paths.
+Jobs database schema version 4 records **private SHA-256 digests** of
+the completed HTML report and, if present, its `metrics.json` evidence. The
+local browser verifies the exact report bytes before showing HTML or saved
+evidence, and verifies the exact metrics bytes before parsing/showing evidence.
+Absent or mismatched required digests return HTTP 409. Report and metrics
+readers enforce the 32 MiB / 16 MiB limits on bytes actually read, rather
+than relying only on possibly stale file metadata. Public status/history JSON
+never includes digests or private source paths.
 
-Upgrading an existing version-2 jobs database is **non-destructive**: historical
-rows, videos and reports are preserved. Historical completed reports that
-lack the version-3 digest cannot be served by the new release gate; reanalyze
-the permitted source to create a new verified job rather than modifying old
-rows. Checksums detect accidental or file-only changes but are **not
-cryptographic signatures** and cannot prevent edits by someone who can
-modify both the local database and result files. Evidence contents remain
-unreviewed and no generated coaching is independently approved by this step.
+Upgrading old jobs databases (versions 2 and 3) is **non-destructive**:
+existing rows, videos and reports remain on disk. Historical report or
+evidence surfaces lacking the corresponding saved digest cannot be released
+until a new analysis creates an integrity-checked job. Older jobs that retain
+a valid HTML digest can still open that unchanged report even if their
+metrics digest is unavailable; unbound evidence remains withheld. Checksums
+detect accidental or file-only changes but are **not cryptographic
+signatures** and cannot prevent edits by someone who can modify both the
+local database and result files. Evidence remains unreviewed and no
+generated coaching is approved by this mechanism.

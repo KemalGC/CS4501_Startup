@@ -1042,6 +1042,14 @@ normalized. With no findings, the view explicitly avoids claiming a
 coach-reviewed negative label. These browser tests use only invented data and
 do not establish real-video accuracy, coaching usefulness or informed consent.
 
+For each run, the comparison also shows its **operator-entered camera
+viewpoint** (Side-on, Bow-on, Stern-on or Unspecified). When the two current
+registry viewpoints differ, the page explicitly warns that candidate fault
+counts cannot be normalized across viewpoints. These labels are human-entered
+metadata, not camera-classification results, and matching labels do not make
+the runs a controlled before/after study. No raw provenance, private video
+path or arbitrary camera text is displayed.
+
 ### Download the two-run candidate comparison (Alpha)
 
 The verified **Compare saved analyses** browser page also offers

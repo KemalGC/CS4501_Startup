@@ -191,10 +191,18 @@ def create_server(
             except Exception:
                 self._error(503)
                 return
+            # Reuse the already permission-filtered public clip labels.
+            # Never use local source paths or rights provenance for history.
+            camera_by_clip = {
+                clip["clip_id"]: clip.get("camera") or "unspecified"
+                for clip in clips
+            }
             history_items = "".join(
                 '<li><a href="/jobs/' + html.escape(row["job_id"], quote=True)
                 + '">Analysis ' + html.escape(row["job_id"][:12])
                 + '</a> — ' + html.escape(row["status"])
+                + ' — camera: '
+                + html.escape(str(camera_by_clip.get(row["clip_id"], "unspecified")))
                 + ' — coaching: withheld</li>'
                 for row in recent if _JOB_ID.fullmatch(row["job_id"])
             )

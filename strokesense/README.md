@@ -724,3 +724,18 @@ three attempts, but **does not change the job database or publish feedback**.
 The existing browser continues to withhold coaching. A locally validated
 candidate is not proof of coaching effectiveness, genuine consent or
 reviewer identity.
+
+
+## Filter the private recent-analysis library by camera (Alpha)
+
+The loopback browser home page now offers **Filter analyses by camera**: All
+(default), Side-on, Bow-on, Stern-on or Unspecified. The filter only narrows
+the at-most-20 most recent permission-granted jobs shown on the page; it does
+not change or delete registered clips, queue state, saved reports or the
+`/api/jobs` JSON response. The label comes from the operator's registry
+metadata, **not** automatically classified video. Selecting Unspecified
+shows records without a camera label. Direct local URLs such as
+`http://127.0.0.1:<PORT>/?camera=side-on` have the same effect; unknown or
+duplicate filter values fail with HTTP 400. Data are displayed only in the
+loopback application, and filtering does not verify recording rights, video
+quality or rowing-technique accuracy.

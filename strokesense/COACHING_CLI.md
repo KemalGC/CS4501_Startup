@@ -130,3 +130,33 @@ model text or retrying that failed provider response. Offline fixtures use
 explicit `finish_reason="stop"`. A provider reporting `stop` does **not**
 prove the advice is true, consented, or professionally approved; independent
 checks and the later human-review requirements remain necessary.
+
+
+## One-command synthetic browser + coaching correction demo
+
+From the `strokesense/` directory, run:
+
+```sh
+python -m strokesense.demo --verify-coaching
+python -m strokesense.demo --simulate-failure --verify-coaching
+```
+
+The first command exercises a **temporary local loopback** upload → queued
+synthetic job → pretend HTML report → saved evidence response, then independently
+executes two deterministic coaching correction sequences: an incorrect
+observed count is rejected and corrected on attempt 2; an invented stroke ID is
+withheld after 3 attempts. Its small JSON summary includes
+`coaching_validation` with attempt counts and `published=false`; the browser
+job's `coaching_state` **remains `withheld`** and no candidate text is saved
+or returned. The failure command exercises a failed job and outputs
+`coaching_validation=null`; it never claims a successful release.
+
+This is a **synthetic regression demonstration only**: the upload payload and
+analyzer/report are fakes; the independently eligible finding and cue approval
+are deliberately fictional; generated candidate responses are offline doubles,
+**not live LLM completions**. No real recording is decoded, no pose model is
+run, no network provider is contacted, no money is spent, and there are no
+measured real-world technique metrics or real coach approvals. A local
+`corrected_status="released"` represents structural validator success for a
+fictional fixture, **not authorization to publish coaching**. The existing
+`python -m strokesense.demo` command remains unchanged.

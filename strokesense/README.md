@@ -469,6 +469,17 @@ to a decoded frame or synchronized video player. These denominators are
 segmented strokes, not verified per-fault eligible opportunities or
 measured diagnostic precision/recall.
 
+Successful saved evidence pages also offer **Export stroke evidence (CSV)** via
+`/api/jobs/<job-id>/strokes.csv`. The export lists one integrity-checked
+stroke per row (seat, index, saved catch/finish times, fault codes), only
+after the same completed-job, permission, job-local path, digest and evidence
+schema checks as the JSON view. The CSV retains segmented observations, not
+coach-reviewed measurements or any calibrated accuracy. Untrusted labels
+beginning with spreadsheet formula characters are prefixed with an apostrophe
+to reduce spreadsheet formula injection risk; downstream software should
+still treat this CSV as untrusted data. No source paths or provenance are
+exported. This is a local read-only file response, not an external upload.
+
 The UI always says `coaching_state=withheld`: none of the current version-1
 findings has independently reviewed eligibility or approved cues, and this
 page does not invoke an LLM. **SHA-256 integrity checks are not signatures**

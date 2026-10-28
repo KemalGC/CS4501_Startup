@@ -75,7 +75,7 @@ _REVIEW_COLUMNS = (
 def _review_csv(rows, *, header=_REVIEW_COLUMNS):
     import csv
     buf = io.StringIO(newline="")
-    writer = csv.writer(buf, lineterminator="\\r\\n")
+    writer = csv.writer(buf, lineterminator="\r\n")
     writer.writerow(header)
     for row in rows:
         writer.writerow([row.get(k, "") for k in header])

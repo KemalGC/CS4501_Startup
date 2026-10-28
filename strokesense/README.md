@@ -1016,6 +1016,32 @@ its existing independent SHA-256/path/permission checks. Any spreadsheet
 processing the file should treat it as untrusted input despite formula escaping.
 Exports are not a substitute for real user testing or measured accuracy.
 
+### Compare two saved technique-analysis runs (Alpha)
+
+When at least two completed, currently permitted analyses are listed in the
+private browser library, **Compare saved analyses** lets a coach select an
+earlier and later run. A local request such as
+`http://127.0.0.1:<PORT>/compare?before=<32-hex-job-id>&after=<32-hex-job-id>`
+shows a side-by-side table of **candidate fault counts over analyzed strokes**
+for the two saved versioned evidence snapshots. The comparison accepts exactly
+two distinct job IDs; extra, repeated or invalid query parameters fail with
+HTTP 400. It creates no analysis jobs and invokes no provider.
+
+For **both** jobs, the server independently checks current clip permission,
+completed status, `coaching_state=withheld`, job-local result paths, bounded
+saved report/metrics sizes, stored SHA-256 hashes, and validated evidence
+schema before showing any counts. Missing legacy metrics cannot be compared;
+revoked clips, unexpected release flags and altered artifacts are not shown.
+Links reopen the already-gated report and stroke/fault evidence views.
+
+A count such as **1 of 3** means one segmented stroke was flagged by a
+deterministic heuristic among three analyzed strokes, **not** measured
+precision, recall, coach agreement or a controlled before/after improvement.
+Different cameras, clip conditions, tracking quality and denominators are not
+normalized. With no findings, the view explicitly avoids claiming a
+coach-reviewed negative label. These browser tests use only invented data and
+do not establish real-video accuracy, coaching usefulness or informed consent.
+
 ### Versioned persisted coaching-withholding metadata (Alpha)
 
 Local analysis-job records now contain `coaching_schema_version=1` alongside

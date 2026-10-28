@@ -18,6 +18,22 @@ _FIELDS = frozenset({
 })
 
 
+def _has_disallowed_controls(value: str, *, allow_layout: bool = False) -> bool:
+    """Reject terminal/nonprinting and BiDi override controls before release.
+
+    Explanation may contain ordinary tabs and line breaks. Joiner characters
+    in international text/emoji remain permitted; never normalize identifiers.
+    """
+    for ch in value:
+        code = ord(ch)
+        if (code < 32 and not (allow_layout and code in (9, 10))):
+            return True
+        if (0x7F <= code <= 0x9F or 0x202A <= code <= 0x202E
+                or 0x2066 <= code <= 0x2069):
+            return True
+    return False
+
+
 def _blocked(*errors: str) -> dict:
     """Never return a rejected candidate's potentially misleading text."""
     return {"released": None, "errors": list(dict.fromkeys(errors)), "warnings": []}
@@ -46,11 +62,13 @@ def _validate_candidate(candidate, evidence_snapshot, reviewed_cues) -> dict:
         return _blocked("invalid_candidate")
     if any(not isinstance(candidate[key], str) or not candidate[key].strip()
            or len(candidate[key]) > (1000 if key == "explanation" else 128)
+           or _has_disallowed_controls(candidate[key], allow_layout=key == "explanation")
            for key in ("finding_id", "seat_id", "fault_code", "cue_id", "explanation")):
         return _blocked("invalid_candidate")
     ids = candidate["stroke_ids"]
     if not isinstance(ids, list) or not ids or len(ids) > 5000 or any(
-        not isinstance(x, str) or not x or len(x) > 128 for x in ids
+        not isinstance(x, str) or not x or len(x) > 128
+        or _has_disallowed_controls(x) for x in ids
     ) or len(set(ids)) != len(ids):
         return _blocked("invalid_candidate")
     if (type(candidate["observed_count"]) is not int or

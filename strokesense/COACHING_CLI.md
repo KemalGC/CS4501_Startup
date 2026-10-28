@@ -98,3 +98,16 @@ references or displaying generated text. These bounds supplement, rather than
 replace, numeric/denominator, independent review, and eligibility checks.
 Meeting size limits is **not** evidence that unconstrained explanation text
 is accurate, safe, or coach-approved.
+
+
+### Cue catalogue format
+
+For any `cue_id` to be accepted by the **independent** validator, its
+separately supplied `fault_codes` must be a nonempty JSON **array** of
+distinct, recognized StrokeSense fault-code strings (no duplicates).
+Strings, objects, null values and unknown fault codes cannot stand in
+for that list, even when language-level membership operations would match.
+The cue must also carry explicit `review_status="approved"` and a
+nonblank `reviewed_by` value. These are software validation fields:
+the CLI **cannot independently verify** a real coach signed off, and its
+synthetic fixtures are fictional.

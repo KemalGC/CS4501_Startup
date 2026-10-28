@@ -296,6 +296,10 @@ def create_server(
                 + '</a> — ' + html.escape(row["status"])
                 + ' — camera: '
                 + html.escape(str(camera_by_clip.get(row["clip_id"], "unspecified")))
+                + (' — <a href="/reports/'
+                   + html.escape(row["job_id"], quote=True)
+                   + '">Open technique report</a>'
+                   if row["status"] == "succeeded" else "")
                 + ' — coaching: withheld</li>'
                 for row in recent
                 if (_JOB_ID.fullmatch(row["job_id"]) and

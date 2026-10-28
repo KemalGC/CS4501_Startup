@@ -767,3 +767,31 @@ expose this loopback endpoint over a proxy, LAN or internet.
 The synthetic tests exercise file and HTTP authorization behavior, **not**
 actual browser video decoding, accurate pose overlays, permission verification,
 real human coach review, or end-to-end inference on genuine footage.
+
+
+## Jump from saved stroke evidence to annotated footage (Alpha)
+
+For a completed, permission-granted job with a saved annotated-video artifact,
+`/jobs/<job_id>/evidence` offers **Watch catch** next to each eligible,
+digest-verified saved stroke. Following the link opens the same job's video
+player at that stroke's catch time via a browser HTML5 media fragment,
+`/media/<job_id>#t=<seconds>`. The absolute saved evidence time is adjusted
+by the analysis `start_seconds` because the rendered annotated clip starts
+at time zero even if the original source video was trimmed for analysis.
+No source clip filenames, private paths, external scripts, or raw model URLs
+are embedded in these navigation links.
+
+Only a single `at` query with a decimal position from **0 through 120
+seconds**, to at most **three decimal places**, is accepted. Invalid,
+ambiguous, nonfinite, repeated or extra query parameters return HTTP 400.
+Media is still governed by the existing local permission, job status,
+64 MiB, path-containment and SHA-256 checks; video-free legacy jobs
+keep readable evidence but show no dead watch links. Generated coaching
+remains **withheld**.
+
+These links are tested with **invented data and synthetic media bytes**.
+Actual timestamp seeking and decoding in a browser are **not yet empirically
+verified**. Browser support for media fragments and efficient seeking can
+vary by container/codec and HTTP Range behavior. Timestamp rounding to
+milliseconds can differ from the original saved evidence value by up to
+0.5 ms, and this is navigation, not a claim of technique or timing accuracy.

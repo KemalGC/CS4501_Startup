@@ -517,7 +517,8 @@ def create_server(
             self._send(200, data, csp=_REPORT_CSP)
 
 
-        def _evidence(self, job_id: str, *, api=False, as_csv=False):
+        def _evidence(self, job_id: str, *, api=False, as_csv=False,
+                      review_template=False):
             if not _JOB_ID.fullmatch(job_id):
                 self._error(404)
                 return
@@ -625,20 +626,35 @@ def create_server(
             except Exception:
                 self._error(503)
                 return
-            if as_csv:
+            if as_csv or review_template:
                 output = io.StringIO(newline="")
-                writer = csv.writer(output, lineterminator="\r\n")
-                writer.writerow(("seat", "stroke_index", "catch_seconds",
-                                 "finish_seconds", "fault_codes"))
+                writer = csv.writer(output, lineterminator="\\r\\n")
                 labels = {row["id"]: row["seat"] for row in curated["seats"]}
-                for stroke in curated["strokes"]:
-                    writer.writerow((
-                        _spreadsheet_text(labels[stroke["seat_id"]]),
-                        stroke["index"],
-                        stroke["catch_seconds"],
-                        stroke["finish_seconds"],
-                        "; ".join(stroke["fault_codes"]),
-                    ))
+                if review_template:
+                    # A worksheet for future human review, not a label dataset.
+                    # These review fields must never be prefilled by heuristics.
+                    writer.writerow(("stroke_id", "seat", "stroke_index",
+                                     "catch_seconds", "fault_codes",
+                                     "coach_fault_present", "coach_comments",
+                                     "review_status"))
+                    for stroke in curated["strokes"]:
+                        writer.writerow((
+                            _spreadsheet_text(stroke["id"]),
+                            _spreadsheet_text(labels[stroke["seat_id"]]),
+                            stroke["index"], stroke["catch_seconds"],
+                            _spreadsheet_text("; ".join(stroke["fault_codes"])),
+                            "", "", "unreviewed",
+                        ))
+                else:
+                    writer.writerow(("seat", "stroke_index", "catch_seconds",
+                                     "finish_seconds", "fault_codes"))
+                    for stroke in curated["strokes"]:
+                        writer.writerow((
+                            _spreadsheet_text(labels[stroke["seat_id"]]),
+                            stroke["index"], stroke["catch_seconds"],
+                            stroke["finish_seconds"],
+                            "; ".join(stroke["fault_codes"]),
+                        ))
                 csv_bytes = output.getvalue().encode("utf-8")
                 if len(csv_bytes) > _MAX_REPORT:
                     self._error(413)
@@ -742,6 +758,8 @@ def create_server(
                     "<h2>Candidate findings</h2><ul>" + findings + "</ul>"
                     + f'<p><a href="/api/jobs/{job_id}/strokes.csv">'
                     'Export stroke evidence (CSV)</a></p>'
+                    + f'<p><a href="/api/jobs/{job_id}/review.csv">'
+                    'Blank coach-review worksheet</a></p>'
                     + f'<p><a href="/jobs/{job_id}">Back to job</a></p>')
             self._send(200, _document("Saved evidence", body))
 
@@ -810,6 +828,9 @@ def create_server(
             elif route.startswith("/api/jobs/") and route.endswith("/strokes.csv"):
                 self._evidence(route[len("/api/jobs/"):-len("/strokes.csv")],
                                as_csv=True)
+            elif route.startswith("/api/jobs/") and route.endswith("/review.csv"):
+                self._evidence(route[len("/api/jobs/"):-len("/review.csv")],
+                               review_template=True)
             elif route.startswith("/api/jobs/") and route.endswith("/evidence"):
                 self._evidence(route[len("/api/jobs/"):-len("/evidence")], api=True)
             elif route.startswith("/jobs/") and route.endswith("/evidence"):

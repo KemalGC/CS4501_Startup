@@ -1004,5 +1004,94 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertIn(b"Generated coaching withheld", page)
 
 
+
+    def test_side_by_side_comparison_shows_validated_candidate_counts(self):
+        import copy
+        before = self.succeed()
+        next_snapshot = copy.deepcopy(self.snapshot)
+        next_snapshot["strokes"][0]["fault_codes"] = []
+        next_snapshot["findings"] = []
+        next_snapshot["snapshot_sha256"] = evidence._digest({
+            k: v for k, v in next_snapshot.items()
+            if k != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(next_snapshot))
+        self.snapshot = next_snapshot
+        after = self.succeed()
+
+        code, _, home = self.request("/")
+        self.assertEqual(code, 200)
+        self.assertIn(b'action="/compare"', home)
+        code, headers, page = self.request(
+            f"/compare?before={before}&after={after}"
+        )
+        self.assertEqual(code, 200)
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertIn(b"early_arms", page)
+        self.assertIn(b"1 of 3", page)
+        self.assertIn(b"0 of 3", page)
+        self.assertIn(b"candidate", page.lower())
+        self.assertIn(b"not proof of improvement", page.lower())
+        self.assertIn(f"/reports/{before}".encode(), page)
+        self.assertIn(f"/reports/{after}".encode(), page)
+        self.assertIn(f"/jobs/{before}/evidence".encode(), page)
+        self.assertIn(f"/jobs/{after}/evidence".encode(), page)
+        self.assertIn(b"coaching withheld", page.lower())
+        self.assertNotIn(str(self.root).encode(), page)
+        self.assertNotIn(b"test-only operator claim", page)
+
+    def test_comparison_fails_closed_on_invalid_pairs_and_unfinished_jobs(self):
+        before = self.succeed()
+        after = self.succeed()
+        for path in (
+            "/compare",
+            "/compare?before=" + before,
+            "/compare?before=" + before + "&after=" + before,
+            "/compare?before=" + before + "&after=nothex",
+            "/compare?before=" + before + "&after=" + after + "&extra=1",
+            "/compare?before=" + before + "&before=" + before + "&after=" + after,
+            "/compare?before=" + ("a" * 200) + "&after=" + after,
+        ):
+            with self.subTest(path=path):
+                code, headers, page = self.request(path)
+                self.assertEqual(code, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(str(self.root).encode(), page)
+        code, _, page = self.request(
+            f"/compare?before={before}&after={'f' * 32}"
+        )
+        self.assertEqual(code, 404)
+        self.assertNotIn(str(self.root).encode(), page)
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET status='failed', error_code='analysis_failed' "
+                       "WHERE job_id=?", (after,))
+        code, _, _ = self.request(f"/compare?before={before}&after={after}")
+        self.assertEqual(code, 404)
+
+    def test_comparison_requires_untampered_evidence_and_current_permission(self):
+        from strokesense.registry import revoke_clip
+        before = self.succeed()
+        after = self.succeed()
+        route = f"/compare?before={before}&after={after}"
+        code, _, _ = self.request(route)
+        self.assertEqual(code, 200)
+        self.metrics_path.write_text('{"evidence":"tampered"}')
+        code, headers, page = self.request(route)
+        self.assertEqual(code, 409)
+        self.assertNotIn(str(self.root).encode(), page)
+        self.assertIn("no-store", headers["Cache-Control"])
+        # A stored 'released' flag cannot be used to publish any coaching.
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET coaching_state='released' WHERE job_id=?",
+                       (before,))
+        code, _, page = self.request(route)
+        self.assertEqual(code, 409)
+        self.assertNotIn(str(self.root).encode(), page)
+        revoke_clip(self.clip_id, self.registry)
+        code, _, page = self.request(route)
+        self.assertEqual(code, 403)
+        self.assertNotIn(str(self.root).encode(), page)
+
+
 if __name__ == "__main__":
     unittest.main()

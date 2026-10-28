@@ -163,6 +163,40 @@ class IndependentReleaseTests(unittest.TestCase):
                 self.assertNotIn("Synthetic test-only explanation",
                                  json.dumps(result))
 
+
+    def test_candidate_control_and_bidi_spoofing_chars_fail_closed(self):
+        """Invisible terminal/BiDi controls must never be locally released."""
+        from strokesense.validation import validate_candidate
+        cases = (
+            ("explanation", "invisible\\x00payload"),
+            ("explanation", "escape\\x1b[31mred"),
+            ("explanation", "hidden\\u0085control"),
+            ("explanation", "spoof\\u202ehtml"),
+            ("explanation", "isolate\\u2066fake\\u2069"),
+            ("finding_id", "valid\\u202e-looking"),
+            ("seat_id", "valid\\x1b-looking"),
+            ("stroke_ids", ["valid\\u2066-looking"]),
+        )
+        for field, item in cases:
+            with self.subTest(field=field, value=repr(item)):
+                snapshot, candidate, cues = trusted_synthetic_fixture()
+                candidate[field] = item
+                answer = validate_candidate(
+                    candidate, evidence_snapshot=snapshot, reviewed_cues=cues,
+                )
+                self.assertIsNone(answer["released"])
+                self.assertEqual(answer["errors"], ["invalid_candidate"])
+                self.assertNotIn("Synthetic test-only explanation",
+                                 json.dumps(answer))
+
+    def test_legitimate_multilingual_explanation_newline_and_emoji_remain_allowed(self):
+        snapshot, candidate, cues = trusted_synthetic_fixture()
+        candidate["explanation"] = "Technique résumé 🚣‍♂️\\nNext step:\\tpractice"
+        answer = self.validate(candidate, snapshot, cues)
+        self.assertEqual(answer["released"], candidate)
+        self.assertIn("free_text_unverified", answer["warnings"])
+
+
     def test_candidate_explanation_boundary_remains_releasable_only_when_reviewed(self):
         snap, candidate, cues = trusted_synthetic_fixture()
         candidate["explanation"] = "🌊" * 1000

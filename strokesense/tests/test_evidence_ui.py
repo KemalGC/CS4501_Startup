@@ -952,5 +952,57 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), content)
 
 
+    def test_accessible_candidate_frequency_meter_uses_saved_denominator(self):
+        """A 1-in-3 candidate fraction is not accuracy or LLM confidence."""
+        job_id = self.succeed()
+        status, headers, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn(
+            b'<meter min="0" max="3" value="1" '
+            b'aria-label="Candidate frequency among analyzed strokes">',
+            page,
+        )
+        self.assertIn(b"1 of 3 analyzed strokes", page)
+        self.assertIn(b"Generated coaching withheld", page)
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertNotIn(str(self.root).encode(), page)
+        # Visual components must not alter the immutable-style saved snapshot.
+        code, _, raw = self.request(f"/api/jobs/{job_id}/evidence")
+        self.assertEqual(code, 200)
+        self.assertEqual(
+            json.loads(raw)["evidence"]["findings"][0]["observed_count"], 1
+        )
+
+    def test_fault_filter_only_shows_frequency_of_visible_finding(self):
+        job_id = self.succeed()
+        base = f"/jobs/{job_id}/evidence"
+        code, _, matching = self.request(base + "?fault=early_arms")
+        self.assertEqual(code, 200)
+        self.assertEqual(matching.count(b"<meter "), 1)
+        code, _, none = self.request(base + "?fault=short_catch")
+        self.assertEqual(code, 200)
+        self.assertNotIn(b"<meter ", none)
+        self.assertIn(b"No strokes flagged for this candidate fault", none)
+        self.assertNotIn(str(self.root).encode(), matching + none)
+
+    def test_no_saved_findings_creates_no_illusory_frequency_meter(self):
+        import copy
+        snap = copy.deepcopy(self.snapshot)
+        snap["strokes"][0]["fault_codes"] = []
+        snap["findings"] = []
+        snap["snapshot_sha256"] = evidence._digest({
+            key: value for key, value in snap.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(snap))
+        self.snapshot = snap
+        job_id = self.succeed()
+        status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Candidate findings", page)
+        self.assertNotIn(b"<meter ", page)
+        self.assertIn(b"Generated coaching withheld", page)
+
+
 if __name__ == "__main__":
     unittest.main()

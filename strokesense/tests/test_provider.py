@@ -129,6 +129,44 @@ class ConfiguredProviderTests(unittest.TestCase):
                 self.generator(evidence_snapshot={"schema_version": 1})(1, [])
         open_url.assert_not_called()
 
+    def test_malformed_reviewed_fault_lists_are_rejected_before_http(self):
+        """Synthetic reviewer claims are not approval for malformed cue codes."""
+        from strokesense.provider import ProviderError
+        malformed = (
+            "early_arms", ("early_arms",), {"early_arms"},
+            {"early_arms": True}, None, [],
+            ["early_arms", "early_arms"],
+            ["early_arms", "unknown_fault"],
+            ["early_arms", 42],
+        )
+        for codes in malformed:
+            with self.subTest(codes=repr(codes)):
+                cues = copy.deepcopy(self.cues)
+                cues["fixture-cue"]["fault_codes"] = codes
+                with patch("strokesense.provider.urlopen") as opened:
+                    with self.assertRaises(ProviderError) as caught:
+                        self.generator(reviewed_cues=cues)(1, [])
+                self.assertEqual(str(caught.exception), "no_approved_cues")
+                opened.assert_not_called()
+
+    def test_valid_reviewed_cue_isolated_from_malformed_catalogue_entry(self):
+        """Only schema-valid, independently reviewed cue IDs reach the model."""
+        cues = copy.deepcopy(self.cues)
+        cues["fixture-malformed-cue"] = {
+            "review_status": "approved",
+            "reviewed_by": "fictional synthetic reviewer",
+            "fault_codes": ["early_arms", "early_arms"],
+        }
+        with patch("strokesense.provider.urlopen",
+                   return_value=fake_response(self.candidate)) as opened:
+            self.assertEqual(self.generator(reviewed_cues=cues)(1, []),
+                             self.candidate)
+        body = json.loads(opened.call_args.args[0].data)
+        data = json.loads(body["messages"][1]["content"])
+        self.assertEqual(data["approved_cues"],
+                         {"fixture-cue": {"fault_codes": ["early_arms"]}})
+        self.assertNotIn("fictional synthetic reviewer", opened.call_args.args[0].data.decode())
+
     def test_network_error_is_sanitized_and_withheld_by_correction(self):
         from strokesense import correction
         from strokesense.provider import ProviderError

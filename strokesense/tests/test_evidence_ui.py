@@ -383,13 +383,15 @@ class EvidenceInterfaceTests(unittest.TestCase):
 
     def test_evidence_html_escapes_source_controlled_seat_names(self):
         import copy
-        job_id = self.succeed()
         snap = copy.deepcopy(self.snapshot)
         snap["seats"][0]["seat"] = '<script>alert("unsafe")</script>'
         snap["snapshot_sha256"] = evidence._digest({
             key: val for key, val in snap.items() if key != "snapshot_sha256"
         })
-        self.metrics_path.write_text(json.dumps({"evidence": snap}), encoding="utf-8")
+        # Put the untrusted seat label into the original report, BEFORE job
+        # success records its digest; editing afterward must now be rejected.
+        self.snapshot = snap
+        job_id = self.succeed()
         status, _, body = self.request(f"/jobs/{job_id}/evidence")
         self.assertEqual(status, 200)
         self.assertNotIn(b"<script>", body)

@@ -111,7 +111,8 @@ def create_server(
             pass
 
         def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",
-                  csp=_PAGE_CSP, location=None, allow=None):
+                  csp=_PAGE_CSP, location=None, allow=None,
+                  content_range=None, accept_ranges=False):
             self.send_response(code)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))
@@ -120,6 +121,10 @@ def create_server(
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Security-Policy", csp)
+            if accept_ranges:
+                self.send_header("Accept-Ranges", "bytes")
+            if content_range is not None:
+                self.send_header("Content-Range", content_range)
             if location is not None:
                 self.send_header("Location", location)
             if allow is not None:
@@ -399,7 +404,36 @@ def create_server(
                 self._error(503)
                 return
             mime = "video/webm" if rel.suffix.lower() == ".webm" else "video/mp4"
-            self._send(200, payload, mime=mime)
+            ranges = self.headers.get_all("Range") or []
+            if not ranges:
+                self._send(200, payload, mime=mime, accept_ranges=True)
+                return
+            total = len(payload)
+            invalid = (len(ranges) != 1 or len(ranges[0]) > 128 or
+                       not re.fullmatch(r"bytes=(?:[0-9]{0,12})-(?:[0-9]{0,12})",
+                                        ranges[0]))
+            start = end = 0
+            if not invalid:
+                first, last = ranges[0][len("bytes="):].split("-", 1)
+                if not first and not last:
+                    invalid = True
+                elif first:
+                    start = int(first)
+                    end = min(int(last), total - 1) if last else total - 1
+                    invalid = start > end or start >= total
+                else:
+                    suffix = int(last)
+                    invalid = suffix < 1 or total == 0
+                    if not invalid:
+                        start = max(total - suffix, 0)
+                        end = total - 1
+            if invalid:
+                self._send(416, b"", mime=mime, accept_ranges=True,
+                           content_range=f"bytes */{total}")
+                return
+            self._send(206, payload[start:end + 1], mime=mime,
+                       accept_ranges=True,
+                       content_range=f"bytes {start}-{end}/{total}")
 
         def _report(self, job_id: str):
             if not _JOB_ID.fullmatch(job_id):

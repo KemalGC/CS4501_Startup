@@ -1050,6 +1050,15 @@ metadata, not camera-classification results, and matching labels do not make
 the runs a controlled before/after study. No raw provenance, private video
 path or arbitrary camera text is displayed.
 
+The side-by-side candidate-fault table also makes each per-run **count a
+clickable evidence link**. Select, for example, `1 of 3 analyzed strokes` to
+reopen that run's `/jobs/<job-id>/evidence?fault=<validated-code>` page.
+A `0 of N` cell still opens the evidence page, which explains that no strokes
+were flagged for that candidate. The destination independently rechecks
+current clip permission, saved report/metrics hashes and evidence format;
+opening a link does not release unreviewed AI advice. These counts are heuristic
+candidates, not accuracy or proof of technique improvement.
+
 ### Download the two-run candidate comparison (Alpha)
 
 The verified **Compare saved analyses** browser page also offers

@@ -1,7 +1,9 @@
 """Deterministic local analysis job lifecycle tests (no model/video inference)."""
 from __future__ import annotations
 
+import hashlib
 import json
+import sqlite3
 import os
 from pathlib import Path
 import tempfile
@@ -61,6 +63,49 @@ class LocalJobsTests(unittest.TestCase):
             self.assertEqual(self.calls.call_count, 1)
         with self.queue() as again:
             self.assertEqual(again.get(job_id)["status"], "succeeded")
+
+    def test_successful_report_digest_is_private_and_durable(self):
+        with self.queue() as manager:
+            job_id = manager.submit(self.clip_id)["job_id"]
+            done = manager.wait(job_id, timeout=5)
+            self.assertEqual(done["status"], "succeeded")
+            report = self.out_dir / done["report_path"]
+            expected = hashlib.sha256(report.read_bytes()).hexdigest()
+            self.assertEqual(manager.report_sha256(job_id), expected)
+            self.assertNotIn("report_sha256", json.dumps(done))
+        with self.queue() as manager:
+            self.assertEqual(manager.report_sha256(job_id), expected)
+            self.assertNotIn("report_sha256", json.dumps(manager.list_recent()))
+
+    def test_version_two_jobs_migrate_without_deleting_history(self):
+        legacy_id = "a" * 32
+        with sqlite3.connect(self.jobs_db) as conn:
+            conn.execute(
+                "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, clip_id TEXT NOT NULL, "
+                "status TEXT NOT NULL, created_utc TEXT NOT NULL, "
+                "started_utc TEXT, finished_utc TEXT, report_path TEXT, "
+                "error_code TEXT, coaching_state TEXT NOT NULL DEFAULT 'withheld')"
+            )
+            conn.execute(
+                "INSERT INTO jobs "
+                "(job_id,clip_id,status,created_utc,report_path,coaching_state) "
+                "VALUES (?,?,?,?,?,?)",
+                (legacy_id, self.clip_id, "succeeded",
+                 "2026-01-01T00:00:00Z", legacy_id + "/report.html", "withheld"),
+            )
+            conn.execute("PRAGMA user_version = 2")
+
+        with self.queue() as manager:
+            old = manager.get(legacy_id)
+            self.assertIsNotNone(old)
+            self.assertEqual(old["status"], "succeeded")
+            self.assertEqual(old["coaching_state"], "withheld")
+            self.assertIsNone(manager.report_sha256(legacy_id))
+        with sqlite3.connect(self.jobs_db) as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertIn("report_sha256", [
+                c[1] for c in conn.execute("PRAGMA table_info(jobs)")
+            ])
 
     def test_missing_or_unverified_clip_is_rejected_without_enqueuing(self):
         from strokesense.jobs import JobError

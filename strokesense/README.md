@@ -801,3 +801,22 @@ verified**. Browser support for media fragments and efficient seeking can
 vary by container/codec and HTTP Range behavior. Timestamp rounding to
 milliseconds can differ from the original saved evidence value by up to
 0.5 ms, and this is navigation, not a claim of technique or timing accuracy.
+
+
+## Watch one supporting example from a candidate finding (Alpha)
+
+In the saved evidence browser, a candidate fault finding with a validated,
+saved supporting stroke now includes **Watch first example** when the job has
+an available annotated-video artifact. This goes directly to the same
+job-scoped player using the first supporting stroke's saved catch time,
+translated from source time to exported-video time. The existing links to
+the complete stroke table, JSON and CSV evidence are unchanged; coaching
+is still shown as **withheld**, not reviewed or proven. No link is shown if
+a recording has no saved media, the finding has no supporting stroke, or
+the timestamp cannot be safely represented inside the 120-second Alpha cap.
+
+The link is generated from digest-checked local evidence, never a raw model
+URL, and reuses the strict timestamp/permission/media integrity checks.
+Synthetic HTTP tests verify the link and offset arithmetic; they do **not**
+prove real browser seeking, video codec compatibility, technique detection
+accuracy or an approved coaching recommendation.

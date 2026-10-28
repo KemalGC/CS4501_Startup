@@ -154,8 +154,8 @@ class LocalJobsTests(unittest.TestCase):
                     return {"report": report}
 
                 self.calls.side_effect = analyzer
-                with patch("strokesense.jobs.MAX_REPORT_BYTES", 8, create=True), \\
-                     patch("strokesense.jobs.MAX_METRICS_BYTES", 8, create=True):
+                with (patch("strokesense.jobs.MAX_REPORT_BYTES", 8, create=True),
+                      patch("strokesense.jobs.MAX_METRICS_BYTES", 8, create=True)):
                     with self.queue() as manager:
                         job_id = manager.submit(self.clip_id)["job_id"]
                         done = manager.wait(job_id, timeout=5)

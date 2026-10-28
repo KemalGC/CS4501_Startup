@@ -32,6 +32,7 @@ _MAX_FORM = 2048
 _MAX_UPLOAD = 25 * 1024 * 1024
 _VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
 _MAX_REPORT = 32 * 1024 * 1024
+_MAX_METRICS = 16 * 1024 * 1024
 _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
              "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 _REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
@@ -299,7 +300,12 @@ def create_server(
                 if target.stat().st_size > _MAX_REPORT:
                     self._error(413)
                     return
-                data = target.read_bytes()
+                # File may grow after the size check; cap bytes actually read.
+                with target.open("rb") as stream:
+                    data = stream.read(_MAX_REPORT + 1)
+                if len(data) > _MAX_REPORT:
+                    self._error(413)
+                    return
             except (OSError, ValueError, TypeError):
                 self._error(404)
                 return
@@ -349,10 +355,16 @@ def create_server(
                         or not metrics.is_relative_to(job_root)):
                     self._error(404)
                     return
-                if metrics.stat().st_size > 16 * 1024 * 1024:
+                if metrics.stat().st_size > _MAX_METRICS:
                     self._error(413)
                     return
-                data = json.loads(metrics.read_text(encoding="utf-8"))
+                # Do not rely solely on a possibly stale stat() result.
+                with metrics.open("rb") as stream:
+                    metrics_bytes = stream.read(_MAX_METRICS + 1)
+                if len(metrics_bytes) > _MAX_METRICS:
+                    self._error(413)
+                    return
+                data = json.loads(metrics_bytes.decode("utf-8"))
                 snapshot = data.get("evidence") if isinstance(data, dict) else None
                 if not validate_public_evidence_snapshot(snapshot):
                     self._error(409)

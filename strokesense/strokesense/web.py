@@ -670,18 +670,23 @@ def create_server(
                 # Evidence remains readable if optional media cannot be found.
                 media_available = False
 
+            def watch_link(stroke, label):
+                # Source-relative evidence times are not rendered-video times:
+                # exported annotated footage starts at pose.start (t=0).
+                if not media_available:
+                    return ""
+                elapsed = stroke["catch_seconds"] - curated["start_seconds"]
+                if (not math.isfinite(elapsed)
+                        or not 0 <= elapsed <= _MAX_SEEK_SECONDS):
+                    return ""
+                second = f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                # The job ID and timestamp are internally validated; never
+                # interpolate model/source-controlled IDs into an HTML URL.
+                return (f'<a href="/jobs/{job_id}?at={second}">'
+                        + html.escape(label) + '</a>')
+
             def stroke_item(position, row):
-                # Evidence times refer to the original source. render_video()
-                # starts the exported annotated clip at pose.start (t=0).
-                elapsed = row["catch_seconds"] - curated["start_seconds"]
-                can_seek = (media_available and math.isfinite(elapsed)
-                            and 0 <= elapsed <= _MAX_SEEK_SECONDS)
-                if can_seek:
-                    second = f"{elapsed:.3f}".rstrip("0").rstrip(".")
-                    watch = (f' <a href="/jobs/{job_id}?at={second}">'
-                             'Watch catch</a>')
-                else:
-                    watch = ""
+                watch = watch_link(row, "Watch catch")
                 return (
                     '<li id="stroke-' + str(position) + '">Seat '
                     + html.escape(seat_labels.get(row["seat_id"], "unknown"))
@@ -690,7 +695,7 @@ def create_server(
                     + " s; finish " + html.escape(str(row["finish_seconds"]))
                     + " s; faults: "
                     + html.escape(", ".join(str(x) for x in row["fault_codes"]))
-                    + watch + "</li>"
+                    + (" " + watch if watch else "") + "</li>"
                 )
 
             strokes = "".join(
@@ -713,6 +718,11 @@ def create_server(
                     + " (see JSON evidence)"
                     if remaining else ""
                 )
+                # The snapshot validator attests that supporting IDs refer to
+                # saved strokes. Their list order decides the first example.
+                reference = stroke_ref.get(ids[0]) if ids else None
+                watch = (watch_link(reference[1], "Watch first example")
+                         if reference is not None else "")
                 return (
                     "<li>" + html.escape(row["fault_code"])
                     + " — " + html.escape(row["status"])
@@ -720,7 +730,7 @@ def create_server(
                     + " of " + str(row["analyzed_strokes"])
                     + " analyzed strokes; supporting strokes: "
                     + (links if links else "No supporting strokes listed")
-                    + more + "</li>"
+                    + more + ("; " + watch if watch else "") + "</li>"
                 )
 
             findings = "".join(finding_item(row) for row in curated["findings"])

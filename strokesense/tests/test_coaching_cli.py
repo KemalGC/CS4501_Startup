@@ -123,6 +123,22 @@ class CoachingCliTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 self.assertEqual(answer["errors"], ["invalid_input"])
 
+    def test_byte_caps_reject_otherwise_valid_large_json_files(self):
+        large_candidate = copy.deepcopy(self.candidate)
+        large_candidate["explanation"] = "A" * (256 * 1024)
+        self.save([large_candidate])
+        code, answer, _ = self.run_cli()
+        self.assertEqual(code, 2)
+        self.assertEqual(answer["errors"], ["invalid_input"])
+        self.save()
+        self.metrics.write_text(json.dumps({
+            "evidence": self.snapshot,
+            "ignored_padding": "X" * (16 * 1024 * 1024),
+        }), encoding="utf-8")
+        code, answer, _ = self.run_cli()
+        self.assertEqual(code, 2)
+        self.assertEqual(answer["errors"], ["invalid_input"])
+
     def test_no_network_without_live_flag_and_no_implicit_output_mutation(self):
         old_metrics = self.metrics.read_bytes()
         old_cues = self.cues_path.read_bytes()

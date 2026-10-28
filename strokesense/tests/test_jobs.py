@@ -102,9 +102,37 @@ class LocalJobsTests(unittest.TestCase):
             self.assertEqual(old["coaching_state"], "withheld")
             self.assertIsNone(manager.report_sha256(legacy_id))
         with sqlite3.connect(self.jobs_db) as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertIn("report_sha256", [
                 c[1] for c in conn.execute("PRAGMA table_info(jobs)")
+            ])
+
+    def test_version_three_jobs_preserve_history_with_unbound_metrics(self):
+        legacy_id = "b" * 32
+        with sqlite3.connect(self.jobs_db) as conn:
+            conn.execute(
+                "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, clip_id TEXT NOT NULL, "
+                "status TEXT NOT NULL, created_utc TEXT NOT NULL, "
+                "started_utc TEXT, finished_utc TEXT, report_path TEXT, "
+                "report_sha256 TEXT, error_code TEXT, "
+                "coaching_state TEXT NOT NULL DEFAULT 'withheld')"
+            )
+            conn.execute(
+                "INSERT INTO jobs (job_id,clip_id,status,created_utc,"
+                "report_path,report_sha256,coaching_state) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (legacy_id, self.clip_id, "succeeded", "2026-01-01T00:00:00Z",
+                 legacy_id + "/report.html", "a" * 64, "withheld"),
+            )
+            conn.execute("PRAGMA user_version = 3")
+        with self.queue() as manager:
+            self.assertEqual(manager.get(legacy_id)["status"], "succeeded")
+            self.assertEqual(manager.report_sha256(legacy_id), "a" * 64)
+            self.assertIsNone(manager.metrics_sha256(legacy_id))
+        with sqlite3.connect(self.jobs_db) as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertIn("metrics_sha256", [
+                row[1] for row in conn.execute("PRAGMA table_info(jobs)")
             ])
 
     def test_missing_or_unverified_clip_is_rejected_without_enqueuing(self):

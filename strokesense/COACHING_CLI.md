@@ -111,3 +111,11 @@ The cue must also carry explicit `review_status="approved"` and a
 nonblank `reviewed_by` value. These are software validation fields:
 the CLI **cannot independently verify** a real coach signed off, and its
 synthetic fixtures are fictional.
+
+The opt-in HTTPS adapter applies the same nonempty, unique, known-code list
+preflight **before sending any request**: malformed approved cue entries are
+excluded from the outbound allowlist. If no valid reviewed cue remains, it
+fails closed with `no_approved_cues`, without contacting the provider.
+No model is asked to repair or approve cue catalogue metadata; the independent
+release validator still checks it separately. This prevents avoidable requests,
+not fraudulent reviewer claims or incorrect free-text coaching.

@@ -68,6 +68,7 @@ class EvidenceInterfaceTests(unittest.TestCase):
             provenance="test-only operator claim")[0]["clip_id"]
         self.metrics_path = None
         self.snapshot = example_snapshot()
+        self.with_video = False
 
         def fake(video, *, out_dir):
             dest = Path(out_dir) / "demo"
@@ -78,6 +79,12 @@ class EvidenceInterfaceTests(unittest.TestCase):
                 "rowers": [{"private_bad_key": str(self.root)}],
                 "evidence": self.snapshot,
             }))
+            if self.with_video:
+                # Invented bytes only: tests exercise private HTTP wiring,
+                # not browser decoding of an actual playable recording.
+                media = dest / "annotated.mp4"
+                media.write_bytes(b"synthetic annotated media fixture")
+                return {"report": dest / "report.html", "video": media}
             return {"report": dest / "report.html"}
 
         self.worker = JobQueue(
@@ -270,6 +277,48 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertIn("early_arms", content)
         self.assertIn("withheld", content.lower())
         self.assertNotIn(str(self.root), content)
+
+    def test_saved_strokes_offer_timecoded_video_navigation_when_media_exists(self):
+        """Validated evidence should link the exact saved catch to local video."""
+        self.with_video = True
+        job_id = self.succeed()
+        status, headers, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertEqual(page.count(b"Watch catch"), 3)
+        self.assertIn(f'href="/jobs/{job_id}?at=1.2"'.encode(), page)
+        self.assertIn(f'href="/jobs/{job_id}?at=3"'.encode(), page)
+        self.assertNotIn(str(self.root).encode(), page)
+
+        status, headers, player = self.request(f"/jobs/{job_id}?at=1.2")
+        self.assertEqual(status, 200)
+        self.assertIn(f'src="/media/{job_id}#t=1.2"'.encode(), player)
+        self.assertIn(b"Generated coaching", page)
+        self.assertIn(b"withheld", player.lower())
+        self.assertIn("media-src 'self'", headers["Content-Security-Policy"])
+        self.assertNotIn(str(self.root).encode(), player)
+
+    def test_no_saved_video_does_not_offer_dead_seek_links(self):
+        job_id = self.succeed()
+        status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"Watch catch", page)
+        self.assertIn(b"Catch 1.2 s", page)
+
+    def test_timeline_seek_rejects_ambiguous_or_unbounded_query(self):
+        self.with_video = True
+        job_id = self.succeed()
+        for query in ("at=NaN", "at=Infinity", "at=-1", "at=121",
+                      "at=1e3", "at=1.1234", "at=", "at=1.2&at=3",
+                      "at=1.2&other=abc", "other=abc", "at=%3Cscript%3E"):
+            with self.subTest(query=query):
+                status, headers, response = self.request(
+                    f"/jobs/{job_id}?{query}"
+                )
+                self.assertEqual(status, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(str(self.root).encode(), response)
+                self.assertNotIn(b"<video", response)
 
     def test_job_status_offers_evidence_link_without_approving_coaching(self):
         job_id = self.succeed()

@@ -726,16 +726,20 @@ candidate is not proof of coaching effectiveness, genuine consent or
 reviewer identity.
 
 
-## Filter the private recent-analysis library by camera (Alpha)
+## Filter the private recent-analysis library (Alpha)
 
-The loopback browser home page now offers **Filter analyses by camera**: All
-(default), Side-on, Bow-on, Stern-on or Unspecified. The filter only narrows
+The loopback browser home page offers **Filter analyses by camera**: All
+(default), Side-on, Bow-on, Stern-on or Unspecified, plus **Filter analyses by
+status**: All (default), Queued, Running, Succeeded or Failed. Both selectors
+can be combined to find attention-needed or completed jobs without modifying
+records. A selected status is the local job queue state, not a coach-reviewed
+technique verdict. The filter only narrows
 the at-most-20 most recent permission-granted jobs shown on the page; it does
 not change or delete registered clips, queue state, saved reports or the
 `/api/jobs` JSON response. The label comes from the operator's registry
 metadata, **not** automatically classified video. Selecting Unspecified
 shows records without a camera label. Direct local URLs such as
-`http://127.0.0.1:<PORT>/?camera=side-on` have the same effect; unknown or
-duplicate filter values fail with HTTP 400. Data are displayed only in the
+`http://127.0.0.1:<PORT>/?camera=side-on&status=failed` have the same effect;
+unknown, duplicate or extra filter values fail with HTTP 400. Data are displayed only in the
 loopback application, and filtering does not verify recording rights, video
 quality or rowing-technique accuracy.

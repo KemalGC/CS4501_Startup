@@ -321,6 +321,48 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertIn(f'href="/jobs/{job_id}?at=1.2"'.encode(), page)
         self.assertNotIn(f'href="/jobs/{job_id}?at=11.2"'.encode(), page)
 
+    def test_finding_offers_direct_link_to_first_saved_supporting_catch(self):
+        """From a fault summary, inspect a verified supporting stroke in video."""
+        self.with_video = True
+        job_id = self.succeed()
+        status, headers, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        findings = page.decode().split("<h2>Candidate findings</h2>", 1)[1]
+        findings = findings.split("</ul>", 1)[0]
+        self.assertIn("Watch first example", findings)
+        self.assertIn(f'href="/jobs/{job_id}?at=1.2"', findings)
+        self.assertIn("candidate_unreviewed", findings)
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertNotIn(str(self.root), findings)
+
+    def test_legacy_finding_with_no_annotated_video_has_no_watch_link(self):
+        job_id = self.succeed()
+        status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"Watch first example", page)
+        self.assertIn(b"supporting strokes", page)
+
+    def test_finding_example_link_uses_relative_trimmed_clip_time(self):
+        import copy
+        self.snapshot = copy.deepcopy(self.snapshot)
+        self.snapshot["start_seconds"] = 10.0
+        for stroke in self.snapshot["strokes"]:
+            for key in ("catch_seconds", "finish_seconds", "next_catch_seconds"):
+                stroke[key] += 10.0
+        self.snapshot["snapshot_sha256"] = evidence._digest({
+            key: val for key, val in self.snapshot.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(self.snapshot))
+        self.with_video = True
+        job_id = self.succeed()
+        status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        findings = page.decode().split("<h2>Candidate findings</h2>", 1)[1]
+        findings = findings.split("</ul>", 1)[0]
+        self.assertIn(f'href="/jobs/{job_id}?at=1.2"', findings)
+        self.assertNotIn(f'href="/jobs/{job_id}?at=11.2"', findings)
+
     def test_no_saved_video_does_not_offer_dead_seek_links(self):
         job_id = self.succeed()
         status, _, page = self.request(f"/jobs/{job_id}/evidence")

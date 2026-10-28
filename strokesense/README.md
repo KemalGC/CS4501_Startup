@@ -820,3 +820,25 @@ URL, and reuses the strict timestamp/permission/media integrity checks.
 Synthetic HTTP tests verify the link and offset arithmetic; they do **not**
 prove real browser seeking, video codec compatibility, technique detection
 accuracy or an approved coaching recommendation.
+
+
+## Blank coach-review worksheet for real validation later (Alpha)
+
+On a completed, permitted job's **Saved evidence** page, **Blank coach-review
+worksheet (CSV)** exports the digest-checked candidate stroke records through
+the loopback-only `/api/jobs/<job_id>/review.csv` route. It includes stable
+saved stroke ID, seat label, stroke number, catch seconds and candidate fault
+codes; the `coach_fault_present` and `coach_comments` columns are deliberately
+**empty**, with `review_status=unreviewed` on every row. This is an
+annotation **template**, not an evaluation result or actual review; there is
+no import/approval workflow yet. Any real annotations must be collected by
+the team from consent-cleared people/footage and independently quality-checked
+before use.
+
+The same permission, withheld-coaching state, completed-job, saved report
+and metrics integrity, snapshot schema, bounded output and no-cache checks as
+existing stroke exports apply. Seat labels are CSV formula-hardened. The CSV
+does not contain private source filenames, URLs, storage roots, consent notes,
+credentials or full raw metrics. It never enables a verified coaching state.
+Synthetic HTTP tests cannot establish real customer demand, coach agreement,
+false-positive rates, or permission to redistribute recordings.

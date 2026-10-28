@@ -160,8 +160,8 @@ class ReviewCsvEvaluationTests(unittest.TestCase):
 
     def test_binary_null_and_malformed_quoted_rows_fail_safely(self):
         raw = _review_row(1)
-        raw["seat"] = "fixture\\x00invisible"
-        bad_nul = _review_csv([raw]).replace("\\\\x00", "\\x00")
+        raw["seat"] = "fixture" + chr(0) + "invisible"
+        bad_nul = _review_csv([raw])
         good = _review_csv([_review_row(1)])
         bad_quote = good + '"unterminated,field'
         for bad in (bad_nul, bad_quote):

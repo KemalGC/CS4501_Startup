@@ -164,7 +164,7 @@ def create_server(
                 return False
             return True
 
-        def _home(self, *, camera_filter=""):
+        def _home(self, *, camera_filter="", status_filter=""):
             try:
                 clips = [c for c in list_clips(registry_path)
                          if c["permission"] == "granted"]
@@ -216,7 +216,8 @@ def create_server(
                 for row in recent
                 if (_JOB_ID.fullmatch(row["job_id"]) and
                     (not camera_filter or camera_by_clip.get(
-                        row["clip_id"], "unspecified") == camera_filter))
+                        row["clip_id"], "unspecified") == camera_filter) and
+                    (not status_filter or row["status"] == status_filter))
             )
             camera_options = (("", "All"), ("side-on", "Side-on"),
                               ("bow-on", "Bow-on"), ("stern-on", "Stern-on"),
@@ -227,10 +228,21 @@ def create_server(
                 + '>' + label + '</option>'
                 for value, label in camera_options
             )
+            status_options = (("", "All"), ("queued", "Queued"),
+                              ("running", "Running"),
+                              ("succeeded", "Succeeded"), ("failed", "Failed"))
+            status_select = "".join(
+                '<option value="' + value + '"'
+                + (' selected' if value == status_filter else '')
+                + '>' + label + '</option>'
+                for value, label in status_options
+            )
             history = ('<h2>Recent analyses</h2>'
                        '<form method="get" action="/">'
                        '<label>Filter analyses by camera <select name="camera">'
                        + camera_select + '</select></label>'
+                       '<label>Filter analyses by status <select name="status">'
+                       + status_select + '</select></label>'
                        '<button type="submit">Filter</button></form>'
                        + ('<ol>' + history_items + '</ol>' if history_items
                           else '<p>None yet.</p>'))
@@ -615,18 +627,20 @@ def create_server(
                     return
                 try:
                     params = parse_qs(query, keep_blank_values=True,
-                                      max_num_fields=1)
+                                      max_num_fields=2)
                 except ValueError:
                     self._error(400)
                     return
-                choices = {"", "side-on", "bow-on", "stern-on", "unspecified"}
-                if (params and (set(params) != {"camera"} or
-                                len(params["camera"]) != 1 or
-                                params["camera"][0] not in choices)):
+                camera_choices = {"", "side-on", "bow-on", "stern-on", "unspecified"}
+                status_choices = {"", "queued", "running", "succeeded", "failed"}
+                if (not set(params).issubset({"camera", "status"}) or
+                        any(len(values) != 1 for values in params.values()) or
+                        params.get("camera", [""])[0] not in camera_choices or
+                        params.get("status", [""])[0] not in status_choices):
                     self._error(400)
                     return
-                camera_filter = params.get("camera", [""])[0]
-                self._home(camera_filter=camera_filter)
+                self._home(camera_filter=params.get("camera", [""])[0],
+                           status_filter=params.get("status", [""])[0])
             elif route == "/api/jobs":
                 try:
                     recent = permitted_recent_jobs()

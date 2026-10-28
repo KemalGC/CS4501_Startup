@@ -119,3 +119,14 @@ fails closed with `no_approved_cues`, without contacting the provider.
 No model is asked to repair or approve cue catalogue metadata; the independent
 release validator still checks it separately. This prevents avoidable requests,
 not fraudulent reviewer claims or incorrect free-text coaching.
+
+### Provider completion-state gate
+
+Even an apparently schema-valid JSON object is **not** passed to the coaching
+validator if the first HTTPS chat choice has a missing, filtered, truncated or
+otherwise non-`stop` `finish_reason`. Such a response becomes a sanitized
+`invalid_provider_response` / withheld generation failure, without exposing
+model text or retrying that failed provider response. Offline fixtures use
+explicit `finish_reason="stop"`. A provider reporting `stop` does **not**
+prove the advice is true, consented, or professionally approved; independent
+checks and the later human-review requirements remain necessary.

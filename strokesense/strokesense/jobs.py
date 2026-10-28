@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_utc TEXT,
     report_path TEXT,
     report_sha256 TEXT,
+    metrics_sha256 TEXT,
     error_code TEXT,
     coaching_state TEXT NOT NULL DEFAULT 'withheld'
         CHECK(coaching_state IN ('withheld','released'))
@@ -101,16 +102,16 @@ class JobQueue:
         self._futures = {}
         with closing(self._connection()) as conn, conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise ValueError("unsupported newer jobs schema")
             conn.executescript(_SCHEMA)
-            if version < 3:
-                # Version 3: new successes get a private report digest.
+            if version < 4:
+                # Version 4: bind optional evidence bytes to the same job.
                 # Historical jobs/reports remain intact, but old rows cannot
                 # be authenticated on read until a fresh analysis runs.
                 conn.execute("BEGIN IMMEDIATE")
                 current = conn.execute("PRAGMA user_version").fetchone()[0]
-                if current > 3:
+                if current > 4:
                     raise ValueError("unsupported newer jobs schema")
                 columns = {col["name"] for col in
                            conn.execute("PRAGMA table_info(jobs)")}
@@ -122,11 +123,14 @@ class JobQueue:
                     )
                 if "report_sha256" not in columns:
                     conn.execute("ALTER TABLE jobs ADD COLUMN report_sha256 TEXT")
-                conn.execute("PRAGMA user_version = 3")
+                if "metrics_sha256" not in columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN metrics_sha256 TEXT")
+                conn.execute("PRAGMA user_version = 4")
                 conn.commit()
             columns = {col["name"] for col in
                        conn.execute("PRAGMA table_info(jobs)")}
-            if not {"coaching_state", "report_sha256"}.issubset(columns):
+            if not {"coaching_state", "report_sha256",
+                    "metrics_sha256"}.issubset(columns):
                 raise ValueError("incomplete jobs schema")
             # No in-memory worker from a prior process can complete these jobs.
             conn.execute(
@@ -148,7 +152,7 @@ class JobQueue:
         fields = ["status = ?"]
         values = [status]
         for column in ("started_utc", "finished_utc", "report_path",
-                       "report_sha256", "error_code"):
+                       "report_sha256", "metrics_sha256", "error_code"):
             if column in changes:
                 fields.append(column + " = ?")
                 values.append(changes[column])
@@ -178,6 +182,16 @@ class JobQueue:
                 "SELECT report_sha256 FROM jobs WHERE job_id = ?", (job_id,),
             ).fetchone()
         return row["report_sha256"] if row is not None else None
+
+    def metrics_sha256(self, job_id: str) -> str | None:
+        """Private digest binding evidence JSON to the completed local job."""
+        if not isinstance(job_id, str) or not job_id:
+            return None
+        with closing(self._connection()) as conn:
+            row = conn.execute(
+                "SELECT metrics_sha256 FROM jobs WHERE job_id = ?", (job_id,),
+            ).fetchone()
+        return row["metrics_sha256"] if row is not None else None
 
     def list_recent(self, limit: int = 20) -> list[dict]:
         """Bounded newest-first public status records; never expose private paths."""
@@ -289,12 +303,21 @@ class JobQueue:
                     raise ValueError("invalid report")
                 relative = report.relative_to(self._results_root).as_posix()
                 digest = _stream_sha256(report)
+                metrics = report.parent / "metrics.json"
+                metrics_digest = None
+                if metrics.exists():
+                    resolved = metrics.resolve(strict=True)
+                    if (not resolved.is_file() or not
+                            resolved.is_relative_to(run_root.resolve())):
+                        raise ValueError("invalid metrics location")
+                    metrics_digest = _stream_sha256(resolved)
             except (OSError, TypeError, ValueError, KeyError):
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="invalid_report_location")
                 return
             self._write(job_id, "succeeded", finished_utc=_utc(),
-                        report_path=relative, report_sha256=digest)
+                        report_path=relative, report_sha256=digest,
+                        metrics_sha256=metrics_digest)
         finally:
             self._permits.release()
 

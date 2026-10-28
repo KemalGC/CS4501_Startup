@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import sqlite3
 from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -15,6 +17,7 @@ from strokesense import evidence
 from strokesense.jobs import JobQueue
 from strokesense.registry import register_clip
 from strokesense.web import create_server
+import strokesense.web as web
 
 
 def example_snapshot():
@@ -138,6 +141,56 @@ class EvidenceInterfaceTests(unittest.TestCase):
                     self.assertEqual(
                         headers["Content-Type"], "application/problem+json"
                     )
+
+    def test_report_read_rejects_growth_past_response_bound(self):
+        """A stale small stat size must not authorize an oversized response."""
+        job_id = self.succeed()
+        report_path = self.metrics_path.parent / "report.html"
+        original_stat = Path.stat
+
+        def stale_small_size(path, *args, **kwargs):
+            stat = original_stat(path, *args, **kwargs)
+            if path == report_path:
+                values = list(stat)
+                values[6] = 1  # Simulates a pre-read metadata snapshot.
+                return os.stat_result(values)
+            return stat
+
+        # Lower the production limit for this synthetic regression so CI need
+        # not allocate a 32 MiB video/report to exercise the race.
+        with patch.object(web, "_MAX_REPORT", 16), patch.object(
+            Path, "stat", stale_small_size
+        ):
+            status, headers, body = self.request(f"/reports/{job_id}")
+        self.assertEqual(status, 413)
+        self.assertNotIn(b"offline fixture", body)
+        self.assertIn("no-store", headers["Cache-Control"])
+
+    def test_evidence_read_rejects_growth_past_metrics_bound(self):
+        """Unbounded metrics.read_text must not bypass an old small stat."""
+        job_id = self.succeed()
+        metrics_path = self.metrics_path
+        original_stat = Path.stat
+
+        def stale_small_size(path, *args, **kwargs):
+            stat = original_stat(path, *args, **kwargs)
+            if path == metrics_path:
+                values = list(stat)
+                values[6] = 1
+                return os.stat_result(values)
+            return stat
+
+        # create=True permits the test to go red against the old hard-coded
+        # limit, before the production limit constant is introduced.
+        with patch.object(web, "_MAX_METRICS", 16, create=True), patch.object(
+            Path, "stat", stale_small_size
+        ):
+            status, headers, body = self.request(
+                f"/api/jobs/{job_id}/evidence"
+            )
+        self.assertEqual(status, 413)
+        self.assertNotIn(b"finding_fixture", body)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
 
     def test_valid_snapshot_navigation_returns_only_verified_evidence(self):
         job_id = self.succeed()

@@ -56,6 +56,28 @@ class ConfiguredProviderTests(unittest.TestCase):
         request_body = json.loads(request.data)
         self.assertEqual(request_body["model"], "fixture-chat-model")
         self.assertEqual(request_body["response_format"], {"type": "json_object"})
+        self.assertEqual(request_body["max_completion_tokens"], 512)
+
+    def test_oversize_utf8_prompt_rejected_before_network(self):
+        """Rehashed but oversized synthetic evidence must not reach HTTPS."""
+        from strokesense.evidence import validate_reference_graph
+        from strokesense.provider import ProviderError
+        snap = copy.deepcopy(self.snapshot)
+        secret = "private_marker_" + ("🛶" * 20000)
+        snap["analysis_id"] = secret
+        payload = {key: value for key, value in snap.items()
+                   if key != "snapshot_sha256"}
+        snap["snapshot_sha256"] = hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False).encode("utf-8")).hexdigest()
+        self.assertTrue(validate_reference_graph(snap))
+        with patch("strokesense.provider.urlopen",
+                   return_value=fake_response(self.candidate)) as opened:
+            with self.assertRaises(ProviderError) as caught:
+                self.generator(evidence_snapshot=snap)(1, [])
+        opened.assert_not_called()
+        self.assertEqual(str(caught.exception), "provider_prompt_too_large")
+        self.assertNotIn("private_marker_", str(caught.exception))
 
     def test_payload_does_not_send_private_paths_or_reviewers(self):
         snap = copy.deepcopy(self.snapshot)

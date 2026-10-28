@@ -896,3 +896,37 @@ are unchanged; this new worksheet is an additional option, not an automatic
 evaluation or an annotation import workflow. Synthetic tests verify row
 construction and fail-closed routing, **not** actual athlete performance,
 customer validation or coaching effectiveness.
+
+
+## Aggregate manually reviewed fault-grid CSV locally (Alpha)
+
+After a human coach has **independently reviewed every included stroke/fault
+opportunity** in the additional `fault-review.csv` worksheet, they may set
+`review_status=reviewed` and fill `coach_fault_present` with exactly `0`
+(absent) or `1` (present) for **each row**, including algorithm-negative
+opportunities. Do not label the file reviewed unless that actual review took
+place; leaving fields blank intentionally blocks evaluation.
+
+The local offline CLI accepts a completed version-one worksheet using:
+
+```bash
+python -m strokesense.evaluation --review-csv --clip-id LOCAL_OPAQUE_CLIP_ID --group-id SESSION_OR_ATHLETE_GROUP --split development completed-fault-review.csv
+```
+
+Run from the `strokesense/` directory (or configure the normal Python module
+path). Use `--split heldout` only for genuine untouched held-out groups; do
+not evaluate a session/athlete in both splits. The CLI validates exact CSV
+columns and review markers, requires every 0/1 label, checks supported fault
+codes, bounded input, duplicates, and private grouping. It prints aggregate
+TP/FP/FN/TN, explicit precision/recall numerators/denominators and
+`labels_independently_verified=false`; it never prints local paths or
+individual stroke IDs. The original JSON evaluation mode remains available
+without `--review-csv` and remains unchanged.
+
+**Important:** The software cannot authenticate the human reviewer, verify
+recording consent, determine whether every real stroke/fault opportunity was
+included, audit session/athlete leakage, or turn an operator claim into
+empirical accuracy. CSV rows in the automated tests are **fabricated**; any
+computed fixture precision/recall is synthetic regression output, not field
+performance. Actual Activity 1 customer validation and genuine independently
+reviewed clips are still required.

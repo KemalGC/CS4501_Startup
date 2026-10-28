@@ -222,7 +222,13 @@ class OpenAIChatGenerator:
             choices = envelope["choices"]
             if not isinstance(choices, list) or not choices:
                 raise ValueError("missing choice")
-            message = choices[0]["message"]
+            choice = choices[0]
+            # A truncated, filtered, or otherwise unfinished response may
+            # contain valid-looking JSON; never treat it as a complete candidate.
+            if (not isinstance(choice, dict)
+                    or choice.get("finish_reason") != "stop"):
+                raise ValueError("incomplete provider response")
+            message = choice["message"]
             text = message["content"]
             if not isinstance(text, str):
                 raise ValueError("invalid content")

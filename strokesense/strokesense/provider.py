@@ -72,6 +72,38 @@ def _nonempty(value: str, name: str) -> str:
     return value.strip()
 
 
+
+def _unique_json_object(pairs):
+    """Reject repeated object names even when their values are identical."""
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate JSON object field")
+        obj[key] = value
+    return obj
+
+
+def _reject_json_constant(_token):
+    # json.loads defaults to allowing NaN/Infinity despite JSON forbidding them.
+    raise ValueError("non-JSON numeric constant")
+
+
+def _finite_json_float(token):
+    value = float(token)
+    if not math.isfinite(value):
+        raise ValueError("out-of-range JSON number")
+    return value
+
+
+def _strict_json(value):
+    """Use the same unambiguous JSON decoder for envelope and candidate."""
+    return json.loads(
+        value, object_pairs_hook=_unique_json_object,
+        parse_constant=_reject_json_constant,
+        parse_float=_finite_json_float,
+    )
+
+
 def _safe_payload(snapshot, reviewed_cues):
     """Whitelisted values only; no raw source path, video, reviewer or private metadata."""
     if not validate_reference_graph(snapshot):
@@ -218,7 +250,7 @@ class OpenAIChatGenerator:
         if len(data) > MAX_RESPONSE_BYTES:
             raise ProviderError("provider_response_too_large")
         try:
-            envelope = json.loads(data.decode("utf-8"))
+            envelope = _strict_json(data.decode("utf-8"))
             choices = envelope["choices"]
             if not isinstance(choices, list) or not choices:
                 raise ValueError("missing choice")
@@ -232,7 +264,7 @@ class OpenAIChatGenerator:
             text = message["content"]
             if not isinstance(text, str):
                 raise ValueError("invalid content")
-            candidate = json.loads(text)
+            candidate = _strict_json(text)
             if not isinstance(candidate, dict):
                 raise ValueError("invalid candidate")
             return candidate

@@ -962,3 +962,18 @@ rendered when no finding exists or there is no valid positive denominator.
 The selected-fault HTML filter narrows visible meters, while underlying JSON
 evidence and CSV worksheets remain complete and unchanged. No client-side
 JavaScript, remote assets, or new dependencies are required.
+
+
+### Filter recent analysis history by registered clip
+
+On the local Alpha homepage, the **Filter analyses by clip** dropdown selects
+one currently permission-claimed registered clip (displayed by an abbreviated,
+opaque SHA-256 ID). Choose **All clips** or **Clear filters** to restore the
+full permitted recent-history list. The clip selector can be combined with
+existing camera-viewpoint and analysis-status filters; no job records are
+modified. Unknown or revoked clip IDs and invalid/ambiguous queries are
+rejected. The separate `/api/jobs` endpoint is deliberately not filtered
+by the HTML view, and no source path or permission-provenance text appears
+in the list. This is local navigation over synthetic-tested job state, not
+a new model inference, verified human permission, empirical accuracy
+measurement or customer validation.

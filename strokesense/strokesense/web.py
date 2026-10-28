@@ -628,7 +628,7 @@ def create_server(
                 return
             if as_csv or review_template:
                 output = io.StringIO(newline="")
-                writer = csv.writer(output, lineterminator="\\r\\n")
+                writer = csv.writer(output, lineterminator="\r\n")
                 labels = {row["id"]: row["seat"] for row in curated["seats"]}
                 if review_template:
                     # A worksheet for future human review, not a label dataset.

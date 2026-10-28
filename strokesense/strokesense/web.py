@@ -35,6 +35,7 @@ _VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
 _MAX_REPORT = 32 * 1024 * 1024
 _MAX_METRICS = 16 * 1024 * 1024
 _MAX_LINKED_STROKES_PER_FINDING = 50
+_RETRYABLE_JOB_ERRORS = frozenset({"analysis_failed", "interrupted", "output_unavailable"})
 _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
              "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 _REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
@@ -258,10 +259,22 @@ def create_server(
                     f'<p><a href="/jobs/{job_id}/evidence">Inspect saved evidence</a>'
                     ' (generated coaching withheld)</p>'
                     if status == "succeeded" else "")
+            retry = ""
+            if status == "failed" and err in _RETRYABLE_JOB_ERRORS:
+                # Reuse the existing CSRF-protected POST /jobs; a retry is a
+                # *new* job, never a mutation of the original failed record.
+                retry = (
+                    '<form method="post" action="/jobs">'
+                    '<input type="hidden" name="clip_id" value="'
+                    + html.escape(record["clip_id"], quote=True)
+                    + '"><input type="hidden" name="csrf" value="'
+                    + html.escape(token, quote=True)
+                    + '"><button type="submit">Retry analysis</button></form>'
+                )
             content = (f"<p>Job: <code>{job_id}</code></p>"
                        f"<p>Status: <strong>{status}</strong></p>"
                        '<p>Coaching: <strong>withheld</strong></p>'
-                       + message + link
+                       + message + link + retry
                        + '<p><a href="/">Choose another clip</a></p>')
             self._send(200, _document("Analysis status", content,
                                       refresh=status in ("queued", "running")))

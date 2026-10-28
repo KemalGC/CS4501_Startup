@@ -277,6 +277,11 @@ def create_server(
                 if not record or record["status"] != "succeeded":
                     self._error(404)
                     return
+                # Persisted release flags are not authority to publish coaching.
+                # There is no independently verified release path in this Alpha.
+                if record.get("coaching_state") != "withheld":
+                    self._error(409)
+                    return
                 raw = record.get("report_path")
                 if not isinstance(raw, str):
                     self._error(404)
@@ -317,6 +322,11 @@ def create_server(
                     return
                 if not record or record["status"] != "succeeded":
                     self._error(404)
+                    return
+                # Persisted release flags are not authority to publish coaching.
+                # There is no independently verified release path in this Alpha.
+                if record.get("coaching_state") != "withheld":
+                    self._error(409)
                     return
                 raw = record.get("report_path")
                 if not isinstance(raw, str):

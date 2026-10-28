@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import sqlite3
 from pathlib import Path
 import tempfile
 import threading
@@ -103,6 +104,40 @@ class EvidenceInterfaceTests(unittest.TestCase):
         done = self.worker.wait(row["job_id"], timeout=5)
         self.assertEqual(done["status"], "succeeded")
         return row["job_id"]
+
+    def test_unverified_release_flag_blocks_all_result_surfaces(self):
+        """A stored flag is not independent evidence of verified coaching."""
+        job_id = self.succeed()
+        endpoints = (
+            f"/reports/{job_id}",
+            f"/jobs/{job_id}/evidence",
+            f"/api/jobs/{job_id}/evidence",
+        )
+        for endpoint in endpoints:
+            with self.subTest(endpoint=endpoint, state="withheld"):
+                status, _, body = self.request(endpoint)
+                self.assertEqual(status, 200)
+                self.assertTrue(body)
+
+        # This simulates corrupted/unauthorized persisted metadata, NOT a
+        # genuine coach-approved release. The Alpha has no release pathway.
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute(
+                "UPDATE jobs SET coaching_state='released' WHERE job_id=?",
+                (job_id,),
+            )
+        for endpoint in endpoints:
+            with self.subTest(endpoint=endpoint, state="unverified-release"):
+                status, headers, body = self.request(endpoint)
+                self.assertEqual(status, 409)
+                self.assertNotIn(b"offline fixture", body)
+                self.assertNotIn(b"finding_fixture", body)
+                self.assertNotIn(str(self.root).encode(), body)
+                self.assertIn("no-store", headers["Cache-Control"])
+                if endpoint.startswith("/api/"):
+                    self.assertEqual(
+                        headers["Content-Type"], "application/problem+json"
+                    )
 
     def test_valid_snapshot_navigation_returns_only_verified_evidence(self):
         job_id = self.succeed()

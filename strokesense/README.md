@@ -646,3 +646,23 @@ estimates** for rowing footage, and must never be presented as observed
 precision/recall. No raw clip/session/stroke IDs appear in the aggregate.
 For genuine evaluation, replace the fixture with independently annotated,
 permission-cleared footage with documented groups and denominators.
+
+
+## Saved local result integrity (Alpha)
+
+Jobs database schema version 3 records a **private SHA-256 digest** of the
+completed HTML report upon successful processing. The local browser rechecks
+these exact bytes before serving the report **or** its associated evidence;
+missing/mismatched digests return HTTP 409. The report and metrics readers
+also enforce the 32 MiB / 16 MiB limits on bytes actually read, not merely
+potentially stale file metadata. Status/history JSON never includes the digest
+or private source paths.
+
+Upgrading an existing version-2 jobs database is **non-destructive**: historical
+rows, videos and reports are preserved. Historical completed reports that
+lack the version-3 digest cannot be served by the new release gate; reanalyze
+the permitted source to create a new verified job rather than modifying old
+rows. Checksums detect accidental or file-only changes but are **not
+cryptographic signatures** and cannot prevent edits by someone who can
+modify both the local database and result files. Evidence contents remain
+unreviewed and no generated coaching is independently approved by this step.

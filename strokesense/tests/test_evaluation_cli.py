@@ -158,6 +158,20 @@ class ReviewCsvEvaluationTests(unittest.TestCase):
                 self.assertNotEqual(code, 0)
                 self.assertEqual(out, "")
 
+    def test_binary_null_and_malformed_quoted_rows_fail_safely(self):
+        raw = _review_row(1)
+        raw["seat"] = "fixture\\x00invisible"
+        bad_nul = _review_csv([raw]).replace("\\\\x00", "\\x00")
+        good = _review_csv([_review_row(1)])
+        bad_quote = good + '"unterminated,field'
+        for bad in (bad_nul, bad_quote):
+            with self.subTest(kind="null" if bad is bad_nul else "quote"):
+                code, out, err = self.run_csv(bad)
+                self.assertNotEqual(code, 0)
+                self.assertEqual(out, "")
+                self.assertNotIn("private-", err)
+                self.assertNotIn("Traceback", err)
+
     def test_review_csv_requires_explicit_group_clip_and_split(self):
         code, out, _ = self.run_csv(_review_csv([_review_row(1)]),
                                     args=["--review-csv"])

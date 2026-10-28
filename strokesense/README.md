@@ -842,3 +842,23 @@ does not contain private source filenames, URLs, storage roots, consent notes,
 credentials or full raw metrics. It never enables a verified coaching state.
 Synthetic HTTP tests cannot establish real customer demand, coach agreement,
 false-positive rates, or permission to redistribute recordings.
+
+
+### Optional video position in the blank coach-review CSV (Alpha)
+
+When a completed, permission-granted analysis has a saved annotated video,
+the blank `/api/jobs/<job_id>/review.csv` worksheet includes
+`video_seek_seconds` for each saved stroke. It is derived from the
+integrity-checked evidence as `catch_seconds - start_seconds`, rounded to at
+most three decimal places and bounded to 0–120 seconds. This is a **position
+in the exported annotated clip**, not an absolute timestamp in the original
+source. When the job has no saved media or the position is outside the
+supported bound, the field remains blank; no video or labels are fabricated.
+The original `catch_seconds` and all preexisting blank human-label columns
+are preserved.
+
+These values help a human reviewer find a candidate stroke in locally
+permitted footage; they do **not** indicate independently verified rowing
+faults, real-world timing accuracy, coach approval, or customer validation.
+The worksheet remains a manual, **unreviewed** template. Opening, decoding,
+and seeking real video in a browser have not been measured by synthetic tests.

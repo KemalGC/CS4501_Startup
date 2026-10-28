@@ -994,6 +994,19 @@ This convenience navigation does not expose private footage, grant coach
 approval, release LLM advice or establish empirical rowing accuracy.
 Synthetic regression tests use invented report bytes and operator claims.
 
+### Open saved evidence directly from the recent-analysis library
+
+The local homepage's **Recent analyses** list now offers an **Inspect saved
+evidence** shortcut for completed, currently permitted jobs with saved metrics
+metadata. This bypasses only the extra navigation through the job status page:
+the destination `/jobs/<job-id>/evidence` independently verifies clip rights,
+withheld coaching state, saved report and metrics paths/hashes, size limits and
+versioned snapshot structure **when opened**. Legacy report-only jobs with no
+metrics digest, incomplete or failed jobs and revoked clips have no shortcut.
+A saved digest alone does not establish truth, approval or current artifact
+integrity; if data change after the history page loads, the destination fails
+closed. The link never releases LLM advice or claims real-world video accuracy.
+
 ### Download permission-scoped recent-analysis history (Alpha)
 
 On the private loopback homepage, choose the **camera**, **status** and/or **clip**

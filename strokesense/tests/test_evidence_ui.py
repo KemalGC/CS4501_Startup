@@ -719,6 +719,32 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertEqual(rows[2]["video_seek_seconds"], "")
         self.assertTrue(all(row["review_status"] == "unreviewed" for row in rows))
 
+    def test_review_template_does_not_offer_seek_when_media_was_deleted(self):
+        import csv
+        import io
+        self.with_video = True
+        job_id = self.succeed()
+        (self.metrics_path.parent / "annotated.mp4").unlink()
+        code, _, body = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(body.decode())))
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(row["video_seek_seconds"] == "" for row in rows))
+        self.assertTrue(all(row["review_status"] == "unreviewed" for row in rows))
+
+    def test_review_template_does_not_offer_seek_for_tampered_media(self):
+        import csv
+        import io
+        self.with_video = True
+        job_id = self.succeed()
+        media = self.metrics_path.parent / "annotated.mp4"
+        media.write_bytes(b"changed but still a file")
+        code, _, body = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(body.decode())))
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(row["video_seek_seconds"] == "" for row in rows))
+
     def test_review_template_rejects_changed_evidence_and_untrusted_release(self):
         job_id = self.succeed()
         path = f"/api/jobs/{job_id}/review.csv"

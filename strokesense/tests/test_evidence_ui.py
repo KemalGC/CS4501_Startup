@@ -447,5 +447,72 @@ class EvidenceInterfaceTests(unittest.TestCase):
         )
 
 
+    def test_csv_export_of_saved_strokes_uses_verified_allowlist(self):
+        """Allow a coach to download the integrity-checked saved measurements."""
+        import csv
+        import io
+        job_id = self.succeed()
+        path = f"/api/jobs/{job_id}/strokes.csv"
+        status, headers, body = self.request(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
+        rows = list(csv.DictReader(io.StringIO(body.decode("utf-8"))))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["seat"], "Stroke")
+        self.assertEqual(rows[0]["stroke_index"], "0")
+        self.assertEqual(rows[0]["catch_seconds"], "1.2")
+        self.assertEqual(rows[0]["finish_seconds"], "1.8")
+        self.assertEqual(rows[0]["fault_codes"], "early_arms")
+        self.assertEqual(rows[1]["fault_codes"], "")
+        self.assertNotIn(str(self.root).encode(), body)
+        self.assertNotIn(b"test-only operator claim", body)
+        code, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(code, 200)
+        self.assertIn(path.encode("ascii"), page)
+        self.assertIn(b"Export stroke evidence (CSV)", page)
+
+    def test_csv_protects_formula_seat_and_fails_closed_on_changed_metrics(self):
+        """Untrusted display labels cannot execute as spreadsheet formulas."""
+        import copy
+        import csv
+        import io
+        snap = copy.deepcopy(self.snapshot)
+        snap["seats"][0]["seat"] = '=HYPERLINK("https://untrusted.invalid", "click")'
+        snap["snapshot_sha256"] = evidence._digest({
+            key: value for key, value in snap.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(snap))
+        self.snapshot = snap
+        job_id = self.succeed()
+        path = f"/api/jobs/{job_id}/strokes.csv"
+        status, _, content = self.request(path)
+        self.assertEqual(status, 200)
+        rows = list(csv.DictReader(io.StringIO(content.decode("utf-8"))))
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(row["seat"].startswith("'=") for row in rows))
+        self.metrics_path.write_text("tampered after job completion")
+        status, headers, body = self.request(path)
+        self.assertEqual(status, 409)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
+        self.assertNotIn(b"HYPERLINK", body)
+
+    def test_csv_unknown_job_and_untrusted_released_flag_do_not_export(self):
+        unknown = "/api/jobs/" + "0" * 32 + "/strokes.csv"
+        code, headers, _ = self.request(unknown)
+        self.assertEqual(code, 404)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
+        job_id = self.succeed()
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET coaching_state='released' WHERE job_id=?",
+                       (job_id,))
+        code, headers, payload = self.request(
+            f"/api/jobs/{job_id}/strokes.csv"
+        )
+        self.assertEqual(code, 409)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
+        self.assertNotIn(b"early_arms", payload)
+
+
 if __name__ == "__main__":
     unittest.main()

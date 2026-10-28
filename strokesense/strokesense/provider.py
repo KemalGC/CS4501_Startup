@@ -276,5 +276,6 @@ class OpenAIChatGenerator:
             if not isinstance(candidate, dict):
                 raise ValueError("invalid candidate")
             return candidate
-        except (UnicodeError, TypeError, ValueError, KeyError, IndexError):
+        except (UnicodeError, TypeError, ValueError, KeyError, IndexError,
+                RecursionError):
             raise ProviderError("invalid_provider_response") from None

@@ -949,3 +949,16 @@ remain **unfiltered** and protected by the existing permission and integrity
 checks. This is an HTML navigation feature, **not a fault-accuracy measurement,
 real coach approval, independent LLM verification, or customer validation**.
 The synthetic HTTP regression fixture is invented, not a real video review.
+
+### Native candidate-frequency meters
+
+For each validated saved **candidate** finding, the local evidence page
+shows a compact accessible HTML `<meter>` with the original count of flagged
+strokes and its explicitly saved `analyzed_strokes` denominator (for example,
+**1 of 3**). This represents only the prevalence of the heuristic candidate
+among analyzed strokes; **it is not model confidence, precision, recall, human
+confirmation, clinical advice, or coach-approved feedback**. The meter is not
+rendered when no finding exists or there is no valid positive denominator.
+The selected-fault HTML filter narrows visible meters, while underlying JSON
+evidence and CSV worksheets remain complete and unchanged. No client-side
+JavaScript, remote assets, or new dependencies are required.

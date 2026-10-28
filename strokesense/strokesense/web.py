@@ -121,6 +121,46 @@ def create_server(
                 and row.get("coaching_state") == "withheld")
         ]
 
+    def verified_media_available(job_id: str) -> bool:
+        """Only offer navigation to a real, unchanged, bounded job-owned clip.
+
+        This never returns media bytes or a private location to the browser.
+        The /media route independently verifies again at playback time.
+        """
+        try:
+            artifact = jobs.media_artifact(job_id)
+            if artifact is None:
+                return False
+            raw, expected_digest = artifact
+            if not isinstance(raw, str) or not isinstance(expected_digest, str):
+                return False
+            rel = Path(raw)
+            if (rel.is_absolute() or not rel.parts or rel.parts[0] != job_id
+                    or ".." in rel.parts or
+                    rel.suffix.lower() not in (".mp4", ".webm")):
+                return False
+            job_root = (result_root / job_id).resolve(strict=True)
+            target = (result_root / rel).resolve(strict=True)
+            if not target.is_file() or not target.is_relative_to(job_root):
+                return False
+            digest = hashlib.sha256()
+            size = 0
+            with target.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_MEDIA_BYTES:
+                        return False
+                    digest.update(chunk)
+            return hmac.compare_digest(expected_digest, digest.hexdigest())
+        except (OSError, ValueError, TypeError):
+            return False
+        except Exception:
+            # Private storage failures must not expose paths or stack traces.
+            return False
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "StrokeSense"
         sys_version = ""
@@ -635,10 +675,7 @@ def create_server(
                     # These review fields must never be prefilled by heuristics.
                     # Optional clip-relative navigation is derived only from
                     # the validated, saved source-relative stroke evidence.
-                    try:
-                        has_saved_video = jobs.media_artifact(job_id) is not None
-                    except Exception:
-                        has_saved_video = False
+                    has_saved_video = verified_media_available(job_id)
                     writer.writerow(("stroke_id", "seat", "stroke_index",
                                      "catch_seconds", "video_seek_seconds",
                                      "fault_codes", "coach_fault_present",
@@ -696,11 +733,8 @@ def create_server(
                 row["id"]: (f"stroke-{position}", row)
                 for position, row in enumerate(curated["strokes"])
             }
-            try:
-                media_available = jobs.media_artifact(job_id) is not None
-            except Exception:
-                # Evidence remains readable if optional media cannot be found.
-                media_available = False
+            # Do not advertise dead or modified media from saved evidence.
+            media_available = verified_media_available(job_id)
 
             def watch_link(stroke, label):
                 # Source-relative evidence times are not rendered-video times:

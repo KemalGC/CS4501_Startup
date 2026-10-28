@@ -669,3 +669,16 @@ detect accidental or file-only changes but are **not cryptographic
 signatures** and cannot prevent edits by someone who can modify both the
 local database and result files. Evidence remains unreviewed and no
 generated coaching is approved by this mechanism.
+
+
+## Explicit saved-evidence coaching verification CLI (Alpha)
+
+See [COACHING_CLI.md](COACHING_CLI.md) for the reproducible offline
+reject/correct/withhold command and a separately opted-in configurable
+HTTPS LLM mode. All offline success examples use **fictional review-shaped
+fixtures**, not real coach approvals. The CLI validates evidence and cue IDs
+against separately supplied data, bounds inputs and limits correction to
+three attempts, but **does not change the job database or publish feedback**.
+The existing browser continues to withhold coaching. A locally validated
+candidate is not proof of coaching effectiveness, genuine consent or
+reviewer identity.

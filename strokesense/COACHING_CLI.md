@@ -179,3 +179,22 @@ reviewed a cue, verify a provider's statements, infer athletic technique
 accuracy, or certify the truth of any unstructured explanation. The
 regression suite models responses offline; no live provider integration,
 credential, charge, or real athlete data was used.
+
+
+### Provider refusal and tool-call conflict gate
+
+A chat choice with `finish_reason="stop"` is accepted only when its content
+is an ordinary assistant reply: an explicitly non-assistant `role`, any
+non-null `refusal`, a nonempty `tool_calls` value, or a non-null legacy
+`function_call` cause sanitized `invalid_provider_response`, regardless of
+whether a plausible JSON candidate is also present. The correction loop
+withholds on such a provider error without showing the reply or retrying it.
+A missing role is still supported for minimal OpenAI-compatible providers;
+`role="assistant"`, `refusal=null`, `tool_calls=[]` and
+`function_call=null` are accepted if all other format/evidence checks pass.
+
+This is defense-in-depth against contradictory response metadata, **not**
+proof that a message without a refusal is correct, reviewed or safe. The
+contract tests use mock response objects and fictional approvals; real
+provider compatibility, athlete consent and model-generated coaching
+correctness remain untested.

@@ -192,6 +192,30 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(b"finding_fixture", body)
         self.assertEqual(headers["Content-Type"], "application/problem+json")
 
+    def test_changed_completed_report_fails_closed_across_result_endpoints(self):
+        """Saved report content is not trusted after a successful job."""
+        job_id = self.succeed()
+        report_path = self.metrics_path.parent / "report.html"
+        routes = (
+            f"/reports/{job_id}",
+            f"/jobs/{job_id}/evidence",
+            f"/api/jobs/{job_id}/evidence",
+        )
+        for route in routes:
+            with self.subTest(route=route, stage="before"):
+                self.assertEqual(self.request(route)[0], 200)
+
+        report_path.write_text(
+            "<!doctype html><h1>UNVERIFIED ADVICE injected after analysis</h1>",
+            encoding="utf-8",
+        )
+        for route in routes:
+            with self.subTest(route=route, stage="after"):
+                status, _, body = self.request(route)
+                self.assertEqual(status, 409)
+                self.assertNotIn(b"UNVERIFIED ADVICE", body)
+                self.assertNotIn(str(self.root).encode(), body)
+
     def test_valid_snapshot_navigation_returns_only_verified_evidence(self):
         job_id = self.succeed()
         status, hdr, body = self.request(f"/api/jobs/{job_id}/evidence")

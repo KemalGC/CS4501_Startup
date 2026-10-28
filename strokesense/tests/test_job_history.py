@@ -1,7 +1,9 @@
 """Regression tests for a bounded, persistent, privacy-safe job history."""
 from __future__ import annotations
 
+import csv
 import http.client
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -372,6 +374,100 @@ class JobHistoryTests(unittest.TestCase):
         code, _, report = self.get(f"/reports/{good}")
         self.assertEqual(code, 403)
         self.assertNotIn(str(self.root).encode(), report)
+
+
+
+    def test_csv_history_has_bounded_public_columns_and_download_link(self):
+        first = self.finish()
+        status, headers, raw = self.get("/history.csv")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("attachment", headers["Content-Disposition"])
+        self.assertIn("no-store", headers["Cache-Control"])
+        rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(list(rows[0]), [
+            "job_id", "clip_id", "camera", "status", "created_utc",
+            "finished_utc", "coaching_state", "report_available",
+        ])
+        self.assertEqual(rows[0]["job_id"], first)
+        self.assertEqual(rows[0]["clip_id"], self.clip_id)
+        self.assertEqual(rows[0]["status"], "succeeded")
+        self.assertEqual(rows[0]["coaching_state"], "withheld")
+        self.assertEqual(rows[0]["report_available"], "yes")
+        self.assertNotIn(str(self.root), raw.decode())
+        self.assertNotIn("fake consent", raw.decode())
+        code, _, home = self.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn(b'href="/history.csv"', home)
+
+    def test_csv_history_respects_combined_filters_and_permission_withdrawal(self):
+        import sqlite3
+        from strokesense.registry import revoke_clip
+        with sqlite3.connect(self.registry) as db:
+            db.execute("UPDATE clips SET camera='side-on' WHERE clip_id=?",
+                       (self.clip_id,))
+        another = self.root / "invented-other.mp4"
+        another.write_bytes(b"synthetic independent non-video test fixture")
+        clip_two = register_clip(another, self.registry, permission="granted",
+                                 provenance="test-only permission claim",
+                                 camera="bow-on")[0]["clip_id"]
+        done = self.finish()
+        failed = self.finish()
+        second = self.worker.submit(clip_two)["job_id"]
+        self.assertEqual(self.worker.wait(second, timeout=4)["status"], "succeeded")
+        with sqlite3.connect(self.jobs_db) as db:
+            db.execute("UPDATE jobs SET status='failed', error_code='analysis_failed' "
+                       "WHERE job_id=?", (failed,))
+
+        path = "/history.csv?camera=side-on&status=succeeded&clip=" + self.clip_id
+        status, _, raw = self.get(path)
+        self.assertEqual(status, 200)
+        rows = list(csv.DictReader(io.StringIO(raw.decode())))
+        self.assertEqual([r["job_id"] for r in rows], [done])
+        self.assertEqual(rows[0]["camera"], "side-on")
+        status, _, page = self.get("/?camera=side-on&status=succeeded&clip=" + self.clip_id)
+        self.assertEqual(status, 200)
+        self.assertIn(
+            ("/history.csv?camera=side-on&amp;status=succeeded&amp;clip="
+             + self.clip_id).encode(), page,
+        )
+        code, _, failed_csv = self.get("/history.csv?status=failed")
+        self.assertEqual(code, 200)
+        failed_rows = list(csv.DictReader(io.StringIO(failed_csv.decode())))
+        self.assertEqual([r["job_id"] for r in failed_rows], [failed])
+        self.assertEqual(failed_rows[0]["report_available"], "no")
+
+        revoke_clip(self.clip_id, self.registry)
+        code, _, remaining = self.get("/history.csv")
+        self.assertEqual(code, 200)
+        self.assertEqual([r["job_id"] for r in csv.DictReader(
+            io.StringIO(remaining.decode()))], [second])
+        self.assertNotIn(str(self.root).encode(), remaining)
+        self.assertNotIn(b"test-only permission claim", remaining)
+        code, _, _ = self.get(path)
+        self.assertEqual(code, 400)
+
+    def test_csv_history_empty_and_invalid_filters(self):
+        status, _, raw = self.get("/history.csv")
+        self.assertEqual(status, 200)
+        self.assertEqual(list(csv.DictReader(io.StringIO(raw.decode()))), [])
+        self.assertIn(b"job_id,clip_id,camera,status", raw)
+        self.finish()
+        for path in (
+            "/history.csv?bad=1",
+            "/history.csv?camera=side-on&camera=bow-on",
+            "/history.csv?status=done",
+            "/history.csv?clip=not-a-clip-id",
+            "/history.csv?clip=" + "f" * 64,
+            "/history.csv?camera=side-on&status=failed&extra=1",
+            "/history.csv?camera=" + "x" * 200,
+        ):
+            with self.subTest(path=path):
+                code, headers, response = self.get(path)
+                self.assertEqual(code, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(str(self.root).encode(), response)
 
 
 if __name__ == "__main__":

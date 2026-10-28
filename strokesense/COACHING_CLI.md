@@ -212,3 +212,21 @@ levels of short nested arrays; ordinary schema-valid complete responses remain
 supported. This reduces crash risk from malformed HTTP replies; it is not a
 general guarantee of bounded parsing CPU or memory for arbitrary input, nor a
 claim about real model or coaching accuracy.
+
+
+### Visible, render-safe candidate text
+
+The independent release gate also rejects control characters that can conceal
+text or alter a terminal/browser display, including NUL/ANSI escapes, C1
+controls, and Unicode bidirectional override/isolate marks U+202A–U+202E and
+U+2066–U+2069. This applies to candidate identifiers, stroke IDs and
+explanations. Normal UTF-8 prose, accents and emoji joiners remain allowed;
+explanations may still include conventional newline and tab characters.
+Invalid candidate text is withheld as `invalid_candidate`, without returning
+the rejected explanation. The regression fixtures insert **actual control
+codepoints** rather than only their printed escape sequences.
+
+This is a display-integrity precaution, **not** a general content-moderation
+system or a guarantee against misinformation, prompt injection or all
+invisible Unicode characters. Human reviewer authorization, empirical
+technique accuracy and real footage validation remain separate requirements.

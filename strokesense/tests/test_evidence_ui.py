@@ -875,5 +875,82 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(b"early_arms", payload)
 
 
+    def test_fault_filter_scopes_strokes_and_findings_without_releasing_coaching(self):
+        """Synthetic saved evidence: filter is a view, not new diagnosis."""
+        self.with_video = True
+        job_id = self.succeed()
+        base = f"/jobs/{job_id}/evidence"
+        all_status, _, all_page = self.request(base)
+        self.assertEqual(all_status, 200)
+        self.assertEqual(all_page.count(b'<li id="stroke-'), 3)
+
+        status, headers, filtered = self.request(base + "?fault=early_arms")
+        self.assertEqual(status, 200)
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertIn(b"Showing candidate fault", filtered)
+        self.assertIn(b"early_arms", filtered)
+        self.assertIn(f'<form method="get" action="{base}">'.encode(), filtered)
+        self.assertIn(f'href="{base}"'.encode(), filtered)
+        self.assertIn(b'<li id="stroke-0">', filtered)
+        self.assertNotIn(b'<li id="stroke-1">', filtered)
+        self.assertNotIn(b'<li id="stroke-2">', filtered)
+        self.assertEqual(filtered.count(b'<li id="stroke-'), 1)
+        self.assertEqual(filtered.count(b"Watch catch"), 1)
+        self.assertIn(b"1 of 3 analyzed strokes", filtered)
+        self.assertIn(b"Generated coaching withheld", filtered)
+        self.assertIn(f"/api/jobs/{job_id}/fault-review.csv".encode(), filtered)
+        self.assertNotIn(str(self.root).encode(), filtered)
+
+        # UI filters never rewrite or narrow the independently saved JSON.
+        api_status, _, raw = self.request(f"/api/jobs/{job_id}/evidence")
+        self.assertEqual(api_status, 200)
+        self.assertEqual(len(json.loads(raw)["evidence"]["strokes"]), 3)
+
+    def test_fault_filter_empty_result_is_explicit_and_reversible(self):
+        job_id = self.succeed()
+        base = f"/jobs/{job_id}/evidence"
+        status, _, page = self.request(base + "?fault=short_catch")
+        self.assertEqual(status, 200)
+        self.assertIn(b"No strokes flagged for this candidate fault", page)
+        self.assertNotIn(b'<li id="stroke-', page)
+        self.assertIn(f'href="{base}"'.encode(), page)
+        self.assertIn(b"Generated coaching withheld", page)
+        self.assertNotIn(str(self.root).encode(), page)
+        self.assertEqual(self.request(base)[2].count(b'<li id="stroke-'), 3)
+
+    def test_fault_filter_rejects_unknown_ambiguous_and_oversized_queries(self):
+        job_id = self.succeed()
+        base = f"/jobs/{job_id}/evidence"
+        queries = (
+            "fault=unknown", "fault=", "fault",
+            "fault=early_arms&fault=short_catch",
+            "fault=early_arms&unexpected=1", "unexpected=1",
+            "fault=%3Cscript%3E",
+            "fault=early_arms" + ("x" * 130),
+        )
+        for query in queries:
+            with self.subTest(query=query):
+                status, headers, page = self.request(base + "?" + query)
+                self.assertEqual(status, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(b"stroke_fixture", page)
+                self.assertNotIn(str(self.root).encode(), page)
+
+    def test_fault_filter_preserves_existing_integrity_and_permission_gates(self):
+        from strokesense.registry import revoke_clip
+        job_id = self.succeed()
+        route = f"/jobs/{job_id}/evidence?fault=early_arms"
+        self.metrics_path.write_text(json.dumps({
+            "evidence": {**self.snapshot, "status": "untrusted_modified"}
+        }))
+        status, _, content = self.request(route)
+        self.assertEqual(status, 409)
+        self.assertNotIn(b"stroke_fixture", content)
+        revoke_clip(self.clip_id, self.registry)
+        status, _, content = self.request(route)
+        self.assertEqual(status, 403)
+        self.assertNotIn(str(self.root).encode(), content)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,8 @@ is revalidated against the job's trusted results root.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import hashlib
 from email import policy
 from email.parser import BytesParser
@@ -56,6 +58,13 @@ def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
             'code{overflow-wrap:anywhere}label{display:block;margin:1rem 0}'
             'a{color:#164d9a}</style></head><body><main>'
             f'<h1>{safe_title}</h1>{content}</main></body></html>').encode("utf-8")
+
+
+def _spreadsheet_text(value: str) -> str:
+    """Keep user-controlled labels from becoming CSV spreadsheet formulas."""
+    if value.lstrip().startswith(("=", "+", "-", "@", "\u2212")):
+        return "'" + value
+    return value
 
 
 def _allowed_methods(route: str) -> str | None:
@@ -353,7 +362,7 @@ def create_server(
             self._send(200, data, csp=_REPORT_CSP)
 
 
-        def _evidence(self, job_id: str, *, api=False):
+        def _evidence(self, job_id: str, *, api=False, as_csv=False):
             if not _JOB_ID.fullmatch(job_id):
                 self._error(404)
                 return
@@ -461,6 +470,26 @@ def create_server(
             except Exception:
                 self._error(503)
                 return
+            if as_csv:
+                output = io.StringIO(newline="")
+                writer = csv.writer(output, lineterminator="\r\n")
+                writer.writerow(("seat", "stroke_index", "catch_seconds",
+                                 "finish_seconds", "fault_codes"))
+                labels = {row["id"]: row["seat"] for row in curated["seats"]}
+                for stroke in curated["strokes"]:
+                    writer.writerow((
+                        _spreadsheet_text(labels[stroke["seat_id"]]),
+                        stroke["index"],
+                        stroke["catch_seconds"],
+                        stroke["finish_seconds"],
+                        "; ".join(stroke["fault_codes"]),
+                    ))
+                csv_bytes = output.getvalue().encode("utf-8")
+                if len(csv_bytes) > _MAX_REPORT:
+                    self._error(413)
+                    return
+                self._send(200, csv_bytes, mime="text/csv; charset=utf-8")
+                return
             if api:
                 response = {"coaching_state": "withheld", "evidence": curated}
                 self._send(200, json.dumps(response, allow_nan=False).encode("utf-8"),
@@ -524,6 +553,8 @@ def create_server(
                     "<h2>Seats</h2><ul>" + seats + "</ul>"
                     "<h2>Stroke times</h2><ul>" + strokes + "</ul>"
                     "<h2>Candidate findings</h2><ul>" + findings + "</ul>"
+                    + f'<p><a href="/api/jobs/{job_id}/strokes.csv">'
+                    'Export stroke evidence (CSV)</a></p>'
                     + f'<p><a href="/jobs/{job_id}">Back to job</a></p>')
             self._send(200, _document("Saved evidence", body))
 
@@ -570,6 +601,9 @@ def create_server(
                     return
                 self._send(200, json.dumps(recent, sort_keys=True).encode("utf-8"),
                            mime="application/json; charset=utf-8")
+            elif route.startswith("/api/jobs/") and route.endswith("/strokes.csv"):
+                self._evidence(route[len("/api/jobs/"):-len("/strokes.csv")],
+                               as_csv=True)
             elif route.startswith("/api/jobs/") and route.endswith("/evidence"):
                 self._evidence(route[len("/api/jobs/"):-len("/evidence")], api=True)
             elif route.startswith("/jobs/") and route.endswith("/evidence"):

@@ -35,13 +35,16 @@ CREATE TABLE IF NOT EXISTS jobs (
     video_sha256 TEXT,
     error_code TEXT,
     coaching_state TEXT NOT NULL DEFAULT 'withheld'
-        CHECK(coaching_state IN ('withheld','released'))
+        CHECK(coaching_state IN ('withheld','released')),
+    coaching_schema_version INTEGER NOT NULL DEFAULT 1
+        CHECK(coaching_schema_version = 1)
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_utc);
 """
 _PUBLIC_COLUMNS = (
     "job_id", "clip_id", "status", "created_utc", "started_utc",
     "finished_utc", "report_path", "error_code", "coaching_state",
+    "coaching_schema_version",
 )
 
 
@@ -130,7 +133,7 @@ class JobQueue:
         self._futures = {}
         with closing(self._connection()) as conn, conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 5:
+            if version > 6:
                 raise ValueError("unsupported newer jobs schema")
             conn.executescript(_SCHEMA)
             if version < 5:
@@ -160,9 +163,23 @@ class JobQueue:
                     conn.execute("ALTER TABLE jobs ADD COLUMN video_sha256 TEXT")
                 conn.execute("PRAGMA user_version = 5")
                 conn.commit()
+            if version < 6:
+                # Version 6 makes the persisted withholding schema explicit.
+                # The default for historical and new records remains withheld.
+                conn.execute("BEGIN IMMEDIATE")
+                columns = {col["name"] for col in
+                           conn.execute("PRAGMA table_info(jobs)")}
+                if "coaching_schema_version" not in columns:
+                    conn.execute(
+                        "ALTER TABLE jobs ADD COLUMN "
+                        "coaching_schema_version INTEGER NOT NULL DEFAULT 1 "
+                        "CHECK(coaching_schema_version = 1)"
+                    )
+                conn.execute("PRAGMA user_version = 6")
+                conn.commit()
             columns = {col["name"] for col in
                        conn.execute("PRAGMA table_info(jobs)")}
-            if not {"coaching_state", "report_sha256",
+            if not {"coaching_state", "coaching_schema_version", "report_sha256",
                     "metrics_sha256", "video_path", "video_sha256"}.issubset(columns):
                 raise ValueError("incomplete jobs schema")
             # No in-memory worker from a prior process can complete these jobs.
@@ -289,6 +306,7 @@ class JobQueue:
                     "created_utc": created, "started_utc": None,
                     "finished_utc": None, "report_path": None, "error_code": None,
                     "coaching_state": "withheld",
+                    "coaching_schema_version": 1,
                 }
             except Exception:
                 self._permits.release()

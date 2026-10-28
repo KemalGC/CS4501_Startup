@@ -81,6 +81,20 @@ def _seek_query(query: str) -> str | None:
     return params["at"][0]
 
 
+def _fault_query(query: str) -> str:
+    """Restrict HTML evidence filters to one known candidate-fault code."""
+    if not query:
+        return ""
+    if len(query) > 128:
+        raise ValueError("fault filter query too long")
+    params = parse_qs(query, keep_blank_values=True, max_num_fields=1,
+                      strict_parsing=True)
+    if (set(params) != {"fault"} or len(params["fault"]) != 1
+            or params["fault"][0] not in FAULTS):
+        raise ValueError("invalid candidate fault filter")
+    return params["fault"][0]
+
+
 def _spreadsheet_text(value: str) -> str:
     """Keep user-controlled labels from becoming CSV spreadsheet formulas."""
     if value.lstrip().startswith(("=", "+", "-", "@", "\u2212")):
@@ -559,7 +573,8 @@ def create_server(
 
 
         def _evidence(self, job_id: str, *, api=False, as_csv=False,
-                      review_template=False, fault_template=False):
+                      review_template=False, fault_template=False,
+                      fault_filter=""):
             if not _JOB_ID.fullmatch(job_id):
                 self._error(404)
                 return
@@ -801,6 +816,7 @@ def create_server(
             strokes = "".join(
                 stroke_item(position, row)
                 for position, row in enumerate(curated["strokes"])
+                if not fault_filter or fault_filter in row["fault_codes"]
             )
 
             def finding_item(row):
@@ -833,13 +849,40 @@ def create_server(
                     + more + ("; " + watch if watch else "") + "</li>"
                 )
 
-            findings = "".join(finding_item(row) for row in curated["findings"])
+            findings = "".join(
+                finding_item(row) for row in curated["findings"]
+                if not fault_filter or row["fault_code"] == fault_filter
+            )
+            # Only display known candidates; this never implies coach approval.
+            fault_options = "".join(
+                '<option value="' + html.escape(code, quote=True) + '"'
+                + (" selected" if code == fault_filter else "") + ">"
+                + html.escape(FAULTS[code]["title"]) + "</option>"
+                for code in sorted(FAULTS)
+            )
+            fault_controls = (
+                f'<form method="get" action="/jobs/{job_id}/evidence">'
+                '<label>Select a candidate fault <select name="fault">'
+                + fault_options
+                + '</select></label><button type="submit">'
+                'Filter evidence</button></form>'
+                + (f'<p>Showing candidate fault: <strong>'
+                   f'{html.escape(fault_filter)}</strong> '
+                   f'<a href="/jobs/{job_id}/evidence">Clear filter</a></p>'
+                   if fault_filter else "")
+            )
+            stroke_list = (
+                "<ul>" + strokes + "</ul>"
+                if strokes or not fault_filter
+                else "<p>No strokes flagged for this candidate fault.</p>"
+            )
             body = ("<p><strong>Generated coaching withheld.</strong> "
                     "These measurements are unreviewed evidence, not "
                     "coach-approved advice or verified model accuracy.</p>"
-                    "<h2>Seats</h2><ul>" + seats + "</ul>"
-                    "<h2>Stroke times</h2><ul>" + strokes + "</ul>"
-                    "<h2>Candidate findings</h2><ul>" + findings + "</ul>"
+                    + fault_controls
+                    + "<h2>Seats</h2><ul>" + seats + "</ul>"
+                    + "<h2>Stroke times</h2>" + stroke_list
+                    + "<h2>Candidate findings</h2><ul>" + findings + "</ul>"
                     + f'<p><a href="/api/jobs/{job_id}/strokes.csv">'
                     'Export stroke evidence (CSV)</a></p>'
                     + f'<p><a href="/api/jobs/{job_id}/review.csv">'
@@ -925,7 +968,13 @@ def create_server(
             elif route.startswith("/api/jobs/") and route.endswith("/evidence"):
                 self._evidence(route[len("/api/jobs/"):-len("/evidence")], api=True)
             elif route.startswith("/jobs/") and route.endswith("/evidence"):
-                self._evidence(route[len("/jobs/"):-len("/evidence")])
+                try:
+                    fault = _fault_query(urlsplit(self.path).query)
+                except ValueError:
+                    self._error(400)
+                    return
+                self._evidence(route[len("/jobs/"):-len("/evidence")],
+                               fault_filter=fault)
             elif route.startswith("/api/jobs/"):
                 self._status(route[len("/api/jobs/"):], api=True)
             elif route.startswith("/jobs/"):

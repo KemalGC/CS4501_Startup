@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import http.client
+import hashlib
 import json
 import os
 import sqlite3
@@ -215,6 +216,35 @@ class EvidenceInterfaceTests(unittest.TestCase):
                 self.assertEqual(status, 409)
                 self.assertNotIn(b"UNVERIFIED ADVICE", body)
                 self.assertNotIn(str(self.root).encode(), body)
+
+    def test_rehashed_changed_metrics_are_rejected_by_job_integrity(self):
+        """A self-consistent snapshot checksum is not job provenance."""
+        job_id = self.succeed()
+        route = f"/api/jobs/{job_id}/evidence"
+        self.assertEqual(self.request(route)[0], 200)
+        saved = json.loads(self.metrics_path.read_text(encoding="utf-8"))
+        saved["evidence"]["analysis_id"] = "post_success_replacement"
+        saved["evidence"]["snapshot_sha256"] = evidence._digest(saved["evidence"])
+        self.assertTrue(
+            evidence.validate_public_evidence_snapshot(saved["evidence"])
+        )
+        self.metrics_path.write_text(json.dumps(saved), encoding="utf-8")
+        for route in (route, f"/jobs/{job_id}/evidence"):
+            with self.subTest(route=route):
+                status, headers, body = self.request(route)
+                self.assertEqual(status, 409)
+                self.assertNotIn(b"post_success_replacement", body)
+                self.assertNotIn(str(self.root).encode(), body)
+                self.assertIn("no-store", headers["Cache-Control"])
+
+    def test_metrics_digest_is_private_and_survives_job_restart(self):
+        job_id = self.succeed()
+        digest = hashlib.sha256(self.metrics_path.read_bytes()).hexdigest()
+        self.assertEqual(self.worker.metrics_sha256(job_id), digest)
+        status, _, body = self.request(f"/api/jobs/{job_id}")
+        self.assertEqual(status, 200)
+        self.assertNotIn(digest.encode(), body)
+        self.assertNotIn(b"metrics_sha256", body)
 
     def test_valid_snapshot_navigation_returns_only_verified_evidence(self):
         job_id = self.succeed()

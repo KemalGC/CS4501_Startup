@@ -438,6 +438,16 @@ finite rates, measured denominators, seat/stroke/fault cross-references,
 and reject unsupported coaching-eligibility/approval claims even when a
 checksum has been recomputed. All label text is HTML-escaped.
 
+On the evidence HTML page, each candidate finding now shows its
+observed-count / analyzed-stroke denominator and links to the exact saved
+stroke rows that support it. Each target lists seat, stroke index, catch and
+finish times. To bound page rendering, the HTML links at most 50 cited
+strokes per finding; the read-only JSON evidence endpoint keeps the complete
+validated reference list. Links navigate within the evidence page, **not**
+to a decoded frame or synchronized video player. These denominators are
+segmented strokes, not verified per-fault eligible opportunities or
+measured diagnostic precision/recall.
+
 The UI always says `coaching_state=withheld`: none of the current version-1
 findings has independently reviewed eligibility or approved cues, and this
 page does not invoke an LLM. **SHA-256 integrity checks are not signatures**

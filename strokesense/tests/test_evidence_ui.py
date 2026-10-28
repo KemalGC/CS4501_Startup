@@ -224,7 +224,9 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertEqual(self.request(route)[0], 200)
         saved = json.loads(self.metrics_path.read_text(encoding="utf-8"))
         saved["evidence"]["analysis_id"] = "post_success_replacement"
-        saved["evidence"]["snapshot_sha256"] = evidence._digest(saved["evidence"])
+        payload = {k: v for k, v in saved["evidence"].items()
+                   if k != "snapshot_sha256"}
+        saved["evidence"]["snapshot_sha256"] = evidence._digest(payload)
         self.assertTrue(
             evidence.validate_public_evidence_snapshot(saved["evidence"])
         )

@@ -7,6 +7,7 @@ contract without user recordings, model downloads, provider calls or secrets.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import re
 import tempfile
 import threading
 
+from .correction import run_correction
 from .evidence import build_evidence_snapshot
 from .jobs import JobQueue
 from .media import UndecodableMediaError
@@ -74,14 +76,98 @@ def _snapshot() -> dict:
     )
 
 
-def run_demo(*, simulate_failure: bool = False) -> dict:
+
+def _offline_coaching_validation() -> dict:
+    """Exercise the production correction/validation gates with fictional data.
+
+    An artificial reviewed finding is *only* created in this temporary demo.
+    Its candidate may pass local validation but is never saved or published.
+    """
+    metrics = {"rowers": [{
+        "seat": "synthetic-coaching-seat", "track": 1, "strokes": [
+            {"idx": 0, "catch": 10, "finish": 20, "next_catch": 35,
+             "faults": ["early_arms"]},
+            {"idx": 1, "catch": 35, "finish": 45, "next_catch": 60,
+             "faults": []},
+            {"idx": 2, "catch": 60, "finish": 70, "next_catch": 85,
+             "faults": ["early_arms"]},
+        ],
+    }]}
+    snapshot = build_evidence_snapshot(
+        metrics, analysis_key="synthetic-offline-coaching-check", fps=15.0
+    )
+    finding = next(
+        f for f in snapshot["findings"] if f["fault_code"] == "early_arms"
+    )
+    # This simulates a future human-reviewed state. It is NOT a real approval.
+    finding["coaching_eligible"] = True
+    finding["eligible_strokes"] = 3
+    finding["status"] = "reviewed_supported"
+    payload = {key: value for key, value in snapshot.items()
+               if key != "snapshot_sha256"}
+    snapshot["snapshot_sha256"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    candidate = {
+        "finding_id": finding["id"],
+        "seat_id": finding["seat_id"],
+        "stroke_ids": list(finding["stroke_ids"]),
+        "fault_code": finding["fault_code"],
+        "cue_id": "fictional-fixture-cue",
+        "observed_count": finding["observed_count"],
+        "analyzed_strokes": finding["analyzed_strokes"],
+        "observed_fraction": finding["observed_fraction"],
+        "explanation": "SYNTHETIC FIXTURE TEXT, NOT ACTUAL COACHING ADVICE",
+    }
+    fictional_cues = {
+        "fictional-fixture-cue": {
+            "fault_codes": ["early_arms"],
+            "review_status": "approved",
+            "reviewed_by": "fictional synthetic fixture; not a human reviewer",
+        },
+    }
+    wrong_number = {**candidate,
+                    "observed_count": candidate["observed_count"] + 1}
+    fabricated_stroke = {**candidate,
+                         "stroke_ids": ["invented-stroke-not-in-evidence"]}
+    corrected = run_correction(
+        lambda attempt, _errors: wrong_number if attempt == 1 else candidate,
+        evidence_snapshot=snapshot, reviewed_cues=fictional_cues,
+    )
+    withheld = run_correction(
+        lambda _attempt, _errors: fabricated_stroke,
+        evidence_snapshot=snapshot, reviewed_cues=fictional_cues,
+    )
+    if not (corrected["status"] == "released"
+            and corrected["attempts"] == 2
+            and corrected["released"] == candidate
+            and withheld["status"] == "withheld"
+            and withheld["attempts"] == 3
+            and withheld["released"] is None):
+        raise RuntimeError("offline coaching demo validation failed")
+
+    # No generated candidate, reviewer metadata or raw evidence leaves here.
+    return {
+        "mode": "synthetic-offline-coaching-validation",
+        "corrected_status": corrected["status"],
+        "corrected_attempts": corrected["attempts"],
+        "rejected_status": withheld["status"],
+        "rejected_attempts": withheld["attempts"],
+        "published": False,
+        "fictional_review": True,
+        "live_llm_used": False,
+    }
+
+
+def run_demo(*, simulate_failure: bool = False, verify_coaching: bool = False) -> dict:
     """Exercise upload -> job -> report -> evidence over real loopback HTTP.
 
     Return an intentionally safe public summary; nothing persistent remains.
     A fake analyzer writes a labeled toy report, never running pose inference.
     """
-    if type(simulate_failure) is not bool:
-        raise ValueError("simulate_failure must be a boolean")
+    if type(simulate_failure) is not bool or type(verify_coaching) is not bool:
+        raise ValueError("demo flags must be booleans")
 
     def analyze(_video, *, out_dir):
         if simulate_failure:
@@ -160,7 +246,7 @@ def run_demo(*, simulate_failure: bool = False) -> dict:
                         if strokes != 3:
                             raise RuntimeError("synthetic stroke evidence incomplete")
                         report_seen = True
-                    return {
+                    summary = {
                         "mode": "synthetic-offline",
                         "status": final["status"],
                         "error_code": status.get("error_code"),
@@ -171,6 +257,11 @@ def run_demo(*, simulate_failure: bool = False) -> dict:
                         "pose_inference_used": False,
                         "live_llm_used": False,
                     }
+                    if verify_coaching:
+                        summary["coaching_validation"] = (
+                            None if simulate_failure else _offline_coaching_validation()
+                        )
+                    return summary
                 finally:
                     server.shutdown()
                     thread.join(timeout=3)
@@ -184,9 +275,16 @@ def main(argv=None) -> int:
         "--simulate-failure", action="store_true",
         help="exercise a failed synthetic analysis with withheld results",
     )
+    parser.add_argument(
+        "--verify-coaching", action="store_true",
+        help="also exercise synthetic offline correction and withholding",
+    )
     args = parser.parse_args(argv)
     try:
-        result = run_demo(simulate_failure=args.simulate_failure)
+        result = run_demo(
+            simulate_failure=args.simulate_failure,
+            verify_coaching=args.verify_coaching,
+        )
     except Exception:
         # No temporary private paths, tracebacks or credentials in CLI output.
         print(json.dumps({

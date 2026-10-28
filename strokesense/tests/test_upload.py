@@ -211,6 +211,13 @@ class UploadHTTPTests(unittest.TestCase):
             with self.subTest(angle=angle):
                 self.assertIn(angle, body)
 
+    def test_empty_camera_choice_preserves_unspecified_legacy_metadata(self):
+        code, _, _ = self.upload(extras=(("camera", ""),))
+        self.assertEqual(code, 303)
+        clips = list_clips(self.db)
+        self.assertEqual(len(clips), 1)
+        self.assertIsNone(clips[0]["camera"])
+
     def test_upload_saves_explicit_camera_label_and_displays_it(self):
         code, headers, _ = self.upload(extras=(("camera", "side-on"),))
         self.assertEqual(code, 303)

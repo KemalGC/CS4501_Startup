@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timezone
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
@@ -40,6 +41,30 @@ _PUBLIC_COLUMNS = (
     "job_id", "clip_id", "status", "created_utc", "started_utc",
     "finished_utc", "report_path", "error_code", "coaching_state",
 )
+
+
+MAX_REPORT_BYTES = 32 * 1024 * 1024
+MAX_METRICS_BYTES = 16 * 1024 * 1024
+
+
+class _ResultTooLarge(ValueError):
+    """Generated artifacts must fit the local browser's actual read limits."""
+
+
+def _bounded_sha256(path: Path, max_bytes: int) -> str:
+    """Digest at most limit + 1 bytes; do not trust stale stat metadata."""
+    digest = hashlib.sha256()
+    total = 0
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(min(1024 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise _ResultTooLarge()
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class JobError(ValueError):
@@ -302,7 +327,7 @@ class JobQueue:
                         or not report.is_relative_to(run_root.resolve())):
                     raise ValueError("invalid report")
                 relative = report.relative_to(self._results_root).as_posix()
-                digest = _stream_sha256(report)
+                digest = _bounded_sha256(report, MAX_REPORT_BYTES)
                 metrics = report.parent / "metrics.json"
                 metrics_digest = None
                 if metrics.exists():
@@ -310,7 +335,11 @@ class JobQueue:
                     if (not resolved.is_file() or not
                             resolved.is_relative_to(run_root.resolve())):
                         raise ValueError("invalid metrics location")
-                    metrics_digest = _stream_sha256(resolved)
+                    metrics_digest = _bounded_sha256(resolved, MAX_METRICS_BYTES)
+            except _ResultTooLarge:
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="result_too_large")
+                return
             except (OSError, TypeError, ValueError, KeyError):
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="invalid_report_location")

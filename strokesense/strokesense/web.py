@@ -839,12 +839,24 @@ def create_server(
                 reference = stroke_ref.get(ids[0]) if ids else None
                 watch = (watch_link(reference[1], "Watch first example")
                          if reference is not None else "")
+                numerator = row["observed_count"]
+                denominator = row["analyzed_strokes"]
+                # Native HTML meter is a frequency among analyzed candidates,
+                # not a probability of truth, classifier accuracy or confidence.
+                frequency_meter = (
+                    f' <meter min="0" max="{denominator}" value="{numerator}" '
+                    'aria-label="Candidate frequency among analyzed strokes">'
+                    f'{numerator} of {denominator}</meter>'
+                    if denominator > 0
+                    else " (no analyzed strokes available for frequency)"
+                )
                 return (
                     "<li>" + html.escape(row["fault_code"])
                     + " — " + html.escape(row["status"])
                     + " — " + str(row["observed_count"])
                     + " of " + str(row["analyzed_strokes"])
-                    + " analyzed strokes; supporting strokes: "
+                    + " analyzed strokes" + frequency_meter
+                    + "; supporting strokes: "
                     + (links if links else "No supporting strokes listed")
                     + more + ("; " + watch if watch else "") + "</li>"
                 )

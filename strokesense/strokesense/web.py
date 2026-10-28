@@ -279,9 +279,19 @@ def create_server(
                 counts[code] = counts.get(code, 0) + finding["observed_count"]
             if any(value > analyzed for value in counts.values()):
                 return 409, None
+            current_clip = next((
+                clip for clip in list_clips(registry_path)
+                if (clip["clip_id"] == record["clip_id"]
+                    and clip["permission"] == "granted")
+            ), None)
+            if current_clip is None:
+                return 403, None
+            camera = current_clip.get("camera")
+            if camera not in {"side-on", "bow-on", "stern-on"}:
+                camera = "unspecified"
             return 200, {
                 "analyzed": analyzed, "counts": counts,
-                "clip_id": record["clip_id"],
+                "clip_id": record["clip_id"], "camera": camera,
             }
         except FileNotFoundError:
             # Historical results may not include versioned evidence.
@@ -610,6 +620,13 @@ def create_server(
                 "can make these runs incomparable.</p>"
                 + ("<p>Same registered source clip.</p>" if same_clip
                    else "<p>Different registered source clips.</p>")
+                + "<p>Earlier viewpoint (operator-entered): "
+                + html.escape(first["camera"]) + "</p>"
+                + "<p>Later viewpoint (operator-entered): "
+                + html.escape(last["camera"]) + "</p>"
+                + ("<p><strong>Camera viewpoints differ.</strong> "
+                   "Candidate counts are not normalized across viewpoints.</p>"
+                   if first["camera"] != last["camera"] else "")
                 + "<p>Coaching withheld on both analyses.</p>"
                 + '<p>Earlier: <a href="/reports/' + before
                 + '">Open report</a> · <a href="/jobs/' + before

@@ -135,6 +135,36 @@ class LocalJobsTests(unittest.TestCase):
                 row[1] for row in conn.execute("PRAGMA table_info(jobs)")
             ])
 
+    def test_oversized_generated_artifacts_fail_before_success(self):
+        """A successful analyzer must not publish unreadable oversized output."""
+        for artifact in ("report", "metrics"):
+            with self.subTest(artifact=artifact):
+                def analyzer(_video, *, out_dir):
+                    folder = Path(out_dir) / "analyzed"
+                    folder.mkdir()
+                    report = folder / "report.html"
+                    report.write_bytes(
+                        b"oversized synthetic report" if artifact == "report"
+                        else b"ok"
+                    )
+                    if artifact == "metrics":
+                        (folder / "metrics.json").write_bytes(
+                            b"oversized synthetic metrics"
+                        )
+                    return {"report": report}
+
+                self.calls.side_effect = analyzer
+                with patch("strokesense.jobs.MAX_REPORT_BYTES", 8, create=True), \\
+                     patch("strokesense.jobs.MAX_METRICS_BYTES", 8, create=True):
+                    with self.queue() as manager:
+                        job_id = manager.submit(self.clip_id)["job_id"]
+                        done = manager.wait(job_id, timeout=5)
+                self.assertEqual(done["status"], "failed")
+                self.assertEqual(done["error_code"], "result_too_large")
+                self.assertIsNone(done["report_path"])
+                self.assertEqual(done["coaching_state"], "withheld")
+                self.assertNotIn(str(self.root), json.dumps(done))
+
     def test_missing_or_unverified_clip_is_rejected_without_enqueuing(self):
         from strokesense.jobs import JobError
         with self.queue() as manager:

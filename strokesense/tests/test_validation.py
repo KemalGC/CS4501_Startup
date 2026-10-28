@@ -170,6 +170,41 @@ class IndependentReleaseTests(unittest.TestCase):
         self.assertEqual(result["released"], candidate)
         self.assertIn("free_text_unverified", result["warnings"])
 
+    def test_approved_cue_fault_codes_require_a_well_formed_reviewed_list(self):
+        from strokesense import validation
+        malformed = (
+            "early_arms", {"early_arms": True}, {"early_arms"}, None,
+            [], ["early_arms", "early_arms"],
+            ["early_arms", "not_a_known_fault"],
+            ["early_arms"] * 100,
+        )
+        for codes in malformed:
+            with self.subTest(type=type(codes).__name__, value=repr(codes)[:50]):
+                snap, cand, cues = trusted_synthetic_fixture()
+                cues["fixture-cue"]["fault_codes"] = codes
+                result = validation.validate_candidate(
+                    cand, evidence_snapshot=snap, reviewed_cues=cues,
+                )
+                self.assertIsNone(result["released"])
+                self.assertEqual(result["errors"], ["unapproved_cue"])
+                self.assertNotIn(cand["explanation"], json.dumps(result))
+
+    def test_valid_multi_fault_approved_list_still_checks_requested_fault(self):
+        from strokesense import validation
+        snap, cand, cues = trusted_synthetic_fixture()
+        cues["fixture-cue"]["fault_codes"] = ["early_arms", "overreach"]
+        self.assertEqual(
+            validation.validate_candidate(
+                cand, evidence_snapshot=snap, reviewed_cues=cues,
+            )["released"], cand,
+        )
+        cues["fixture-cue"]["fault_codes"] = ["overreach"]
+        blocked = validation.validate_candidate(
+            cand, evidence_snapshot=snap, reviewed_cues=cues,
+        )
+        self.assertEqual(blocked["errors"], ["cue_fault_mismatch"])
+        self.assertIsNone(blocked["released"])
+
     def test_candidate_may_not_inject_evidence_or_review_settings(self):
         snapshot, candidate, cues = trusted_synthetic_fixture()
         candidate["coaching_eligible"] = True

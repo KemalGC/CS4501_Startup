@@ -324,5 +324,55 @@ class JobHistoryTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), page)
 
 
+    def test_recent_completed_job_has_direct_verified_report_link(self):
+        job_id = self.finish()
+        status, headers, home = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn(
+            f'<a href="/reports/{job_id}">Open technique report</a>'.encode(),
+            home,
+        )
+        self.assertIn(f"/jobs/{job_id}".encode(), home)
+        self.assertIn(b"coaching: withheld", home)
+        self.assertIn("no-store", headers["Cache-Control"])
+        code, _, result = self.get(f"/reports/{job_id}")
+        self.assertEqual(code, 200)
+        self.assertIn(b"test report", result)
+        self.assertNotIn(str(self.root).encode(), home)
+
+    def test_report_shortcut_only_for_successful_permitted_history(self):
+        import sqlite3
+        from strokesense.registry import revoke_clip
+        good = self.finish()
+        failed = self.finish()
+        with sqlite3.connect(self.jobs_db) as db:
+            db.execute(
+                "UPDATE jobs SET status='failed', error_code='analysis_failed' "
+                "WHERE job_id=?", (failed,)
+            )
+        success_href = f'<a href="/reports/{good}">'.encode()
+        fail_href = f'<a href="/reports/{failed}">'.encode()
+        code, _, home = self.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn(success_href, home)
+        self.assertNotIn(fail_href, home)
+        code, _, success_only = self.get("/?status=succeeded&clip=" + self.clip_id)
+        self.assertEqual(code, 200)
+        self.assertIn(success_href, success_only)
+        self.assertNotIn(fail_href, success_only)
+        code, _, failure_only = self.get("/?status=failed&clip=" + self.clip_id)
+        self.assertEqual(code, 200)
+        self.assertNotIn(success_href, failure_only)
+        self.assertNotIn(fail_href, failure_only)
+        revoke_clip(self.clip_id, self.registry)
+        code, _, home = self.get("/")
+        self.assertEqual(code, 200)
+        self.assertNotIn(success_href, home)
+        self.assertNotIn(fail_href, home)
+        code, _, report = self.get(f"/reports/{good}")
+        self.assertEqual(code, 403)
+        self.assertNotIn(str(self.root).encode(), report)
+
+
 if __name__ == "__main__":
     unittest.main()

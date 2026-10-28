@@ -117,6 +117,57 @@ class SavedMediaPlaybackTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), page)
         self.assertIn("nosniff", headers["X-Content-Type-Options"])
 
+    def test_single_range_and_open_end_have_correct_media_bytes(self):
+        job_id = self.submit()
+        raw = b"synthetic annotated video bytes only"
+        for header, expected in (
+            ("bytes=0-8", raw[:9]),
+            ("bytes=10-", raw[10:]),
+            ("bytes=-5", raw[-5:]),
+        ):
+            with self.subTest(range=header):
+                code, headers, body = self.get(
+                    f"/media/{job_id}", headers={"Range": header},
+                )
+                self.assertEqual(code, 206)
+                self.assertEqual(body, expected)
+                self.assertEqual(headers["Accept-Ranges"], "bytes")
+                self.assertEqual(headers["Content-Type"], "video/mp4")
+                self.assertEqual(headers["Content-Length"], str(len(body)))
+                self.assertEqual(
+                    headers["Content-Range"],
+                    f"bytes {raw.index(expected) if header != 'bytes=-5' else len(raw)-5}-"
+                    f"{(raw.index(expected) if header != 'bytes=-5' else len(raw)-5)+len(body)-1}/{len(raw)}",
+                )
+
+    def test_invalid_or_unsatisfiable_ranges_fail_safely(self):
+        job_id = self.submit()
+        raw_size = len(b"synthetic annotated video bytes only")
+        for header in ("bytes=999-", "bytes=10-2", "bytes=0-1,3-5",
+                       "items=0-1", "bytes=-0", "bytes=oops"):
+            with self.subTest(range=header):
+                code, headers, body = self.get(
+                    f"/media/{job_id}", headers={"Range": header},
+                )
+                self.assertEqual(code, 416)
+                self.assertEqual(headers["Content-Range"],
+                                 f"bytes */{raw_size}")
+                self.assertNotIn(str(self.root).encode(), body)
+
+    def test_ranged_media_still_checks_integrity_and_permission(self):
+        job_id = self.submit()
+        self.media.write_bytes(b"changed invented media")
+        code, _, _ = self.get(
+            f"/media/{job_id}", headers={"Range": "bytes=0-2"},
+        )
+        self.assertEqual(code, 409)
+        self.media.write_bytes(b"synthetic annotated video bytes only")
+        revoke_clip(self.clip_id, self.registry)
+        code, _, _ = self.get(
+            f"/media/{job_id}", headers={"Range": "bytes=0-2"},
+        )
+        self.assertEqual(code, 403)
+
     def test_unknown_media_and_outside_artifact_fail_closed(self):
         status, _, body = self.get("/media/" + "0" * 32)
         self.assertEqual(status, 404)

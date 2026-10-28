@@ -760,14 +760,20 @@ completion, withheld-coaching state, job-local path and the saved digest before
 serving. Changed files, revoked permissions, symlink escapes and unsupported
 output types are withheld. Output is limited to **64 MiB per rendered file**;
 a larger rendered artifact fails that job rather than being served. This
-small Alpha serves full responses without HTTP Range seeking; browser seeking
-may be unavailable, and repeated downloads can use memory/bandwidth. Do not
-expose this loopback endpoint over a proxy, LAN or internet.
+Alpha supports a single bounded byte-range request for local video seeking:
+`Range: bytes=start-end`, `bytes=start-` or `bytes=-suffix` returns
+HTTP 206 with `Content-Range`, `Accept-Ranges: bytes` and only the selected
+bytes after verifying the **entire** saved artifact SHA-256. Invalid, multi-
+range, reversed or unsatisfiable requests get HTTP 416 with the safe
+`Content-Range: bytes */<size>`; no Range preserves full 200 responses.
+This remains an in-memory, at-most-64-MiB local response, not streaming,
+so it still uses memory/bandwidth; browser seek/codec compatibility has not
+been empirically measured. Do not expose this loopback endpoint over a
+proxy, LAN or internet.
 
 The synthetic tests exercise file and HTTP authorization behavior, **not**
 actual browser video decoding, accurate pose overlays, permission verification,
 real human coach review, or end-to-end inference on genuine footage.
-
 
 ## Jump from saved stroke evidence to annotated footage (Alpha)
 

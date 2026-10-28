@@ -321,6 +321,51 @@ class ConfiguredProviderTests(unittest.TestCase):
         self.assertNotIn(self.candidate["explanation"], json.dumps(result))
 
 
+
+    def test_deep_nested_json_response_is_safely_withheld(self):
+        """A bounded payload may still exceed the stock JSON parser depth."""
+        from strokesense.provider import ProviderError
+        from strokesense import correction
+        valid = json.dumps(self.candidate)
+        deeply_nested = "[" * 1200 + "0" + "]" * 1200
+        envelopes = (
+            '{"choices": ' + deeply_nested + '}',
+            json.dumps({"choices": [{
+                "finish_reason": "stop",
+                "message": {"content": deeply_nested},
+            }]}),
+        )
+        for raw in envelopes:
+            with self.subTest(part=raw[:50]), patch(
+                "strokesense.provider.urlopen",
+                return_value=io.BytesIO(raw.encode("utf-8")),
+            ) as opened:
+                with self.assertRaises(ProviderError) as caught:
+                    self.generator()(1, [])
+                self.assertEqual(str(caught.exception), "invalid_provider_response")
+                opened.assert_called_once()
+
+        nested_candidate = json.dumps({"choices": [{
+            "finish_reason": "stop", "message": {"content": deeply_nested},
+        }]}).encode("utf-8")
+        with patch("strokesense.provider.urlopen",
+                   return_value=io.BytesIO(nested_candidate)) as opened:
+            answer = correction.run_correction(
+                self.generator(), evidence_snapshot=self.snapshot,
+                reviewed_cues=self.cues,
+            )
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(answer["status"], "withheld")
+        self.assertEqual(answer["attempts"], 1)
+        self.assertIsNone(answer["released"])
+        self.assertEqual(answer["errors"], ["generation_failed"])
+        self.assertNotIn(deeply_nested[:100], json.dumps(answer))
+        # Ordinary candidate responses should continue working.
+        with patch("strokesense.provider.urlopen",
+                   return_value=fake_response(self.candidate)):
+            self.assertEqual(self.generator()(1, []), self.candidate)
+
+
     def test_malformed_responses_fail_closed(self):
         from strokesense.provider import ProviderError
         malformed = (

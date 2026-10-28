@@ -135,7 +135,7 @@ def _visible_history(rows, camera_by_clip, camera_filter, status_filter,
 
 def _allowed_methods(route: str) -> str | None:
     """HTTP Allow for known local endpoints; unknown routes stay 404."""
-    if (route in ("/", "/api/jobs", "/history.csv", "/compare") or route.startswith("/api/jobs/")
+    if (route in ("/", "/api/jobs", "/history.csv", "/compare", "/compare.csv") or route.startswith("/api/jobs/")
             or route.startswith("/jobs/") or route.startswith("/reports/")
             or route.startswith("/media/")):
         return "GET"
@@ -530,7 +530,7 @@ def create_server(
             self._send(200, _document("StrokeSense local Alpha", body))
 
 
-        def _compare(self, query: str):
+        def _compare(self, query: str, *, as_csv=False):
             """Side-by-side candidate counts from two independently checked runs."""
             if len(query) > 128:
                 self._error(400)
@@ -557,6 +557,29 @@ def create_server(
                 self._error(last_code)
                 return
             faults = sorted(set(first["counts"]) | set(last["counts"]))
+            if as_csv:
+                output = io.StringIO(newline="")
+                writer = csv.writer(output, lineterminator="\r\n")
+                writer.writerow((
+                    "fault_code", "before_job_id", "before_flagged",
+                    "before_analyzed", "after_job_id", "after_flagged",
+                    "after_analyzed",
+                ))
+                for code in faults:
+                    values = (
+                        code, before, first["counts"].get(code, 0),
+                        first["analyzed"], after, last["counts"].get(code, 0),
+                        last["analyzed"],
+                    )
+                    writer.writerow([
+                        _spreadsheet_text(str(value)) for value in values
+                    ])
+                self._send(
+                    200, output.getvalue().encode("utf-8"),
+                    mime="text/csv; charset=utf-8",
+                    download_name="strokesense-comparison.csv",
+                )
+                return
             table_rows = []
             for code in faults:
                 def rate(summary):
@@ -595,6 +618,12 @@ def create_server(
                 + '">Open report</a> · <a href="/jobs/' + after
                 + '/evidence">Inspect evidence</a></p>'
                 + frequency
+                + '<p><a href="'
+                + html.escape(
+                    "/compare.csv?" + urlencode((("before", before), ("after", after))),
+                    quote=True,
+                )
+                + '">Download comparison CSV</a></p>'
                 + '<p><a href="/">Back to analysis library</a></p>'
             )
             self._send(200, _document("Compare saved analyses", content))
@@ -1238,8 +1267,9 @@ def create_server(
                 else:
                     self._history_csv(camera_filter=camera,
                                       status_filter=status, clip_filter=clip)
-            elif route == "/compare":
-                self._compare(urlsplit(self.path).query)
+            elif route in ("/compare", "/compare.csv"):
+                self._compare(urlsplit(self.path).query,
+                              as_csv=(route == "/compare.csv"))
             elif route == "/api/jobs":
                 try:
                     recent = permitted_recent_jobs()

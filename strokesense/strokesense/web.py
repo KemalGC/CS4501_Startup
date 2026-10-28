@@ -23,7 +23,7 @@ import secrets
 from urllib.parse import parse_qs, urlsplit
 
 from .evidence import verify_evidence_snapshot
-from .jobs import JobError, JobQueue
+from .jobs import JobError, JobQueue, MAX_MEDIA_BYTES
 from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
 from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
@@ -43,6 +43,7 @@ _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
              "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 _REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
                "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+_STATUS_CSP = _PAGE_CSP + "; media-src 'self'"
 
 
 def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
@@ -70,7 +71,8 @@ def _spreadsheet_text(value: str) -> str:
 def _allowed_methods(route: str) -> str | None:
     """HTTP Allow for known local endpoints; unknown routes stay 404."""
     if (route in ("/", "/api/jobs") or route.startswith("/api/jobs/")
-            or route.startswith("/jobs/") or route.startswith("/reports/")):
+            or route.startswith("/jobs/") or route.startswith("/reports/")
+            or route.startswith("/media/")):
         return "GET"
     if route in ("/jobs", "/upload", "/revoke"):
         return "POST"
@@ -324,13 +326,80 @@ def create_server(
                     + html.escape(token, quote=True)
                     + '"><button type="submit">Retry analysis</button></form>'
                 )
+            media_player = ""
+            if status == "succeeded":
+                try:
+                    media = jobs.media_artifact(job_id)
+                except Exception:
+                    self._error(503)
+                    return
+                if media is not None:
+                    mime = ("video/webm" if media[0].lower().endswith(".webm")
+                            else "video/mp4")
+                    media_player = (
+                        '<h2>Annotated video</h2><video controls preload="metadata" '
+                        f'width="720" src="/media/{job_id}" type="{mime}">'
+                        'Your browser does not support HTML5 video.</video>'
+                    )
             content = (f"<p>Job: <code>{job_id}</code></p>"
                        f"<p>Status: <strong>{status}</strong></p>"
                        '<p>Coaching: <strong>withheld</strong></p>'
-                       + message + link + retry
+                       + message + link + media_player + retry
                        + '<p><a href="/">Choose another clip</a></p>')
             self._send(200, _document("Analysis status", content,
-                                      refresh=status in ("queued", "running")))
+                                      refresh=status in ("queued", "running")),
+                       csp=_STATUS_CSP)
+
+        def _media(self, job_id: str):
+            """Serve only verified, bounded, local job-owned rendered media."""
+            if not _JOB_ID.fullmatch(job_id):
+                self._error(404)
+                return
+            try:
+                record = jobs.get(job_id)
+                if record is None or record["status"] != "succeeded":
+                    self._error(404)
+                    return
+                if not analysis_permission_granted(record["clip_id"], registry_path):
+                    self._error(403)
+                    return
+                if record.get("coaching_state") != "withheld":
+                    self._error(409)
+                    return
+                artifact = jobs.media_artifact(job_id)
+                if artifact is None:
+                    self._error(404)
+                    return
+                raw, expected_digest = artifact
+                rel = Path(raw)
+                if (rel.is_absolute() or not rel.parts or rel.parts[0] != job_id
+                        or ".." in rel.parts or
+                        rel.suffix.lower() not in (".mp4", ".webm")):
+                    self._error(404)
+                    return
+                job_root = (result_root / job_id).resolve(strict=True)
+                target = (result_root / rel).resolve(strict=True)
+                if not target.is_file() or not target.is_relative_to(job_root):
+                    self._error(404)
+                    return
+                with target.open("rb") as handle:
+                    payload = handle.read(MAX_MEDIA_BYTES + 1)
+                if len(payload) > MAX_MEDIA_BYTES:
+                    self._error(413)
+                    return
+                if (not isinstance(expected_digest, str) or
+                        not hmac.compare_digest(
+                            expected_digest, hashlib.sha256(payload).hexdigest())):
+                    self._error(409)
+                    return
+            except (OSError, ValueError, TypeError):
+                self._error(404)
+                return
+            except Exception:
+                self._error(503)
+                return
+            mime = "video/webm" if rel.suffix.lower() == ".webm" else "video/mp4"
+            self._send(200, payload, mime=mime)
 
         def _report(self, job_id: str):
             if not _JOB_ID.fullmatch(job_id):
@@ -662,6 +731,8 @@ def create_server(
                 self._status(route[len("/jobs/"):])
             elif route.startswith("/reports/"):
                 self._report(route[len("/reports/"):])
+            elif route.startswith("/media/"):
+                self._media(route[len("/media/"):])
             else:
                 allowed = _allowed_methods(route)
                 self._error(405, allow=allowed) if allowed == "POST" else self._error(404)

@@ -10,6 +10,7 @@ import math
 from numbers import Real
 
 from .evidence import MIN_SAMPLE_STROKES, validate_reference_graph
+from .strokes import FAULTS
 
 _FIELDS = frozenset({
     "finding_id", "seat_id", "stroke_ids", "fault_code", "cue_id",
@@ -98,11 +99,17 @@ def _validate_candidate(candidate, evidence_snapshot, reviewed_cues) -> dict:
             errors.append("insufficient_evidence")
 
     cue = reviewed_cues.get(candidate["cue_id"])
+    fault_codes = cue.get("fault_codes") if isinstance(cue, Mapping) else None
     if (not isinstance(cue, Mapping) or cue.get("review_status") != "approved" or
             not isinstance(cue.get("reviewed_by"), str) or
-            not cue["reviewed_by"].strip()):
+            not cue["reviewed_by"].strip() or
+            not isinstance(fault_codes, list) or not fault_codes or
+            len(fault_codes) > len(FAULTS) or
+            any(type(code) is not str or code not in FAULTS
+                for code in fault_codes) or
+            len(set(fault_codes)) != len(fault_codes)):
         errors.append("unapproved_cue")
-    elif candidate["fault_code"] not in cue.get("fault_codes", []):
+    elif candidate["fault_code"] not in fault_codes:
         errors.append("cue_fault_mismatch")
     if errors:
         return _blocked(*errors)

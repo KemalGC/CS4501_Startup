@@ -115,7 +115,7 @@ def _reviewed_csv_records(payload: bytes, *, clip_id: str, group_id: str,
     import re
 
     text = payload.decode("utf-8")
-    if "\\x00" in text:
+    if "\x00" in text:
         raise ValueError("invalid CSV contents")
     reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
     if reader.fieldnames != list(REVIEW_CSV_V1_COLUMNS):
@@ -161,6 +161,7 @@ MAX_INPUT_BYTES = 2 * 1024 * 1024
 def main(argv: list[str] | None = None) -> int:
     """Bounded local evaluation CLI; never echo private input paths or rows."""
     import argparse
+    import csv
     import json
     from pathlib import Path
     import sys
@@ -203,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             # Passing a parser cannot establish real human reviewer legitimacy.
             result["labels_independently_verified"] = False
         output = json.dumps(result, sort_keys=True, allow_nan=False)
-    except (OSError, ValueError, UnicodeError, TypeError, OverflowError):
+    except (OSError, ValueError, UnicodeError, TypeError, OverflowError, csv.Error):
         print("Evaluation error: input unavailable or invalid", file=sys.stderr)
         return 2
     print(output)

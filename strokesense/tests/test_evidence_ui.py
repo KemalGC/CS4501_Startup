@@ -1259,5 +1259,38 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), page)
 
 
+
+    def test_homepage_evidence_shortcut_requires_success_and_permission(self):
+        from strokesense.registry import revoke_clip
+        job_id = self.succeed()  # synthetic metrics/evidence written by the fake analyzer
+        href = f'href="/jobs/{job_id}/evidence"'.encode()
+        code, headers, home = self.request("/")
+        self.assertEqual(code, 200)
+        self.assertIn(href, home)
+        self.assertIn(b"Inspect saved evidence", home)
+        self.assertIn("no-store", headers["Cache-Control"])
+        code, _, filtered = self.request("/?status=succeeded")
+        self.assertEqual(code, 200)
+        self.assertIn(href, filtered)
+        code, _, evidence_page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(code, 200)
+        self.assertIn(b"Generated coaching withheld", evidence_page)
+
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET status='failed', error_code='analysis_failed' "
+                       "WHERE job_id=?", (job_id,))
+        code, _, failed_home = self.request("/")
+        self.assertEqual(code, 200)
+        self.assertNotIn(href, failed_home)
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET status='succeeded', error_code=NULL "
+                       "WHERE job_id=?", (job_id,))
+        revoke_clip(self.clip_id, self.registry)
+        code, _, withdrawn_home = self.request("/")
+        self.assertEqual(code, 200)
+        self.assertNotIn(href, withdrawn_home)
+        self.assertNotIn(str(self.root).encode(), home + failed_home + withdrawn_home)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -865,3 +865,34 @@ permitted footage; they do **not** indicate independently verified rowing
 faults, real-world timing accuracy, coach approval, or customer validation.
 The worksheet remains a manual, **unreviewed** template. Opening, decoding,
 and seeking real video in a browser have not been measured by synthetic tests.
+
+
+## Complete per-fault coach review grid (Alpha)
+
+To prepare independent, **human** validation for a completed permitted clip,
+open its **Saved evidence** page and select **Complete per-fault coach-review
+grid**. The loopback-only `/api/jobs/<job_id>/fault-review.csv` export emits
+one row for *every validated saved stroke and every currently supported
+candidate fault*, including predicted-negative pairs. The stable header has
+`schema_version=1`, saved opaque seat/stroke references, seat label, stroke
+index, `fault_code`, source `catch_seconds`, optional
+`video_seek_seconds` (0–120 s into intact job-scoped annotated video),
+`predicted=1` for flagged candidates and `predicted=0` otherwise.
+
+The independent-review fields `coach_fault_present` and `coach_comments`
+are **empty**, and every `review_status` is **unreviewed**. Neither a
+candidate positive nor a candidate negative is ground truth. Reviewers must
+explicitly inspect permitted footage and label both types for each applicable
+fault. Real precision and recall require complete, legitimate gold labels and
+explicit denominators, with sessions and athletes separated across evaluation
+splits. This export does not verify reviewers, consent, labels, split leakage,
+or model accuracy, and cannot itself approve an LLM cue.
+
+The endpoint uses the same job permission, status, withholding, saved-report
+hash and metrics-snapshot integrity checks as the other evidence exports.
+The CSV is bounded, formula-safe for seat labels and omits source paths,
+private filenames and provenance. Existing `review.csv` and `strokes.csv`
+are unchanged; this new worksheet is an additional option, not an automatic
+evaluation or an annotation import workflow. Synthetic tests verify row
+construction and fail-closed routing, **not** actual athlete performance,
+customer validation or coaching effectiveness.

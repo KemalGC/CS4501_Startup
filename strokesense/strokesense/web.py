@@ -245,12 +245,15 @@ def create_server(
                 return False
             return True
 
-        def _home(self, *, camera_filter="", status_filter=""):
+        def _home(self, *, camera_filter="", status_filter="", clip_filter=""):
             try:
                 clips = [c for c in list_clips(registry_path)
                          if c["permission"] == "granted"]
             except Exception:
                 self._error(503)
+                return
+            if clip_filter and clip_filter not in {c["clip_id"] for c in clips}:
+                self._error(400)
                 return
             options = "".join(
                 '<option value="' + html.escape(c["clip_id"], quote=True) + '">'
@@ -298,7 +301,8 @@ def create_server(
                 if (_JOB_ID.fullmatch(row["job_id"]) and
                     (not camera_filter or camera_by_clip.get(
                         row["clip_id"], "unspecified") == camera_filter) and
-                    (not status_filter or row["status"] == status_filter))
+                    (not status_filter or row["status"] == status_filter) and
+                    (not clip_filter or row["clip_id"] == clip_filter))
             )
             camera_options = (("", "All"), ("side-on", "Side-on"),
                               ("bow-on", "Bow-on"), ("stern-on", "Stern-on"),
@@ -318,13 +322,23 @@ def create_server(
                 + '>' + label + '</option>'
                 for value, label in status_options
             )
+            clip_select = '<option value="">All clips</option>' + "".join(
+                '<option value="' + html.escape(c["clip_id"], quote=True) + '"'
+                + (' selected' if c["clip_id"] == clip_filter else '')
+                + '>' + html.escape(c["clip_id"][:12]) + " — "
+                + html.escape(c.get("camera") or "unspecified")
+                + '</option>' for c in clips
+            )
             history = ('<h2>Recent analyses</h2>'
                        '<form method="get" action="/">'
                        '<label>Filter analyses by camera <select name="camera">'
                        + camera_select + '</select></label>'
                        '<label>Filter analyses by status <select name="status">'
                        + status_select + '</select></label>'
+                       '<label>Filter analyses by clip <select name="clip">'
+                       + clip_select + '</select></label>'
                        '<button type="submit">Filter</button></form>'
+                       '<p><a href="/">Clear filters</a></p>'
                        + ('<ol>' + history_items + '</ol>' if history_items
                           else '<p>None yet.</p>'))
             upload_form = (
@@ -944,20 +958,23 @@ def create_server(
                     return
                 try:
                     params = parse_qs(query, keep_blank_values=True,
-                                      max_num_fields=2)
+                                      max_num_fields=3, strict_parsing=True)
                 except ValueError:
                     self._error(400)
                     return
                 camera_choices = {"", "side-on", "bow-on", "stern-on", "unspecified"}
                 status_choices = {"", "queued", "running", "succeeded", "failed"}
-                if (not set(params).issubset({"camera", "status"}) or
+                clip_value = params.get("clip", [""])[0]
+                if (not set(params).issubset({"camera", "status", "clip"}) or
                         any(len(values) != 1 for values in params.values()) or
                         params.get("camera", [""])[0] not in camera_choices or
-                        params.get("status", [""])[0] not in status_choices):
+                        params.get("status", [""])[0] not in status_choices or
+                        (clip_value and re.fullmatch(r"[0-9a-f]{64}", clip_value) is None)):
                     self._error(400)
                     return
                 self._home(camera_filter=params.get("camera", [""])[0],
-                           status_filter=params.get("status", [""])[0])
+                           status_filter=params.get("status", [""])[0],
+                           clip_filter=clip_value)
             elif route == "/api/jobs":
                 try:
                     recent = permitted_recent_jobs()

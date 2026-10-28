@@ -135,7 +135,7 @@ def _visible_history(rows, camera_by_clip, camera_filter, status_filter,
 
 def _allowed_methods(route: str) -> str | None:
     """HTTP Allow for known local endpoints; unknown routes stay 404."""
-    if (route in ("/", "/api/jobs", "/history.csv") or route.startswith("/api/jobs/")
+    if (route in ("/", "/api/jobs", "/history.csv", "/compare") or route.startswith("/api/jobs/")
             or route.startswith("/jobs/") or route.startswith("/reports/")
             or route.startswith("/media/")):
         return "GET"
@@ -206,6 +206,90 @@ def create_server(
         except Exception:
             # Private storage failures must not expose paths or stack traces.
             return False
+
+    def verified_comparison_summary(job_id: str):
+        """Recheck both job-owned artifacts before comparing saved observations.
+
+        The digest confirms consistency with the saved job, not real-world
+        accuracy or genuine approval of heuristic candidate faults.
+        """
+        try:
+            record = jobs.get(job_id)
+            if record is None or record["status"] != "succeeded":
+                return 404, None
+            if not analysis_permission_granted(record["clip_id"], registry_path):
+                return 403, None
+            if record.get("coaching_state") != "withheld":
+                return 409, None
+            raw = record.get("report_path")
+            if not isinstance(raw, str):
+                return 404, None
+            relative = Path(raw)
+            if (relative.is_absolute() or not relative.parts
+                    or relative.parts[0] != job_id or ".." in relative.parts
+                    or relative.name != "report.html"):
+                return 404, None
+            job_root = (result_root / job_id).resolve(strict=True)
+            report = (result_root / relative).resolve(strict=True)
+            if (not job_root.is_relative_to(result_root)
+                    or not report.is_file() or not report.is_relative_to(job_root)):
+                return 409, None
+            if report.stat().st_size > _MAX_REPORT:
+                return 413, None
+            report_hash = hashlib.sha256()
+            byte_count = 0
+            with report.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    byte_count += len(chunk)
+                    if byte_count > _MAX_REPORT:
+                        return 413, None
+                    report_hash.update(chunk)
+            expected_report = jobs.report_sha256(job_id)
+            if (not isinstance(expected_report, str)
+                    or not hmac.compare_digest(expected_report,
+                                               report_hash.hexdigest())):
+                return 409, None
+            metrics = (report.parent / "metrics.json").resolve(strict=True)
+            if (metrics.name != "metrics.json" or not metrics.is_file()
+                    or not metrics.is_relative_to(job_root)):
+                return 409, None
+            if metrics.stat().st_size > _MAX_METRICS:
+                return 413, None
+            with metrics.open("rb") as handle:
+                raw_metrics = handle.read(_MAX_METRICS + 1)
+            if len(raw_metrics) > _MAX_METRICS:
+                return 413, None
+            expected_metrics = jobs.metrics_sha256(job_id)
+            if (not isinstance(expected_metrics, str)
+                    or not hmac.compare_digest(
+                        expected_metrics, hashlib.sha256(raw_metrics).hexdigest()
+                    )):
+                return 409, None
+            data = json.loads(raw_metrics.decode("utf-8"))
+            snapshot = data.get("evidence") if isinstance(data, dict) else None
+            if not validate_public_evidence_snapshot(snapshot):
+                return 409, None
+            analyzed = sum(seat["analyzed_strokes"] for seat in snapshot["seats"])
+            counts = {}
+            for finding in snapshot["findings"]:
+                code = finding["fault_code"]
+                counts[code] = counts.get(code, 0) + finding["observed_count"]
+            if any(value > analyzed for value in counts.values()):
+                return 409, None
+            return 200, {
+                "analyzed": analyzed, "counts": counts,
+                "clip_id": record["clip_id"],
+            }
+        except FileNotFoundError:
+            # Historical results may not include versioned evidence.
+            return 404, None
+        except (OSError, ValueError, TypeError, KeyError, RecursionError):
+            return 409, None
+        except Exception:
+            return 503, None
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "StrokeSense"
@@ -409,12 +493,111 @@ def create_server(
                 + html.escape(token, quote=True)
                 + '"><button type="submit">Import locally</button></form>'
             )
+            comparable = [
+                row for row in recent
+                if (row["status"] == "succeeded"
+                    and _JOB_ID.fullmatch(row["job_id"])
+                    and row["clip_id"] in camera_by_clip)
+            ]
+            comparison_form = ""
+            if len(comparable) >= 2:
+                older, newer = comparable[1]["job_id"], comparable[0]["job_id"]
+
+                def comparison_options(selected):
+                    return "".join(
+                        '<option value="' + html.escape(row["job_id"], quote=True)
+                        + '"' + (' selected' if row["job_id"] == selected else '')
+                        + '>Analysis ' + html.escape(row["job_id"][:12])
+                        + '</option>' for row in comparable
+                    )
+
+                comparison_form = (
+                    '<h2>Compare saved analyses</h2>'
+                    '<form method="get" action="/compare">'
+                    '<label>Earlier run <select name="before">'
+                    + comparison_options(older) + '</select></label>'
+                    '<label>Later run <select name="after">'
+                    + comparison_options(newer) + '</select></label>'
+                    '<button type="submit">Compare candidate faults</button></form>'
+                    '<p>Only runs with saved validated evidence can be compared. '
+                    'These are unreviewed candidate detections, not measured '
+                    'coaching effectiveness.</p>'
+                )
             body = ("<p>Local prototype. Permission is an operator assertion, "
                     "not independent consent verification. Analysis runs on "
                     "your computer. No generated LLM advice is released here.</p>"
-                    + controls + upload_form + history)
+                    + controls + upload_form + history + comparison_form)
             self._send(200, _document("StrokeSense local Alpha", body))
 
+
+        def _compare(self, query: str):
+            """Side-by-side candidate counts from two independently checked runs."""
+            if len(query) > 128:
+                self._error(400)
+                return
+            try:
+                params = parse_qs(query, keep_blank_values=True,
+                                  max_num_fields=2, strict_parsing=True)
+                if (set(params) != {"before", "after"}
+                        or any(len(values) != 1 for values in params.values())):
+                    raise ValueError("invalid comparison selection")
+                before, after = params["before"][0], params["after"][0]
+                if (before == after or _JOB_ID.fullmatch(before) is None
+                        or _JOB_ID.fullmatch(after) is None):
+                    raise ValueError("invalid comparison identifiers")
+            except ValueError:
+                self._error(400)
+                return
+            first_code, first = verified_comparison_summary(before)
+            if first_code != 200:
+                self._error(first_code)
+                return
+            last_code, last = verified_comparison_summary(after)
+            if last_code != 200:
+                self._error(last_code)
+                return
+            faults = sorted(set(first["counts"]) | set(last["counts"]))
+            table_rows = []
+            for code in faults:
+                def rate(summary):
+                    n = summary["analyzed"]
+                    if n == 0:
+                        return "insufficient evidence (0 analyzed strokes)"
+                    return f'{summary["counts"].get(code, 0)} of {n} analyzed strokes'
+                table_rows.append(
+                    "<tr><th scope=\"row\">" + html.escape(code) + "</th><td>"
+                    + rate(first) + "</td><td>" + rate(last) + "</td></tr>"
+                )
+            if table_rows:
+                frequency = (
+                    '<table border="1"><thead><tr><th>Candidate fault</th>'
+                    '<th>Earlier run</th><th>Later run</th></tr></thead><tbody>'
+                    + "".join(table_rows) + '</tbody></table>'
+                )
+            else:
+                frequency = (
+                    "<p>Neither saved evidence snapshot flagged a candidate "
+                    "fault. This is not a negative coach-reviewed label.</p>"
+                )
+            same_clip = first["clip_id"] == last["clip_id"]
+            content = (
+                "<p>Candidate fault counts over analyzed strokes only; "
+                "not proof of improvement, diagnostic accuracy, or coaching "
+                "effectiveness. Different footage, viewpoints and settings "
+                "can make these runs incomparable.</p>"
+                + ("<p>Same registered source clip.</p>" if same_clip
+                   else "<p>Different registered source clips.</p>")
+                + "<p>Coaching withheld on both analyses.</p>"
+                + '<p>Earlier: <a href="/reports/' + before
+                + '">Open report</a> · <a href="/jobs/' + before
+                + '/evidence">Inspect evidence</a></p>'
+                + '<p>Later: <a href="/reports/' + after
+                + '">Open report</a> · <a href="/jobs/' + after
+                + '/evidence">Inspect evidence</a></p>'
+                + frequency
+                + '<p><a href="/">Back to analysis library</a></p>'
+            )
+            self._send(200, _document("Compare saved analyses", content))
 
         def _history_csv(self, *, camera_filter="", status_filter="",
                          clip_filter=""):
@@ -1055,6 +1238,8 @@ def create_server(
                 else:
                     self._history_csv(camera_filter=camera,
                                       status_filter=status, clip_filter=clip)
+            elif route == "/compare":
+                self._compare(urlsplit(self.path).query)
             elif route == "/api/jobs":
                 try:
                     recent = permitted_recent_jobs()

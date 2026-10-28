@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .evidence import MIN_SAMPLE_STROKES, validate_reference_graph
+from .strokes import FAULTS
 
 DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 MAX_RESPONSE_BYTES = 131_072
@@ -86,9 +87,13 @@ def _safe_payload(snapshot, reviewed_cues):
                 or not details["reviewed_by"].strip()):
             continue
         faults = details.get("fault_codes")
-        if (isinstance(faults, list) and faults
-                and all(isinstance(x, str) for x in faults)):
-            approved[cue_id] = {"fault_codes": sorted(set(faults))}
+        # Match the independent release gate's cue schema before incurring
+        # an external request. Malformed review claims are not approval.
+        if (isinstance(faults, list) and 0 < len(faults) <= len(FAULTS)
+                and all(type(code) is str and code in FAULTS
+                        for code in faults)
+                and len(set(faults)) == len(faults)):
+            approved[cue_id] = {"fault_codes": sorted(faults)}
     if not approved:
         raise ProviderError("no_approved_cues")
 

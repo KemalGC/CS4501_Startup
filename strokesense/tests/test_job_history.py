@@ -102,6 +102,8 @@ class JobHistoryTests(unittest.TestCase):
         html = body.decode()
         self.assertIn("/jobs/" + job_id, html)
         self.assertIn("succeeded", html)
+        # This fake analyzer writes report.html but no metrics/evidence snapshot.
+        self.assertNotIn(f'href="/jobs/{job_id}/evidence"', html)
         self.assertNotIn(str(self.source), html)
         self.assertNotIn("fake consent", html)
         status, _, status_page = self.get("/jobs/" + job_id)

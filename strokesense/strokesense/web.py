@@ -16,6 +16,7 @@ import hmac
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -38,6 +39,8 @@ _CAMERA_CHOICES = frozenset({"", "side-on", "bow-on", "stern-on"})
 _MAX_REPORT = 32 * 1024 * 1024
 _MAX_METRICS = 16 * 1024 * 1024
 _MAX_LINKED_STROKES_PER_FINDING = 50
+_MAX_SEEK_SECONDS = 120  # Keep local playback links within the Alpha clip cap.
+_SEEK_TIME = re.compile(r'(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,3})?\Z')
 _RETRYABLE_JOB_ERRORS = frozenset({"analysis_failed", "interrupted", "output_unavailable"})
 _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
              "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
@@ -59,6 +62,22 @@ def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
             'code{overflow-wrap:anywhere}label{display:block;margin:1rem 0}'
             'a{color:#164d9a}</style></head><body><main>'
             f'<h1>{safe_title}</h1>{content}</main></body></html>').encode("utf-8")
+
+
+
+def _seek_query(query: str) -> str | None:
+    """Allow only one small, unambiguous playback timestamp parameter."""
+    if not query:
+        return None
+    if len(query) > 64:
+        raise ValueError("seek query too long")
+    params = parse_qs(query, keep_blank_values=True, max_num_fields=1,
+                      strict_parsing=True)
+    if (set(params) != {"at"} or len(params["at"]) != 1
+            or _SEEK_TIME.fullmatch(params["at"][0]) is None
+            or float(params["at"][0]) > _MAX_SEEK_SECONDS):
+        raise ValueError("invalid seek position")
+    return params["at"][0]
 
 
 def _spreadsheet_text(value: str) -> str:
@@ -276,7 +295,7 @@ def create_server(
                     + controls + upload_form + history)
             self._send(200, _document("StrokeSense local Alpha", body))
 
-        def _status(self, job_id: str, *, api=False):
+        def _status(self, job_id: str, *, api=False, at=None):
             if not _JOB_ID.fullmatch(job_id):
                 self._error(404)
                 return
@@ -336,11 +355,15 @@ def create_server(
                 if media is not None:
                     mime = ("video/webm" if media[0].lower().endswith(".webm")
                             else "video/mp4")
+                    fragment = f"#t={at}" if at is not None else ""
                     media_player = (
                         '<h2>Annotated video</h2><video controls preload="metadata" '
-                        f'width="720" src="/media/{job_id}" type="{mime}">'
+                        f'width="720" src="/media/{job_id}{fragment}" type="{mime}">'
                         'Your browser does not support HTML5 video.</video>'
                     )
+            if at is not None and not media_player:
+                self._error(404)
+                return
             content = (f"<p>Job: <code>{job_id}</code></p>"
                        f"<p>Status: <strong>{status}</strong></p>"
                        '<p>Coaching: <strong>withheld</strong></p>'
@@ -607,15 +630,37 @@ def create_server(
                 row["id"]: (f"stroke-{position}", row)
                 for position, row in enumerate(curated["strokes"])
             }
+            try:
+                media_available = jobs.media_artifact(job_id) is not None
+            except Exception:
+                # Evidence remains readable if optional media cannot be found.
+                media_available = False
+
+            def stroke_item(position, row):
+                # Evidence times refer to the original source. render_video()
+                # starts the exported annotated clip at pose.start (t=0).
+                elapsed = row["catch_seconds"] - curated["start_seconds"]
+                can_seek = (media_available and math.isfinite(elapsed)
+                            and 0 <= elapsed <= _MAX_SEEK_SECONDS)
+                if can_seek:
+                    second = f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                    watch = (f' <a href="/jobs/{job_id}?at={second}">'
+                             'Watch catch</a>')
+                else:
+                    watch = ""
+                return (
+                    '<li id="stroke-' + str(position) + '">Seat '
+                    + html.escape(seat_labels.get(row["seat_id"], "unknown"))
+                    + ", stroke " + html.escape(str(row["index"]))
+                    + ": Catch " + html.escape(str(row["catch_seconds"]))
+                    + " s; finish " + html.escape(str(row["finish_seconds"]))
+                    + " s; faults: "
+                    + html.escape(", ".join(str(x) for x in row["fault_codes"]))
+                    + watch + "</li>"
+                )
+
             strokes = "".join(
-                '<li id="stroke-' + str(position) + '">Seat '
-                + html.escape(seat_labels.get(row["seat_id"], "unknown"))
-                + ", stroke " + html.escape(str(row["index"]))
-                + ": Catch " + html.escape(str(row["catch_seconds"]))
-                + " s; finish " + html.escape(str(row["finish_seconds"]))
-                + " s; faults: "
-                + html.escape(", ".join(str(x) for x in row["fault_codes"]))
-                + "</li>"
+                stroke_item(position, row)
                 for position, row in enumerate(curated["strokes"])
             )
 
@@ -728,7 +773,12 @@ def create_server(
             elif route.startswith("/api/jobs/"):
                 self._status(route[len("/api/jobs/"):], api=True)
             elif route.startswith("/jobs/"):
-                self._status(route[len("/jobs/"):])
+                try:
+                    at = _seek_query(urlsplit(self.path).query)
+                except ValueError:
+                    self._error(400)
+                    return
+                self._status(route[len("/jobs/"):], at=at)
             elif route.startswith("/reports/"):
                 self._report(route[len("/reports/"):])
             elif route.startswith("/media/"):

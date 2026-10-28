@@ -930,3 +930,22 @@ empirical accuracy. CSV rows in the automated tests are **fabricated**; any
 computed fixture precision/recall is synthetic regression output, not field
 performance. Actual Activity 1 customer validation and genuine independently
 reviewed clips are still required.
+
+## Filter saved candidate faults on the local evidence page (Alpha)
+
+After completing a permitted local job, open **Inspect saved evidence** and use
+**Select a candidate fault → Filter evidence** to limit the displayed
+stroke/finding lists to one of the supported deterministic fault codes. The
+link **Clear filter** restores all rows. A supported code with no recorded
+candidate strokes explicitly shows an empty result; invalid/ambiguous query
+parameters return 400 without disclosing data. For example, on the local
+loopback interface, `/jobs/LOCAL_JOB_ID/evidence?fault=early_arms` displays
+the corresponding saved stroke candidates and playback links, when the
+integrity-checked rendered media exists. This does not change or recompute
+the original finding counts, annotate footage, or change saved results.
+
+The `/api/jobs/LOCAL_JOB_ID/evidence` JSON and CSV/coach-review exports
+remain **unfiltered** and protected by the existing permission and integrity
+checks. This is an HTML navigation feature, **not a fault-accuracy measurement,
+real coach approval, independent LLM verification, or customer validation**.
+The synthetic HTTP regression fixture is invented, not a real video review.

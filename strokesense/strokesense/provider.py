@@ -261,6 +261,14 @@ class OpenAIChatGenerator:
                     or choice.get("finish_reason") != "stop"):
                 raise ValueError("incomplete provider response")
             message = choice["message"]
+            if not isinstance(message, dict):
+                raise ValueError("invalid chat message")
+            # A stop marker alone cannot override refusal or tool metadata.
+            if (("role" in message and message["role"] != "assistant")
+                    or message.get("refusal") is not None
+                    or message.get("tool_calls") not in (None, [])
+                    or message.get("function_call") is not None):
+                raise ValueError("not a completed assistant content message")
             text = message["content"]
             if not isinstance(text, str):
                 raise ValueError("invalid content")

@@ -85,3 +85,16 @@ guarantee the exact provider bill or model behavior. Some OpenAI-compatible
 third-party endpoints may not support `max_completion_tokens`; compatibility
 must be verified with authorized credentials before live use. A provider
 request failure stays withheld and never changes local job release status.
+
+
+### Candidate schema limits
+
+The independent validator accepts only the documented exact candidate fields,
+with nonblank `finding_id`, `seat_id`, `fault_code`, `cue_id` (each at most
+128 characters), a nonblank explanation (at most 1,000 Unicode characters), and
+1–5,000 unique stroke IDs (each nonblank and at most 128 characters).
+Oversized fields fail closed with `invalid_candidate` before resolving
+references or displaying generated text. These bounds supplement, rather than
+replace, numeric/denominator, independent review, and eligibility checks.
+Meeting size limits is **not** evidence that unconstrained explanation text
+is accurate, safe, or coach-approved.

@@ -257,6 +257,70 @@ class ConfiguredProviderTests(unittest.TestCase):
         self.assertNotIn(self.candidate["explanation"], json.dumps(result))
 
 
+    def test_explicit_refusals_and_tool_calls_cannot_release_coaching(self):
+        from strokesense.provider import ProviderError
+        candidate = json.dumps(self.candidate)
+        variants = (
+            {"role": "tool", "content": candidate},
+            {"role": None, "content": candidate},
+            {"role": "assistant", "content": candidate,
+             "refusal": "PRIVATE SYNTHETIC REFUSAL CONTENT"},
+            {"role": "assistant", "content": candidate,
+             "refusal": ""},
+            {"role": "assistant", "content": candidate,
+             "tool_calls": [{"id": "fictional-call", "type": "function"}]},
+            {"role": "assistant", "content": candidate,
+             "tool_calls": "invalid-not-an-array"},
+            {"role": "assistant", "content": candidate,
+             "function_call": {"name": "fictional-tool"}},
+        )
+        for message in variants:
+            raw = json.dumps({"choices": [{
+                "finish_reason": "stop", "message": message,
+            }]}).encode("utf-8")
+            with self.subTest(message=str(message)[:95]), patch(
+                "strokesense.provider.urlopen",
+                return_value=io.BytesIO(raw),
+            ):
+                with self.assertRaises(ProviderError) as caught:
+                    self.generator()(1, [])
+                self.assertEqual(str(caught.exception), "invalid_provider_response")
+                self.assertNotIn("PRIVATE SYNTHETIC", str(caught.exception))
+
+        # A finished, ordinary assistant response must remain compatible.
+        valid = {"role": "assistant", "content": candidate,
+                 "refusal": None, "tool_calls": [], "function_call": None}
+        raw = json.dumps({"choices": [{
+            "finish_reason": "stop", "message": valid,
+        }]}).encode("utf-8")
+        with patch("strokesense.provider.urlopen", return_value=io.BytesIO(raw)):
+            self.assertEqual(self.generator()(1, []), self.candidate)
+
+    def test_refusal_does_not_trigger_correction_retry_or_leak_text(self):
+        from strokesense import correction
+        raw = json.dumps({"choices": [{
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "content": json.dumps(self.candidate),
+                "refusal": "PRIVATE FICTIONAL PROVIDER REFUSAL",
+            },
+        }]}).encode("utf-8")
+        with patch("strokesense.provider.urlopen",
+                   return_value=io.BytesIO(raw)) as opened:
+            result = correction.run_correction(
+                self.generator(), evidence_snapshot=self.snapshot,
+                reviewed_cues=self.cues,
+            )
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(result["status"], "withheld")
+        self.assertEqual(result["attempts"], 1)
+        self.assertIsNone(result["released"])
+        self.assertEqual(result["errors"], ["generation_failed"])
+        self.assertNotIn("PRIVATE FICTIONAL", json.dumps(result))
+        self.assertNotIn(self.candidate["explanation"], json.dumps(result))
+
+
     def test_malformed_responses_fail_closed(self):
         from strokesense.provider import ProviderError
         malformed = (

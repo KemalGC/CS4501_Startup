@@ -44,11 +44,12 @@ def _validate_candidate(candidate, evidence_snapshot, reviewed_cues) -> dict:
     if set(candidate) != _FIELDS:
         return _blocked("invalid_candidate")
     if any(not isinstance(candidate[key], str) or not candidate[key].strip()
+           or len(candidate[key]) > (1000 if key == "explanation" else 128)
            for key in ("finding_id", "seat_id", "fault_code", "cue_id", "explanation")):
         return _blocked("invalid_candidate")
     ids = candidate["stroke_ids"]
-    if not isinstance(ids, list) or not ids or any(
-        not isinstance(x, str) for x in ids
+    if not isinstance(ids, list) or not ids or len(ids) > 5000 or any(
+        not isinstance(x, str) or not x or len(x) > 128 for x in ids
     ) or len(set(ids)) != len(ids):
         return _blocked("invalid_candidate")
     if (type(candidate["observed_count"]) is not int or

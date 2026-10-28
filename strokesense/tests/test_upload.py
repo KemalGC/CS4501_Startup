@@ -202,5 +202,53 @@ class UploadHTTPTests(unittest.TestCase):
                 self.assertEqual(code, 303)
 
 
+    def test_browser_upload_offers_optional_viewpoint_selector(self):
+        code, _, body = self.request("GET", "/")
+        self.assertEqual(code, 200)
+        self.assertIn(b'name="camera"', body)
+        for angle in (b'value="side-on"', b'value="bow-on"',
+                      b'value="stern-on"', b'value=""'):
+            with self.subTest(angle=angle):
+                self.assertIn(angle, body)
+
+    def test_upload_saves_explicit_camera_label_and_displays_it(self):
+        code, headers, _ = self.upload(extras=(("camera", "side-on"),))
+        self.assertEqual(code, 303)
+        self.assertEqual(headers["Location"], "/")
+        clips = list_clips(self.db)
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(clips[0]["camera"], "side-on")
+        status, _, page = self.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"side-on", page)
+        self.assertNotIn(str(self.root).encode(), page)
+        self.assertNotIn(b"synthetic local attestation", page)
+
+    def test_invalid_camera_label_rejected_before_storage(self):
+        for supplied in ("diagonal", "side-on ", "<script>alert(1)</script>"):
+            with self.subTest(camera=supplied):
+                code, _, _ = self.upload(extras=(("camera", supplied),))
+                self.assertEqual(code, 422)
+        self.assertEqual(list_clips(self.db), [])
+        self.assertFalse(self.uploads.exists() and any(self.uploads.iterdir()))
+        code, _, _ = self.upload(extras=(
+            ("camera", "side-on"), ("camera", "bow-on"),
+        ))
+        self.assertEqual(code, 400)
+        self.assertEqual(list_clips(self.db), [])
+
+    def test_camera_label_dedup_preserves_existing_clip_metadata(self):
+        extras = (("camera", "side-on"),)
+        self.assertEqual(self.upload(extras=extras)[0], 303)
+        self.assertEqual(self.upload(extras=extras, filename="same.mp4")[0], 303)
+        self.assertEqual(len(list_clips(self.db)), 1)
+        code, _, _ = self.upload(
+            extras=(("camera", "bow-on"),), filename="conflict.mp4",
+        )
+        self.assertEqual(code, 422)
+        self.assertEqual(list_clips(self.db)[0]["camera"], "side-on")
+        self.assertEqual(len(list(self.uploads.iterdir())), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

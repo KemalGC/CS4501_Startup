@@ -298,6 +298,29 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertIn("media-src 'self'", headers["Content-Security-Policy"])
         self.assertNotIn(str(self.root).encode(), player)
 
+    def test_trimmed_recording_uses_relative_video_position(self):
+        """Rendered clips start at zero even when evidence is source-relative."""
+        import copy
+        self.snapshot = copy.deepcopy(self.snapshot)
+        self.snapshot["start_seconds"] = 10.0
+        for stroke in self.snapshot["strokes"]:
+            for key in ("catch_seconds", "finish_seconds",
+                        "next_catch_seconds"):
+                stroke[key] += 10.0
+        self.snapshot["snapshot_sha256"] = evidence._digest({
+            key: val for key, val in self.snapshot.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(
+            evidence.validate_public_evidence_snapshot(self.snapshot)
+        )
+        self.with_video = True
+        job_id = self.succeed()
+        status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn(f'href="/jobs/{job_id}?at=1.2"'.encode(), page)
+        self.assertNotIn(f'href="/jobs/{job_id}?at=11.2"'.encode(), page)
+
     def test_no_saved_video_does_not_offer_dead_seek_links(self):
         job_id = self.succeed()
         status, _, page = self.request(f"/jobs/{job_id}/evidence")

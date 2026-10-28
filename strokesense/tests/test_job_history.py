@@ -170,5 +170,73 @@ class JobHistoryTests(unittest.TestCase):
                 self.assertNotIn(str(self.root).encode(), body)
 
 
+
+    def test_status_filter_and_camera_compose_without_mutating_jobs(self):
+        import sqlite3
+        with sqlite3.connect(self.registry) as db:
+            db.execute("UPDATE clips SET camera='side-on' WHERE clip_id=?",
+                       (self.clip_id,))
+        other = self.root / "different-view.mp4"
+        other.write_bytes(b"mock footage for bow-on")
+        second_clip = register_clip(
+            other, self.registry, permission="granted",
+            provenance="synthetic operator claim", camera="bow-on",
+        )[0]["clip_id"]
+        side_ok = self.finish()
+        side_failed = self.finish()
+        bow_failed = self.worker.submit(second_clip)["job_id"]
+        self.assertEqual(self.worker.wait(bow_failed, timeout=4)["status"],
+                         "succeeded")
+        with sqlite3.connect(self.jobs_db) as db:
+            db.execute("UPDATE jobs SET status='failed', error_code='analysis_failed' "
+                       "WHERE job_id IN (?, ?)", (side_failed, bow_failed))
+
+        code, _, all_jobs = self.get("/?status=")
+        self.assertEqual(code, 200)
+        for job_id in (side_ok, side_failed, bow_failed):
+            self.assertIn(("/jobs/" + job_id).encode(), all_jobs)
+        self.assertIn(b'<select name="status">', all_jobs)
+
+        code, _, failed = self.get("/?status=failed")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + side_failed).encode(), failed)
+        self.assertIn(("/jobs/" + bow_failed).encode(), failed)
+        self.assertNotIn(("/jobs/" + side_ok).encode(), failed)
+
+        code, _, combined = self.get("/?camera=side-on&status=failed")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + side_failed).encode(), combined)
+        self.assertNotIn(("/jobs/" + bow_failed).encode(), combined)
+        self.assertNotIn(("/jobs/" + side_ok).encode(), combined)
+        # Status filter must not change available registered clips or the API.
+        self.assertIn(self.clip_id.encode(), combined)
+        self.assertIn(second_clip.encode(), combined)
+        code, _, api = self.get("/api/jobs")
+        self.assertEqual(code, 200)
+        self.assertEqual(len(json.loads(api)), 3)
+        self.assertNotIn(str(self.root).encode(), combined)
+
+    def test_status_filter_rejects_untrusted_or_repeated_queries(self):
+        for path in ("/?status=done", "/?status=failed&status=succeeded",
+                     "/?camera=side-on&status=failed&extra=x",
+                     "/?status=failed&camera=side-on&camera=bow-on"):
+            with self.subTest(path=path):
+                code, headers, body = self.get(path)
+                self.assertEqual(code, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(str(self.root).encode(), body)
+
+    def test_status_filter_no_matches_is_clear_and_reversible(self):
+        done = self.finish()
+        code, _, empty = self.get("/?status=failed")
+        self.assertEqual(code, 200)
+        self.assertIn(b"None yet.", empty)
+        self.assertNotIn(("/jobs/" + done).encode(), empty)
+        code, _, restored = self.get("/?status=succeeded")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + done).encode(), restored)
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -124,5 +124,51 @@ class JobHistoryTests(unittest.TestCase):
         self.assertNotIn(str(self.root), body.decode())
 
 
+    def test_homepage_camera_filter_preserves_jobs_but_scopes_recent_list(self):
+        with __import__("sqlite3").connect(self.registry) as db:
+            db.execute("UPDATE clips SET camera='side-on' WHERE clip_id=?",
+                       (self.clip_id,))
+        other_video = self.root / "other-private-crew.mp4"
+        other_video.write_bytes(b"different synthetic non-video bytes")
+        other_clip = register_clip(
+            other_video, self.registry, permission="granted",
+            provenance="another test-only claim", camera="bow-on",
+        )[0]["clip_id"]
+        first = self.finish()
+        another_job = self.worker.submit(other_clip)["job_id"]
+        self.assertEqual(self.worker.wait(another_job, timeout=4)["status"],
+                         "succeeded")
+        status, _, base = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn(("/jobs/" + first).encode(), base)
+        self.assertIn(("/jobs/" + another_job).encode(), base)
+        self.assertIn(b'<form method="get" action="/">', base)
+
+        code, _, side = self.get("/?camera=side-on")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + first).encode(), side)
+        self.assertNotIn(("/jobs/" + another_job).encode(), side)
+        code, _, bow = self.get("/?camera=bow-on")
+        self.assertEqual(code, 200)
+        self.assertIn(("/jobs/" + another_job).encode(), bow)
+        self.assertNotIn(("/jobs/" + first).encode(), bow)
+        code, _, unspecified = self.get("/?camera=unspecified")
+        self.assertEqual(code, 200)
+        self.assertNotIn(("/jobs/" + first).encode(), unspecified)
+        self.assertNotIn(("/jobs/" + another_job).encode(), unspecified)
+        self.assertNotIn(str(other_video).encode(), side + bow)
+        self.assertNotIn(b"another test-only claim", side + bow)
+
+    def test_camera_filter_rejects_unknown_and_duplicate_query_values(self):
+        for path in ("/?camera=diagonal",
+                     "/?camera=bow-on&camera=side-on",
+                     "/?camera=side-on&unused=1"):
+            with self.subTest(path=path):
+                code, headers, body = self.get(path)
+                self.assertEqual(code, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(str(self.root).encode(), body)
+
+
 if __name__ == "__main__":
     unittest.main()

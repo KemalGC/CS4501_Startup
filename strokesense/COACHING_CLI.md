@@ -71,3 +71,17 @@ Generated feedback is not propagated into the local browser or jobs.
 
 Complete offline suite from repo root: `python strokesense/quality.py`.
 Read-only preflight: `python strokesense/quality.py --doctor`.
+
+
+### Bounded provider requests
+
+The optional HTTPS chat adapter rejects a whitelisted, serialized evidence
+prompt larger than **64 KiB** before any network request. Requests include
+`max_completion_tokens=512` as an explicit *output token* ceiling; response
+bytes are independently capped at 128 KiB and the HTTPS call has an explicit
+timeout. The prompt cap is a **byte limit**, not a guarantee of a particular
+token count. These limits reduce unexpected cost/data transfer but cannot
+guarantee the exact provider bill or model behavior. Some OpenAI-compatible
+third-party endpoints may not support `max_completion_tokens`; compatibility
+must be verified with authorized credentials before live use. A provider
+request failure stays withheld and never changes local job release status.

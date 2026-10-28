@@ -34,6 +34,7 @@ _MAX_UPLOAD = 25 * 1024 * 1024
 _VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
 _MAX_REPORT = 32 * 1024 * 1024
 _MAX_METRICS = 16 * 1024 * 1024
+_MAX_LINKED_STROKES_PER_FINDING = 50
 _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
              "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 _REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
@@ -442,18 +443,53 @@ def create_server(
                 + " — " + html.escape(str(row.get("status", "unknown")))
                 + "</li>" for row in curated["seats"]
             )
+            # Generate anchors only from trusted list positions. Source- and
+            # model-provided IDs are references, not HTML attribute values.
+            seat_labels = {
+                row["id"]: row["seat"] for row in curated["seats"]
+            }
+            stroke_ref = {
+                row["id"]: (f"stroke-{position}", row)
+                for position, row in enumerate(curated["strokes"])
+            }
             strokes = "".join(
-                "<li>Stroke " + html.escape(str(row.get("index", "?")))
-                + " at " + html.escape(str(row.get("catch_seconds", "?")))
-                + " seconds; faults: "
-                + html.escape(", ".join(str(x) for x in row.get("fault_codes", [])))
-                + "</li>" for row in curated["strokes"]
+                '<li id="stroke-' + str(position) + '">Seat '
+                + html.escape(seat_labels.get(row["seat_id"], "unknown"))
+                + ", stroke " + html.escape(str(row["index"]))
+                + ": Catch " + html.escape(str(row["catch_seconds"]))
+                + " s; finish " + html.escape(str(row["finish_seconds"]))
+                + " s; faults: "
+                + html.escape(", ".join(str(x) for x in row["fault_codes"]))
+                + "</li>"
+                for position, row in enumerate(curated["strokes"])
             )
-            findings = "".join(
-                "<li>" + html.escape(str(row.get("fault_code", "unknown")))
-                + " — " + html.escape(str(row.get("status", "unknown")))
-                + "</li>" for row in curated["findings"]
-            )
+
+            def finding_item(row):
+                ids = row["stroke_ids"]
+                visible = ids[:_MAX_LINKED_STROKES_PER_FINDING]
+                links = ", ".join(
+                    '<a href="#' + stroke_ref[sid][0] + '">Stroke '
+                    + html.escape(str(stroke_ref[sid][1]["index"])) + "</a>"
+                    for sid in visible
+                )
+                remaining = len(ids) - len(visible)
+                more = (
+                    f" and {remaining} more supporting stroke"
+                    + ("s" if remaining != 1 else "")
+                    + " (see JSON evidence)"
+                    if remaining else ""
+                )
+                return (
+                    "<li>" + html.escape(row["fault_code"])
+                    + " — " + html.escape(row["status"])
+                    + " — " + str(row["observed_count"])
+                    + " of " + str(row["analyzed_strokes"])
+                    + " analyzed strokes; supporting strokes: "
+                    + (links if links else "No supporting strokes listed")
+                    + more + "</li>"
+                )
+
+            findings = "".join(finding_item(row) for row in curated["findings"])
             body = ("<p><strong>Generated coaching withheld.</strong> "
                     "These measurements are unreviewed evidence, not "
                     "coach-approved advice or verified model accuracy.</p>"

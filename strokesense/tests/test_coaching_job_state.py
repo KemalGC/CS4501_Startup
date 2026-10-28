@@ -58,6 +58,25 @@ class CoachingJobStateTests(unittest.TestCase):
             self.assertEqual(reopened["coaching_state"], "withheld")
             self.assertEqual(q.list_recent()[0]["coaching_state"], "withheld")
 
+    def test_versioned_withholding_metadata_survives_job_restart(self):
+        # Regression for #36: schema version is durable, not a UI-only label.
+        with self.make_queue() as queue:
+            job_id = queue.submit(self.clip_id)["job_id"]
+            done = queue.wait(job_id, timeout=5)
+            self.assertEqual(done["coaching_state"], "withheld")
+            self.assertEqual(done["coaching_schema_version"], 1)
+            self.assertEqual(queue.list_recent()[0]["coaching_schema_version"], 1)
+        with self.make_queue() as reopened:
+            self.assertEqual(reopened.get(job_id)["coaching_schema_version"], 1)
+        import sqlite3
+        with sqlite3.connect(self.job_db) as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 6)
+            record = db.execute(
+                "SELECT coaching_schema_version FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            self.assertEqual(record, (1,))
+
     def test_failed_job_does_not_suggest_coaching_release(self):
         with self.make_queue(succeeds=False) as q:
             job_id = q.submit(self.clip_id)["job_id"]

@@ -852,8 +852,11 @@ the blank `/api/jobs/<job_id>/review.csv` worksheet includes
 integrity-checked evidence as `catch_seconds - start_seconds`, rounded to at
 most three decimal places and bounded to 0–120 seconds. This is a **position
 in the exported annotated clip**, not an absolute timestamp in the original
-source. When the job has no saved media or the position is outside the
-supported bound, the field remains blank; no video or labels are fabricated.
+source. When the job has no saved media, the recorded file has been removed or
+modified, or the position is outside the supported bound, the field remains
+blank; no video or labels are fabricated. Links and CSV navigation are offered
+only after a bounded SHA-256 recheck of the saved job-scoped media. Playback
+performs its own integrity check again, since files may change between reads.
 The original `catch_seconds` and all preexisting blank human-label columns
 are preserved.
 

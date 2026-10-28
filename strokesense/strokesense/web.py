@@ -164,7 +164,7 @@ def create_server(
                 return False
             return True
 
-        def _home(self):
+        def _home(self, *, camera_filter=""):
             try:
                 clips = [c for c in list_clips(registry_path)
                          if c["permission"] == "granted"]
@@ -213,10 +213,27 @@ def create_server(
                 + ' — camera: '
                 + html.escape(str(camera_by_clip.get(row["clip_id"], "unspecified")))
                 + ' — coaching: withheld</li>'
-                for row in recent if _JOB_ID.fullmatch(row["job_id"])
+                for row in recent
+                if (_JOB_ID.fullmatch(row["job_id"]) and
+                    (not camera_filter or camera_by_clip.get(
+                        row["clip_id"], "unspecified") == camera_filter))
             )
-            history = ("<h2>Recent analyses</h2><ol>" + history_items + "</ol>"
-                       if history_items else "<h2>Recent analyses</h2><p>None yet.</p>")
+            camera_options = (("", "All"), ("side-on", "Side-on"),
+                              ("bow-on", "Bow-on"), ("stern-on", "Stern-on"),
+                              ("unspecified", "Unspecified"))
+            camera_select = "".join(
+                '<option value="' + value + '"'
+                + (' selected' if value == camera_filter else '')
+                + '>' + label + '</option>'
+                for value, label in camera_options
+            )
+            history = ('<h2>Recent analyses</h2>'
+                       '<form method="get" action="/">'
+                       '<label>Filter analyses by camera <select name="camera">'
+                       + camera_select + '</select></label>'
+                       '<button type="submit">Filter</button></form>'
+                       + ('<ol>' + history_items + '</ol>' if history_items
+                          else '<p>None yet.</p>'))
             upload_form = (
                 '<h2>Register a new local clip</h2>'
                 '<form method="post" action="/upload" enctype="multipart/form-data">'
@@ -592,7 +609,24 @@ def create_server(
                 return
             route = urlsplit(self.path).path
             if route == "/":
-                self._home()
+                query = urlsplit(self.path).query
+                if len(query) > 128:
+                    self._error(400)
+                    return
+                try:
+                    params = parse_qs(query, keep_blank_values=True,
+                                      max_num_fields=1)
+                except ValueError:
+                    self._error(400)
+                    return
+                choices = {"", "side-on", "bow-on", "stern-on", "unspecified"}
+                if (params and (set(params) != {"camera"} or
+                                len(params["camera"]) != 1 or
+                                params["camera"][0] not in choices)):
+                    self._error(400)
+                    return
+                camera_filter = params.get("camera", [""])[0]
+                self._home(camera_filter=camera_filter)
             elif route == "/api/jobs":
                 try:
                     recent = permitted_recent_jobs()

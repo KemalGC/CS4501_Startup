@@ -32,6 +32,7 @@ _JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
 _MAX_FORM = 2048
 _MAX_UPLOAD = 25 * 1024 * 1024
 _VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
+_CAMERA_CHOICES = frozenset({"", "side-on", "bow-on", "stern-on"})
 _MAX_REPORT = 32 * 1024 * 1024
 _MAX_METRICS = 16 * 1024 * 1024
 _MAX_LINKED_STROKES_PER_FINDING = 50
@@ -209,6 +210,12 @@ def create_server(
                 'I attest I have permission to analyze this recording</label>'
                 '<label>Permission source / provenance: '
                 '<input type="text" name="provenance" maxlength="256" required></label>'
+                '<label>Camera viewpoint (optional): <select name="camera">'
+                '<option value="">Unspecified</option>'
+                '<option value="side-on">Side-on</option>'
+                '<option value="bow-on">Bow-on</option>'
+                '<option value="stern-on">Stern-on</option>'
+                '</select></label>'
                 '<label><input type="checkbox" name="analyze" value="now" checked>'
                 ' Analyze immediately after import</label>'
                 '<input type="hidden" name="csrf" value="'
@@ -608,7 +615,8 @@ def create_server(
                         raise ValueError("duplicate upload field")
                     fields[key] = part
                 required = {"csrf", "permission", "provenance", "video"}
-                if set(fields) not in (required, required | {"analyze"}):
+                allowed = required | {"analyze", "camera"}
+                if not required.issubset(fields) or not set(fields).issubset(allowed):
                     raise ValueError("incorrect upload fields")
                 def field(name):
                     data = fields[name].get_payload(decode=True)
@@ -627,6 +635,10 @@ def create_server(
                 permission = field("permission")
                 provenance = field("provenance").strip()
                 if permission != "granted" or not provenance or len(provenance) > 256:
+                    self._error(422)
+                    return
+                camera = field("camera") if "camera" in fields else ""
+                if camera not in _CAMERA_CHOICES:
                     self._error(422)
                     return
                 filename = fields["video"].get_filename()
@@ -659,7 +671,7 @@ def create_server(
                         os.fsync(stream.fileno())
                     clip, created = register_clip(
                         destination, registry_path, permission="granted",
-                        provenance=provenance,
+                        provenance=provenance, camera=camera or None,
                     )
                 except Exception:
                     destination.unlink(missing_ok=True)

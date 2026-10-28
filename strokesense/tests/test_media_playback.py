@@ -102,6 +102,21 @@ class SavedMediaPlaybackTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertNotIn(str(self.root).encode(), body)
 
+    def test_tampered_database_media_path_never_leaks_local_files(self):
+        import sqlite3
+        job_id = self.submit()
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET video_path=? WHERE job_id=?",
+                       ("../private-input.mp4", job_id))
+        code, headers, body = self.get(f"/media/{job_id}")
+        self.assertEqual(code, 404)
+        self.assertNotIn(str(self.root).encode(), body)
+        # No private video location is ever included in public job status.
+        code, _, page = self.get(f"/jobs/{job_id}")
+        self.assertEqual(code, 200)
+        self.assertNotIn(str(self.root).encode(), page)
+        self.assertIn("nosniff", headers["X-Content-Type-Options"])
+
     def test_unknown_media_and_outside_artifact_fail_closed(self):
         status, _, body = self.get("/media/" + "0" * 32)
         self.assertEqual(status, 404)

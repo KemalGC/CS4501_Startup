@@ -198,3 +198,17 @@ proof that a message without a refusal is correct, reviewed or safe. The
 contract tests use mock response objects and fictional approvals; real
 provider compatibility, athlete consent and model-generated coaching
 correctness remain untested.
+
+
+### Malformed deeply nested model responses
+
+The response body byte cap does not by itself prevent JSON with extreme nesting
+depth. The provider adapter therefore treats JSON decoder `RecursionError`
+as another **invalid provider response**, without exposing the raw reply or
+retrying a generation error. This applies both to the outer API envelope and
+to candidate JSON embedded in `message.content`, with independent validation
+still required after decoding succeeds. Offline regression fixtures use 1,200
+levels of short nested arrays; ordinary schema-valid complete responses remain
+supported. This reduces crash risk from malformed HTTP replies; it is not a
+general guarantee of bounded parsing CPU or memory for arbitrary input, nor a
+claim about real model or coaching accuracy.

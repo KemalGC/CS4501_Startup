@@ -135,6 +135,35 @@ class LocalJobsTests(unittest.TestCase):
                 row[1] for row in conn.execute("PRAGMA table_info(jobs)")
             ])
 
+    def test_version_four_jobs_preserve_reports_when_media_fields_added(self):
+        """Upgrade to media-aware schema without pretending old media is bound."""
+        legacy_id = "c" * 32
+        with sqlite3.connect(self.jobs_db) as conn:
+            conn.execute(
+                "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, clip_id TEXT NOT NULL, "
+                "status TEXT NOT NULL, created_utc TEXT NOT NULL, "
+                "started_utc TEXT, finished_utc TEXT, report_path TEXT, "
+                "report_sha256 TEXT, metrics_sha256 TEXT, error_code TEXT, "
+                "coaching_state TEXT NOT NULL DEFAULT 'withheld')"
+            )
+            conn.execute(
+                "INSERT INTO jobs (job_id,clip_id,status,created_utc,"
+                "report_path,report_sha256,metrics_sha256,coaching_state) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (legacy_id, self.clip_id, "succeeded", "2026-01-01T00:00:00Z",
+                 legacy_id + "/report.html", "a" * 64, "b" * 64, "withheld"),
+            )
+            conn.execute("PRAGMA user_version = 4")
+        with self.queue() as manager:
+            self.assertEqual(manager.get(legacy_id)["status"], "succeeded")
+            self.assertEqual(manager.report_sha256(legacy_id), "a" * 64)
+            self.assertEqual(manager.metrics_sha256(legacy_id), "b" * 64)
+            self.assertIsNone(manager.media_artifact(legacy_id))
+        with sqlite3.connect(self.jobs_db) as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 5)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+            self.assertTrue({"video_path", "video_sha256"}.issubset(columns))
+
     def test_oversized_generated_artifacts_fail_before_success(self):
         """A successful analyzer must not publish unreadable oversized output."""
         for artifact in ("report", "metrics"):

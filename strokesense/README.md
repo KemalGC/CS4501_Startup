@@ -1042,6 +1042,25 @@ normalized. With no findings, the view explicitly avoids claiming a
 coach-reviewed negative label. These browser tests use only invented data and
 do not establish real-video accuracy, coaching usefulness or informed consent.
 
+### Download the two-run candidate comparison (Alpha)
+
+The verified **Compare saved analyses** browser page also offers
+**Download comparison CSV**, which requests
+`/compare.csv?before=<job-id>&after=<job-id>`. This is a read-only attachment
+with fixed columns `fault_code,before_job_id,before_flagged,before_analyzed,
+after_job_id,after_flagged,after_analyzed` (the line wraps here for readability).
+It shares the comparison page's strict IDs, current permission, withheld
+coaching, job-owned path, SHA-256 and saved evidence schema checks. If neither
+run flags a candidate fault, only the header row is returned; a missing or
+tampered result never produces an unverified data export. The CSV contains no
+private footage or filesystem/provenance metadata, and remains a local download.
+
+These counts are **heuristic candidates across analyzed strokes**, not coach
+labels, true positives/false positives, precision/recall, measured improvement,
+or evidence that an LLM cue is useful. Different sample sizes, rowing conditions
+and camera setups make comparisons uncontrolled. Use coach-reviewed labels and
+per-video denominators before reporting empirical performance.
+
 ### Versioned persisted coaching-withholding metadata (Alpha)
 
 Local analysis-job records now contain `coaching_schema_version=1` alongside

@@ -352,7 +352,10 @@ python -m strokesense.web --port 8765
 ```
 
 The homepage also lists the latest 20 persisted analyses, with links to
-reopen their status and successful reports after an app restart. The
+reopen their status and successful reports after an app restart. Recent entries
+show the registered, operator-supplied camera viewpoint (or `unspecified`),
+with HTML escaping and no private source path/provenance. The camera label is
+not inferred from pixels or verified against the footage. The
 read-only `GET /api/jobs` endpoint returns at most 20 public status records
 (no private source locations or provenance), ordered newest first. The
 backend `JobQueue.list_recent(limit=20)` accepts limits 1–100 for local

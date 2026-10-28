@@ -770,6 +770,94 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertEqual(code, 404)
         self.assertNotIn(str(self.root).encode(), content)
 
+    def test_fault_review_grid_exports_all_candidate_positive_and_negative_opportunities(self):
+        import csv
+        import io
+        from strokesense.strokes import FAULTS
+        job_id = self.succeed()
+        url = f"/api/jobs/{job_id}/fault-review.csv"
+        code, headers, body = self.request(url)
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("no-store", headers["Cache-Control"])
+        rows = list(csv.DictReader(io.StringIO(body.decode("utf-8"))))
+        self.assertEqual(len(rows), len(FAULTS) * 3)
+        self.assertEqual(
+            [(row["stroke_id"], row["fault_code"]) for row in rows],
+            [(stroke["id"], code)
+             for stroke in self.snapshot["strokes"] for code in sorted(FAULTS)],
+        )
+        keyed = {(row["stroke_id"], row["fault_code"]): row for row in rows}
+        self.assertEqual(keyed[("stroke_fixture", "early_arms")]["predicted"], "1")
+        self.assertEqual(keyed[("stroke_fixture_2", "early_arms")]["predicted"], "0")
+        self.assertEqual(keyed[("stroke_fixture_3", "early_arms")]["predicted"], "0")
+        self.assertEqual(keyed[("stroke_fixture", "early_arms")]["seat_id"],
+                         "seat_fixture")
+        self.assertTrue(all(row["schema_version"] == "1" for row in rows))
+        self.assertTrue(all(row["coach_fault_present"] == "" for row in rows))
+        self.assertTrue(all(row["coach_comments"] == "" for row in rows))
+        self.assertTrue(all(row["review_status"] == "unreviewed" for row in rows))
+        self.assertTrue(all(row["video_seek_seconds"] == "" for row in rows))
+        self.assertNotIn(str(self.root).encode(), body)
+        self.assertNotIn(b"test-only operator claim", body)
+        code, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(code, 200)
+        self.assertIn(url.encode("ascii"), page)
+
+    def test_fault_review_grid_media_seek_is_conditional_on_saved_hash(self):
+        import csv
+        import io
+        self.with_video = True
+        job_id = self.succeed()
+        url = f"/api/jobs/{job_id}/fault-review.csv"
+        code, _, body = self.request(url)
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(body.decode("utf-8"))))
+        self.assertEqual(rows[0]["video_seek_seconds"], "1.2")
+        self.assertEqual(rows[-1]["video_seek_seconds"], "5")
+        (self.metrics_path.parent / "annotated.mp4").write_bytes(b"changed")
+        code, _, body = self.request(url)
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(body.decode("utf-8"))))
+        self.assertTrue(all(row["video_seek_seconds"] == "" for row in rows))
+
+    def test_fault_review_grid_fails_closed_for_changed_evidence_and_forged_release(self):
+        import sqlite3
+        job_id = self.succeed()
+        url = f"/api/jobs/{job_id}/fault-review.csv"
+        self.metrics_path.write_bytes(b"post-success unverified change")
+        code, headers, body = self.request(url)
+        self.assertEqual(code, 409)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
+        self.assertNotIn(b"post-success", body)
+        self.metrics_path.write_text(json.dumps({"evidence": self.snapshot}))
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET coaching_state='released' WHERE job_id=?",
+                       (job_id,))
+        self.assertEqual(self.request(url)[0], 409)
+        self.assertEqual(
+            self.request("/api/jobs/" + "0" * 32 + "/fault-review.csv")[0],
+            404,
+        )
+
+    def test_fault_review_grid_csv_formula_safe_seat_names(self):
+        import copy
+        import csv
+        import io
+        snap = copy.deepcopy(self.snapshot)
+        snap["seats"][0]["seat"] = '=HYPERLINK("https://not-approved.invalid","x")'
+        snap["snapshot_sha256"] = evidence._digest({
+            key: val for key, val in snap.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(snap))
+        self.snapshot = snap
+        job_id = self.succeed()
+        code, _, body = self.request(f"/api/jobs/{job_id}/fault-review.csv")
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(body.decode())))
+        self.assertTrue(all(row["seat"].startswith("'=") for row in rows))
+
     def test_csv_unknown_job_and_untrusted_released_flag_do_not_export(self):
         unknown = "/api/jobs/" + "0" * 32 + "/strokes.csv"
         code, headers, _ = self.request(unknown)

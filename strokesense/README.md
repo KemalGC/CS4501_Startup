@@ -993,3 +993,16 @@ an analysis produced an evidence snapshot; older reports may not contain one.
 This convenience navigation does not expose private footage, grant coach
 approval, release LLM advice or establish empirical rowing accuracy.
 Synthetic regression tests use invented report bytes and operator claims.
+
+### Versioned persisted coaching-withholding metadata (Alpha)
+
+Local analysis-job records now contain `coaching_schema_version=1` alongside
+`coaching_state=withheld`. An existing jobs SQLite database is upgraded
+**non-destructively** to `PRAGMA user_version=6`, preserving historical jobs,
+reports, and stored hashes. New and reopened records expose only the safe,
+versioned withholding metadata; failed jobs also remain withheld. This change
+does **not** enable a validated `released` state, change deterministic
+approval rules, approve existing heuristic cues, or invoke any paid provider.
+The local UI continues to refuse unexpected stored release flags. Synthetic
+regression tests verify migration and persistence, **not** live model outputs,
+genuine coach review, customer validation, or measured rowing fault accuracy.

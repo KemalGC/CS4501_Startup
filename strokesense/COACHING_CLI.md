@@ -160,3 +160,22 @@ measured real-world technique metrics or real coach approvals. A local
 `corrected_status="released"` represents structural validator success for a
 fictional fixture, **not authorization to publish coaching**. The existing
 `python -m strokesense.demo` command remains unchanged.
+
+
+### Strict provider JSON decoding
+
+The optional HTTPS adapter parses **both** the chat-response envelope and the
+nested candidate JSON with the same fail-closed decoder. Repeated JSON object
+field names at any nesting depth are rejected, including duplicates with the
+same value. Python-specific non-JSON `NaN`, `Infinity` and `-Infinity`
+literals and floating-point exponents that overflow to infinity are rejected.
+A malformed response becomes sanitized `invalid_provider_response` and the
+correction loop withholds it after a single provider error, with no candidate
+text disclosed or repeated request. Conventional, finite, unambiguous JSON
+remains subject to the independent evidence/cue validator.
+
+These are **format and ambiguity checks**. They do not authenticate who
+reviewed a cue, verify a provider's statements, infer athletic technique
+accuracy, or certify the truth of any unstructured explanation. The
+regression suite models responses offline; no live provider integration,
+credential, charge, or real athlete data was used.

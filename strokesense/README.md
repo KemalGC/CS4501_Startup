@@ -359,6 +359,15 @@ backend `JobQueue.list_recent(limit=20)` accepts limits 1–100 for local
 callers and never returns private registry paths. Jobs are retained until
 an operator separately removes their private database/results files.
 
+When an analysis fails with a potentially transient error
+(`analysis_failed`, `interrupted`, or `output_unavailable`), its status
+page provides a **Retry analysis** button. This uses the existing protected
+`POST /jobs` operation to queue a *new* job for the same permitted clip;
+the failed record remains in history. Permanent invalid-media/source errors,
+rejected consent, queued jobs and completed jobs do not show that button.
+A retry is not a guarantee of success, and this Alpha provides no automatic
+retries or public-facing authentication.
+
 Local API failures under `/api/` use machine-readable
 `application/problem+json` with `type=about:blank`, a generic `title`
 and numeric HTTP `status`. They carry no raw exception details, source

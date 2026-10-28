@@ -1,7 +1,9 @@
 """Fail-closed evidence navigation contract; synthetic snapshot, no real labels."""
 from __future__ import annotations
 
+import csv
 import http.client
+import io
 import hashlib
 import json
 import os
@@ -1091,6 +1093,92 @@ class EvidenceInterfaceTests(unittest.TestCase):
         code, _, page = self.request(route)
         self.assertEqual(code, 403)
         self.assertNotIn(str(self.root).encode(), page)
+
+
+
+    def test_comparison_csv_exports_validated_counts_and_visible_link(self):
+        import copy
+        before = self.succeed()
+        no_faults = copy.deepcopy(self.snapshot)
+        no_faults["strokes"][0]["fault_codes"] = []
+        no_faults["findings"] = []
+        no_faults["snapshot_sha256"] = evidence._digest({
+            k: v for k, v in no_faults.items() if k != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(no_faults))
+        self.snapshot = no_faults
+        after = self.succeed()
+        route = f"/compare?before={before}&after={after}"
+        code, _, page = self.request(route)
+        self.assertEqual(code, 200)
+        self.assertIn(
+            f'/compare.csv?before={before}&amp;after={after}'.encode(), page
+        )
+        code, headers, raw = self.request(
+            f"/compare.csv?before={before}&after={after}"
+        )
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("attachment", headers["Content-Disposition"])
+        self.assertIn("no-store", headers["Cache-Control"])
+        rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(list(rows[0]), [
+            "fault_code", "before_job_id", "before_flagged", "before_analyzed",
+            "after_job_id", "after_flagged", "after_analyzed",
+        ])
+        self.assertEqual(rows[0], {
+            "fault_code": "early_arms", "before_job_id": before,
+            "before_flagged": "1", "before_analyzed": "3",
+            "after_job_id": after, "after_flagged": "0", "after_analyzed": "3",
+        })
+        self.assertNotIn(str(self.root).encode(), raw)
+        self.assertNotIn(b"test-only operator claim", raw)
+        self.assertNotIn(b"raw provider", raw)
+
+    def test_comparison_csv_empty_snapshots_only_emit_header(self):
+        import copy
+        empty = copy.deepcopy(self.snapshot)
+        empty["strokes"][0]["fault_codes"] = []
+        empty["findings"] = []
+        empty["snapshot_sha256"] = evidence._digest({
+            k: v for k, v in empty.items() if k != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(empty))
+        self.snapshot = empty
+        before, after = self.succeed(), self.succeed()
+        code, _, body = self.request(
+            f"/compare.csv?before={before}&after={after}"
+        )
+        self.assertEqual(code, 200)
+        self.assertEqual(
+            list(csv.DictReader(io.StringIO(body.decode()))), []
+        )
+        self.assertIn(b"fault_code,before_job_id,before_flagged", body)
+
+    def test_comparison_csv_rejects_bad_ids_tampering_and_revocation(self):
+        from strokesense.registry import revoke_clip
+        before, after = self.succeed(), self.succeed()
+        for query in (
+            f"before={before}&after={before}",
+            f"before={before}&after={after}&after={after}",
+            f"before={before}&after={after}&extra=1",
+            f"before={before}&after=invalid",
+        ):
+            with self.subTest(query=query):
+                code, headers, body = self.request("/compare.csv?" + query)
+                self.assertEqual(code, 400)
+                self.assertIn("no-store", headers["Cache-Control"])
+                self.assertNotIn(str(self.root).encode(), body)
+        self.metrics_path.write_text('{"evidence":"changed"}')
+        route = f"/compare.csv?before={before}&after={after}"
+        code, _, body = self.request(route)
+        self.assertEqual(code, 409)
+        self.assertNotIn(b"early_arms", body)
+        revoke_clip(self.clip_id, self.registry)
+        code, _, body = self.request(route)
+        self.assertEqual(code, 403)
+        self.assertNotIn(str(self.root).encode(), body)
 
 
 if __name__ == "__main__":

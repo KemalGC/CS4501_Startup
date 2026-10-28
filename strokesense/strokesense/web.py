@@ -388,6 +388,16 @@ def create_server(
                 if len(metrics_bytes) > _MAX_METRICS:
                     self._error(413)
                     return
+                # A rehashed snapshot alone cannot attest to the bytes
+                # saved at analysis completion; bind them to the job record.
+                expected_metrics = jobs.metrics_sha256(job_id)
+                if (not isinstance(expected_metrics, str)
+                        or not hmac.compare_digest(
+                            expected_metrics,
+                            hashlib.sha256(metrics_bytes).hexdigest(),
+                        )):
+                    self._error(409)
+                    return
                 data = json.loads(metrics_bytes.decode("utf-8"))
                 snapshot = data.get("evidence") if isinstance(data, dict) else None
                 if not validate_public_evidence_snapshot(snapshot):

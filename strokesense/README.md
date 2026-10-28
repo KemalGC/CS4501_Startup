@@ -977,3 +977,19 @@ by the HTML view, and no source path or permission-provenance text appears
 in the list. This is local navigation over synthetic-tested job state, not
 a new model inference, verified human permission, empirical accuracy
 measurement or customer validation.
+
+
+### Direct report shortcuts from recent analyses
+
+A successful, permission-scoped job in the local homepage **Recent analyses**
+list offers **Open technique report** alongside its existing job-status link.
+The shortcut points at the existing local `/reports/<job-id>` endpoint, which
+independently rechecks permission, completion, saved report path and SHA-256,
+and withheld coaching state before returning HTML. Failed, queued and running
+jobs have no report shortcut. The new clip/camera/status filters preserve these
+links when the job is visible. Use the job page to inspect saved evidence where
+an analysis produced an evidence snapshot; older reports may not contain one.
+
+This convenience navigation does not expose private footage, grant coach
+approval, release LLM advice or establish empirical rowing accuracy.
+Synthetic regression tests use invented report bytes and operator claims.

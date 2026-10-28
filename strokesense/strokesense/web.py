@@ -27,6 +27,7 @@ from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue, MAX_MEDIA_BYTES
 from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
+from .strokes import FAULTS  # fixed, deterministic candidate-fault catalogue
 from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
                        list_clips, register_clip, revoke_clip)
 
@@ -558,7 +559,7 @@ def create_server(
 
 
         def _evidence(self, job_id: str, *, api=False, as_csv=False,
-                      review_template=False):
+                      review_template=False, fault_template=False):
             if not _JOB_ID.fullmatch(job_id):
                 self._error(404)
                 return
@@ -666,11 +667,44 @@ def create_server(
             except Exception:
                 self._error(503)
                 return
-            if as_csv or review_template:
+            if as_csv or review_template or fault_template:
                 output = io.StringIO(newline="")
                 writer = csv.writer(output, lineterminator="\r\n")
                 labels = {row["id"]: row["seat"] for row in curated["seats"]}
-                if review_template:
+                if fault_template:
+                    # Explicit negative opportunities are required for any
+                    # later valid recall estimate. Human labels stay blank.
+                    has_saved_video = verified_media_available(job_id)
+                    writer.writerow((
+                        "schema_version", "seat_id", "seat", "stroke_id",
+                        "stroke_index", "fault_code", "catch_seconds",
+                        "video_seek_seconds", "predicted",
+                        "coach_fault_present", "coach_comments",
+                        "review_status",
+                    ))
+                    for stroke in curated["strokes"]:
+                        seek_seconds = ""
+                        if has_saved_video:
+                            elapsed = (
+                                stroke["catch_seconds"] - curated["start_seconds"]
+                            )
+                            if (math.isfinite(elapsed)
+                                    and 0 <= elapsed <= _MAX_SEEK_SECONDS):
+                                seek_seconds = (
+                                    f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                                )
+                        for fault_code in sorted(FAULTS):
+                            writer.writerow((
+                                curated["schema_version"],
+                                _spreadsheet_text(stroke["seat_id"]),
+                                _spreadsheet_text(labels[stroke["seat_id"]]),
+                                _spreadsheet_text(stroke["id"]),
+                                stroke["index"], fault_code,
+                                stroke["catch_seconds"], seek_seconds,
+                                int(fault_code in stroke["fault_codes"]),
+                                "", "", "unreviewed",
+                            ))
+                elif review_template:
                     # A worksheet for future human review, not a label dataset.
                     # These review fields must never be prefilled by heuristics.
                     # Optional clip-relative navigation is derived only from
@@ -810,6 +844,8 @@ def create_server(
                     'Export stroke evidence (CSV)</a></p>'
                     + f'<p><a href="/api/jobs/{job_id}/review.csv">'
                     'Blank coach-review worksheet</a></p>'
+                    + f'<p><a href="/api/jobs/{job_id}/fault-review.csv">'
+                    'Complete per-fault coach-review grid</a></p>'
                     + f'<p><a href="/jobs/{job_id}">Back to job</a></p>')
             self._send(200, _document("Saved evidence", body))
 
@@ -881,6 +917,11 @@ def create_server(
             elif route.startswith("/api/jobs/") and route.endswith("/review.csv"):
                 self._evidence(route[len("/api/jobs/"):-len("/review.csv")],
                                review_template=True)
+            elif route.startswith("/api/jobs/") and route.endswith("/fault-review.csv"):
+                self._evidence(
+                    route[len("/api/jobs/"):-len("/fault-review.csv")],
+                    fault_template=True,
+                )
             elif route.startswith("/api/jobs/") and route.endswith("/evidence"):
                 self._evidence(route[len("/api/jobs/"):-len("/evidence")], api=True)
             elif route.startswith("/jobs/") and route.endswith("/evidence"):

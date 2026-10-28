@@ -1223,5 +1223,41 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), page)
 
 
+
+    def test_comparison_fault_cells_link_to_each_verified_filtered_evidence_view(self):
+        import copy
+        before = self.succeed()
+        empty = copy.deepcopy(self.snapshot)
+        empty["strokes"][0]["fault_codes"] = []
+        empty["findings"] = []
+        empty["snapshot_sha256"] = evidence._digest({
+            key: value for key, value in empty.items()
+            if key != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(empty))
+        self.snapshot = empty
+        after = self.succeed()
+        code, headers, page = self.request(
+            f"/compare?before={before}&after={after}"
+        )
+        self.assertEqual(code, 200)
+        self.assertIn(
+            f'href="/jobs/{before}/evidence?fault=early_arms"'.encode(), page
+        )
+        self.assertIn(
+            f'href="/jobs/{after}/evidence?fault=early_arms"'.encode(), page
+        )
+        self.assertIn(b"1 of 3 analyzed strokes", page)
+        self.assertIn(b"0 of 3 analyzed strokes", page)
+        self.assertIn("no-store", headers["Cache-Control"])
+        for job in (before, after):
+            status, _, drilldown = self.request(
+                f"/jobs/{job}/evidence?fault=early_arms"
+            )
+            self.assertEqual(status, 200)
+            self.assertIn(b"Generated coaching withheld", drilldown)
+        self.assertNotIn(str(self.root).encode(), page)
+
+
 if __name__ == "__main__":
     unittest.main()

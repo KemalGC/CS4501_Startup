@@ -165,20 +165,20 @@ class IndependentReleaseTests(unittest.TestCase):
 
 
     def test_candidate_control_and_bidi_spoofing_chars_fail_closed(self):
-        """Invisible terminal/BiDi controls must never be locally released."""
+        """Inject *actual* invisible controls, not textual escape sequences."""
         from strokesense.validation import validate_candidate
         cases = (
-            ("explanation", "invisible\\x00payload"),
-            ("explanation", "escape\\x1b[31mred"),
-            ("explanation", "hidden\\u0085control"),
-            ("explanation", "spoof\\u202ehtml"),
-            ("explanation", "isolate\\u2066fake\\u2069"),
-            ("finding_id", "valid\\u202e-looking"),
-            ("seat_id", "valid\\x1b-looking"),
-            ("stroke_ids", ["valid\\u2066-looking"]),
+            ("explanation", "invisible" + chr(0) + "payload"),
+            ("explanation", "escape" + chr(27) + "[31mred"),
+            ("explanation", "hidden" + chr(0x85) + "control"),
+            ("explanation", "spoof" + chr(0x202e) + "html"),
+            ("explanation", "isolate" + chr(0x2066) + "fake" + chr(0x2069)),
+            ("finding_id", "valid" + chr(0x202e) + "-looking"),
+            ("seat_id", "valid" + chr(27) + "-looking"),
+            ("stroke_ids", ["valid" + chr(0x2066) + "-looking"]),
         )
         for field, item in cases:
-            with self.subTest(field=field, value=repr(item)):
+            with self.subTest(field=field, char_codes=[ord(x) for x in str(item) if ord(x) < 32 or 0x7f <= ord(x) <= 0x9f or 0x202a <= ord(x) <= 0x202e or 0x2066 <= ord(x) <= 0x2069]):
                 snapshot, candidate, cues = trusted_synthetic_fixture()
                 candidate[field] = item
                 answer = validate_candidate(
@@ -191,7 +191,7 @@ class IndependentReleaseTests(unittest.TestCase):
 
     def test_legitimate_multilingual_explanation_newline_and_emoji_remain_allowed(self):
         snapshot, candidate, cues = trusted_synthetic_fixture()
-        candidate["explanation"] = "Technique résumé 🚣‍♂️\\nNext step:\\tpractice"
+        candidate["explanation"] = "Technique résumé 🚣‍♂️" + chr(10) + "Next step:" + chr(9) + "practice"
         answer = self.validate(candidate, snapshot, cues)
         self.assertEqual(answer["released"], candidate)
         self.assertIn("free_text_unverified", answer["warnings"])

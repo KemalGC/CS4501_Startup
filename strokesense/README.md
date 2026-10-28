@@ -378,6 +378,15 @@ HTML. Test these failure routes with
 `python -m unittest discover -s strokesense/tests -p test_api_errors.py -v`
 from the repository root.
 
+The private browser import form also allows an **optional camera-view
+label**: Unspecified (default), Side-on, Bow-on or Stern-on. The selection is
+a human-supplied registry label—not an inferred, calibrated camera pose—and
+does not modify the analyzer's model configuration. Legacy multipart
+uploads omitting `camera` continue to work. Unknown/duplicate camera
+fields are rejected before storing video; identical footage is deduplicated
+without silently changing its earlier camera label. The private registry
+can be listed to inspect the saved label.
+
 The browser import form (also reachable with `POST /upload`) accepts a
 **maximum 25 MiB multipart request**, enforces nonempty bytes and a video
 extension allowlist (`.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`), and

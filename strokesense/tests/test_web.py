@@ -249,5 +249,30 @@ class LocalWebTests(unittest.TestCase):
         self.assertNotIn(b"Retry analysis", page)
 
 
+    def test_recent_analysis_history_shows_escaped_camera_label(self):
+        job_id = self.worker.submit(self.clip_id)["job_id"]
+        self.assertEqual(self.worker.wait(job_id, timeout=4)["status"], "succeeded")
+        code, _, body = self.request("GET", "/")
+        self.assertEqual(code, 200)
+        page = body.decode()
+        self.assertIn("camera: &lt;img src=x onerror=alert(1)&gt;", page)
+        self.assertNotIn("<img src=x onerror", page)
+        self.assertNotIn(str(self.video), page)
+        self.assertNotIn("offline fake operator assertion", page)
+        self.assertIn("/jobs/" + job_id, page)
+
+    def test_recent_analysis_history_marks_unlabeled_camera_without_paths(self):
+        job_id = self.worker.submit(self.clip_id)["job_id"]
+        self.assertEqual(self.worker.wait(job_id, timeout=4)["status"], "succeeded")
+        with sqlite3.connect(self.registry_db) as database:
+            database.execute("UPDATE clips SET camera=NULL WHERE clip_id=?",
+                             (self.clip_id,))
+        code, _, body = self.request("GET", "/")
+        self.assertEqual(code, 200)
+        self.assertIn(b"camera: unspecified", body)
+        self.assertIn(("/jobs/" + job_id).encode(), body)
+        self.assertNotIn(str(self.video).encode(), body)
+
+
 if __name__ == "__main__":
     unittest.main()

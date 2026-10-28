@@ -21,8 +21,9 @@ from test_validation import trusted_synthetic_fixture
 
 
 def fake_response(candidate):
+    """Fictional *complete* OpenAI-compatible chat response, not a live model."""
     return io.BytesIO(json.dumps({"choices": [
-        {"message": {"content": json.dumps(candidate)}}
+        {"finish_reason": "stop", "message": {"content": json.dumps(candidate)}}
     ]}).encode("utf-8"))
 
 
@@ -197,6 +198,50 @@ class ConfiguredProviderTests(unittest.TestCase):
                 "strokesense.provider.urlopen", return_value=io.BytesIO(data)
             ), self.assertRaises(ProviderError):
                 self.generator()(1, [])
+
+    def test_provider_refuses_incomplete_filtered_or_unclassified_completion(self):
+        """A valid-looking JSON candidate is unsafe without completed generation."""
+        from strokesense.provider import ProviderError
+        for reason in ("length", "content_filter", "tool_calls", None, "unknown"):
+            with self.subTest(finish_reason=reason):
+                response = {"choices": [{
+                    "finish_reason": reason,
+                    "message": {"content": json.dumps(self.candidate)},
+                }]}
+                with patch("strokesense.provider.urlopen",
+                           return_value=io.BytesIO(json.dumps(response).encode())):
+                    with self.assertRaises(ProviderError) as caught:
+                        self.generator()(1, [])
+                self.assertEqual(str(caught.exception), "invalid_provider_response")
+
+        # Missing completion state must not be interpreted as success.
+        response = {"choices": [
+            {"message": {"content": json.dumps(self.candidate)}}
+        ]}
+        with patch("strokesense.provider.urlopen",
+                   return_value=io.BytesIO(json.dumps(response).encode())):
+            with self.assertRaises(ProviderError):
+                self.generator()(1, [])
+
+    def test_incomplete_provider_output_withheld_without_retry_or_text(self):
+        from strokesense import correction
+        candidate = copy.deepcopy(self.candidate)
+        candidate["explanation"] = "SYNTHETIC_UNSAFE_INCOMPLETE_ADVICE"
+        response = {"choices": [{
+            "finish_reason": "length",
+            "message": {"content": json.dumps(candidate)},
+        }]}
+        with patch("strokesense.provider.urlopen",
+                   return_value=io.BytesIO(json.dumps(response).encode())) as opened:
+            result = correction.run_correction(
+                self.generator(), evidence_snapshot=self.snapshot,
+                reviewed_cues=self.cues)
+        self.assertEqual(result["status"], "withheld")
+        self.assertEqual(result["attempts"], 1)
+        self.assertEqual(result["errors"], ["generation_failed"])
+        self.assertIsNone(result["released"])
+        self.assertEqual(opened.call_count, 1)
+        self.assertNotIn(candidate["explanation"], json.dumps(result))
 
     def test_oversize_payload_is_rejected_without_exposing_body(self):
         from strokesense.provider import ProviderError

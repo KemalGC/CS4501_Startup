@@ -743,3 +743,27 @@ shows records without a camera label. Direct local URLs such as
 unknown, duplicate or extra filter values fail with HTTP 400. Data are displayed only in the
 loopback application, and filtering does not verify recording rights, video
 quality or rowing-technique accuracy.
+
+
+## Private annotated-video playback (Alpha)
+
+For a completed, permission-granted local job, the status page can show an
+HTML5 **Annotated video** player when the analyzer returned a rendered MP4 or
+WebM file inside that job's private output directory. The local job database
+schema version 5 stores only its job-relative location and SHA-256 digest;
+public status/history responses contain neither location nor digest. Existing
+jobs with no media remain accessible, but do not show a player. Earlier jobs
+can be upgraded non-destructively; a fresh analysis is required to bind media.
+
+The loopback-only `GET /media/<job_id>` route rechecks current permission,
+completion, withheld-coaching state, job-local path and the saved digest before
+serving. Changed files, revoked permissions, symlink escapes and unsupported
+output types are withheld. Output is limited to **64 MiB per rendered file**;
+a larger rendered artifact fails that job rather than being served. This
+small Alpha serves full responses without HTTP Range seeking; browser seeking
+may be unavailable, and repeated downloads can use memory/bandwidth. Do not
+expose this loopback endpoint over a proxy, LAN or internet.
+
+The synthetic tests exercise file and HTTP authorization behavior, **not**
+actual browser video decoding, accurate pose overlays, permission verification,
+real human coach review, or end-to-end inference on genuine footage.

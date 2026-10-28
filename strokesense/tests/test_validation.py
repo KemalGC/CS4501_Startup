@@ -140,6 +140,36 @@ class IndependentReleaseTests(unittest.TestCase):
                 self.assertTrue("unapproved_cue" in result["errors"] or
                                 "cue_fault_mismatch" in result["errors"])
 
+    def test_candidate_strings_and_stroke_lists_have_finite_schema_limits(self):
+        from strokesense import validation
+        cases = (
+            ("explanation", "🚣" * 1001),
+            ("finding_id", "f" * 129),
+            ("seat_id", "s" * 129),
+            ("fault_code", "c" * 129),
+            ("cue_id", "c" * 129),
+            ("stroke_ids", ["s" * 129]),
+            ("stroke_ids", [f"distinct-{i}" for i in range(5001)]),
+        )
+        for field, value in cases:
+            with self.subTest(field=field, size=len(value)):
+                snap, candidate, cues = trusted_synthetic_fixture()
+                candidate[field] = value
+                result = validation.validate_candidate(
+                    candidate, evidence_snapshot=snap, reviewed_cues=cues,
+                )
+                self.assertIsNone(result["released"])
+                self.assertEqual(result["errors"], ["invalid_candidate"])
+                self.assertNotIn("Synthetic test-only explanation",
+                                 json.dumps(result))
+
+    def test_candidate_explanation_boundary_remains_releasable_only_when_reviewed(self):
+        snap, candidate, cues = trusted_synthetic_fixture()
+        candidate["explanation"] = "🌊" * 1000
+        result = self.validate(candidate, snap, cues)
+        self.assertEqual(result["released"], candidate)
+        self.assertIn("free_text_unverified", result["warnings"])
+
     def test_candidate_may_not_inject_evidence_or_review_settings(self):
         snapshot, candidate, cues = trusted_synthetic_fixture()
         candidate["coaching_eligible"] = True

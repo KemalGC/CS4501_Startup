@@ -184,6 +184,79 @@ class ConfiguredProviderTests(unittest.TestCase):
         self.assertEqual(answer["errors"], ["generation_failed"])
         self.assertNotIn("sensitive", json.dumps(answer))
 
+    def test_duplicate_json_fields_are_not_interpreted_as_valid_answers(self):
+        """Ambiguous object names must fail even when the last copy looks valid."""
+        from strokesense.provider import ProviderError
+        valid = json.dumps(self.candidate)
+        choice = [{"finish_reason": "stop", "message": {"content": valid}}]
+        candidate_duplicate = (valid[:-1] + ', "finding_id": ' +
+                               json.dumps(self.candidate["finding_id"]) + "}")
+        replies = (
+            '{"choices":[],"choices":' + json.dumps(choice) + '}',
+            json.dumps({"choices": [
+                {"finish_reason": "stop",
+                 "message": {"content": candidate_duplicate}}
+            ]}),
+            '{"choices": [{"finish_reason": "stop", "message": {' +
+            '"content": ' + json.dumps(valid) + ', "content": ' +
+            json.dumps(valid) + '}}]}',
+        )
+        for reply in replies:
+            with self.subTest(reply=reply[:75]), patch(
+                "strokesense.provider.urlopen",
+                return_value=io.BytesIO(reply.encode("utf-8")),
+            ):
+                with self.assertRaises(ProviderError) as caught:
+                    self.generator()(1, [])
+                self.assertEqual(str(caught.exception), "invalid_provider_response")
+
+    def test_non_json_or_overflowed_numeric_constants_are_refused(self):
+        """Python's permissive JSON parser must not accept NaN/Inf or 1e999."""
+        from strokesense.provider import ProviderError
+        valid = json.dumps(self.candidate)
+        choice = json.dumps([
+            {"finish_reason": "stop", "message": {"content": valid}}
+        ])
+        replies = [
+            '{"choices": ' + choice + ', "ignored": ' + constant + '}'
+            for constant in ("NaN", "Infinity", "-Infinity", "1e999")
+        ]
+        replies.append(json.dumps({"choices": [
+            {"finish_reason": "stop", "message": {
+                "content": valid[:-1] + ', "ignored": NaN}',
+            }}
+        ]}))
+        for reply in replies:
+            with self.subTest(reply=reply[-30:]), patch(
+                "strokesense.provider.urlopen",
+                return_value=io.BytesIO(reply.encode("utf-8")),
+            ):
+                with self.assertRaises(ProviderError) as caught:
+                    self.generator()(1, [])
+                self.assertEqual(str(caught.exception), "invalid_provider_response")
+
+    def test_ambiguous_json_withheld_without_retry_or_candidate_leak(self):
+        from strokesense import correction
+        valid = json.dumps(self.candidate)
+        duplicate = valid[:-1] + ', "finding_id": ' + json.dumps(
+            self.candidate["finding_id"]) + '}'
+        envelope = json.dumps({"choices": [{
+            "finish_reason": "stop", "message": {"content": duplicate},
+        }]})
+        with patch("strokesense.provider.urlopen",
+                   return_value=io.BytesIO(envelope.encode("utf-8"))) as opened:
+            result = correction.run_correction(
+                self.generator(), evidence_snapshot=self.snapshot,
+                reviewed_cues=self.cues,
+            )
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(result["status"], "withheld")
+        self.assertEqual(result["attempts"], 1)
+        self.assertIsNone(result["released"])
+        self.assertEqual(result["errors"], ["generation_failed"])
+        self.assertNotIn(self.candidate["explanation"], json.dumps(result))
+
+
     def test_malformed_responses_fail_closed(self):
         from strokesense.provider import ProviderError
         malformed = (

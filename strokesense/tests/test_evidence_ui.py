@@ -654,6 +654,71 @@ class EvidenceInterfaceTests(unittest.TestCase):
         rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
         self.assertTrue(all(row["seat"].startswith("'=") for row in rows))
 
+    def test_review_template_has_optional_saved_video_seek_position(self):
+        import csv
+        import io
+        self.with_video = True
+        job_id = self.succeed()
+        code, _, content = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(content.decode())))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["video_seek_seconds"], "1.2")
+        self.assertEqual(rows[1]["video_seek_seconds"], "3")
+        self.assertEqual(rows[2]["video_seek_seconds"], "5")
+        self.assertEqual(rows[0]["coach_fault_present"], "")
+        self.assertEqual(rows[0]["review_status"], "unreviewed")
+        self.assertNotIn(str(self.root).encode(), content)
+
+    def test_review_template_without_media_keeps_seek_column_blank(self):
+        import csv
+        import io
+        job_id = self.succeed()
+        code, _, content = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(content.decode())))
+        self.assertTrue(rows)
+        self.assertTrue(all(row["video_seek_seconds"] == "" for row in rows))
+
+    def test_review_template_video_time_adjusts_trimmed_source_start(self):
+        import copy
+        import csv
+        import io
+        self.snapshot = copy.deepcopy(self.snapshot)
+        self.snapshot["start_seconds"] = 10.0
+        for stroke in self.snapshot["strokes"]:
+            for key in ("catch_seconds", "finish_seconds", "next_catch_seconds"):
+                stroke[key] += 10.0
+        self.snapshot["snapshot_sha256"] = evidence._digest({
+            k: v for k, v in self.snapshot.items()
+            if k != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(self.snapshot))
+        self.with_video = True
+        job_id = self.succeed()
+        code, _, content = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(code, 200)
+        rows = list(csv.DictReader(io.StringIO(content.decode())))
+        self.assertEqual(rows[0]["catch_seconds"], "11.2")
+        self.assertEqual(rows[0]["video_seek_seconds"], "1.2")
+        self.assertNotIn(b"private_bad_key", content)
+
+    def test_review_template_video_seek_outside_supported_range_is_blank(self):
+        import csv
+        import io
+        self.with_video = True
+        job_id = self.succeed()
+        # Use a low bound to exercise the same production rejection policy
+        # without generating a real or hours-long video fixture.
+        with patch.object(web, "_MAX_SEEK_SECONDS", 2.0):
+            status, _, content = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(status, 200)
+        rows = list(csv.DictReader(io.StringIO(content.decode())))
+        self.assertEqual(rows[0]["video_seek_seconds"], "1.2")
+        self.assertEqual(rows[1]["video_seek_seconds"], "")
+        self.assertEqual(rows[2]["video_seek_seconds"], "")
+        self.assertTrue(all(row["review_status"] == "unreviewed" for row in rows))
+
     def test_review_template_rejects_changed_evidence_and_untrusted_release(self):
         job_id = self.succeed()
         path = f"/api/jobs/{job_id}/review.csv"

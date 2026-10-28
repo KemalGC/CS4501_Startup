@@ -611,6 +611,74 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertEqual(headers["Content-Type"], "application/problem+json")
         self.assertNotIn(b"HYPERLINK", body)
 
+    def test_blank_coach_review_csv_is_linked_and_never_claims_approval(self):
+        import csv
+        import io
+        job_id = self.succeed()
+        path = f"/api/jobs/{job_id}/review.csv"
+        code, headers, body = self.request(path)
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("no-store", headers["Cache-Control"])
+        rows = list(csv.DictReader(io.StringIO(body.decode("utf-8"))))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["stroke_id"], "stroke_fixture")
+        self.assertEqual(rows[0]["seat"], "Stroke")
+        self.assertEqual(rows[0]["stroke_index"], "0")
+        self.assertEqual(rows[0]["catch_seconds"], "1.2")
+        self.assertEqual(rows[0]["fault_codes"], "early_arms")
+        self.assertTrue(all(row["coach_fault_present"] == "" for row in rows))
+        self.assertTrue(all(row["coach_comments"] == "" for row in rows))
+        self.assertTrue(all(row["review_status"] == "unreviewed" for row in rows))
+        self.assertNotIn(str(self.root).encode(), body)
+        self.assertNotIn(b"test-only operator claim", body)
+        status, _, page = self.request(f"/jobs/{job_id}/evidence")
+        self.assertEqual(status, 200)
+        self.assertIn(path.encode("ascii"), page)
+        self.assertIn(b"Blank coach-review worksheet", page)
+
+    def test_review_template_escapes_spreadsheet_formulas_in_seat_names(self):
+        import copy
+        import csv
+        import io
+        snap = copy.deepcopy(self.snapshot)
+        snap["seats"][0]["seat"] = '=HYPERLINK("https://unsafe.invalid", "x")'
+        snap["snapshot_sha256"] = evidence._digest({
+            k: v for k, v in snap.items() if k != "snapshot_sha256"
+        })
+        self.assertTrue(evidence.validate_public_evidence_snapshot(snap))
+        self.snapshot = snap
+        job_id = self.succeed()
+        status, _, data = self.request(f"/api/jobs/{job_id}/review.csv")
+        self.assertEqual(status, 200)
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+        self.assertTrue(all(row["seat"].startswith("'=") for row in rows))
+
+    def test_review_template_rejects_changed_evidence_and_untrusted_release(self):
+        job_id = self.succeed()
+        path = f"/api/jobs/{job_id}/review.csv"
+        self.metrics_path.write_text("injected after completed job")
+        status, headers, content = self.request(path)
+        self.assertEqual(status, 409)
+        self.assertNotIn(b"injected after", content)
+        self.assertEqual(headers["Content-Type"], "application/problem+json")
+        # Re-run with intact data before checking the forged release flag.
+        self.metrics_path.write_text(json.dumps({
+            "rowers": [{"private_bad_key": str(self.root)}],
+            "evidence": self.snapshot,
+        }))
+        with sqlite3.connect(self.root / "jobs.sqlite3") as db:
+            db.execute("UPDATE jobs SET coaching_state='released' WHERE job_id=?",
+                       (job_id,))
+        status, _, content = self.request(path)
+        self.assertEqual(status, 409)
+        self.assertNotIn(b"stroke_fixture", content)
+        code, _, content = self.request(
+            "/api/jobs/" + "0" * 32 + "/review.csv"
+        )
+        self.assertEqual(code, 404)
+        self.assertNotIn(str(self.root).encode(), content)
+
     def test_csv_unknown_job_and_untrusted_released_flag_do_not_export(self):
         unknown = "/api/jobs/" + "0" * 32 + "/strokes.csv"
         code, headers, _ = self.request(unknown)

@@ -1181,5 +1181,47 @@ class EvidenceInterfaceTests(unittest.TestCase):
         self.assertNotIn(str(self.root).encode(), body)
 
 
+
+    def test_comparison_displays_operator_camera_labels_and_mismatch_warning(self):
+        with sqlite3.connect(self.registry) as db:
+            db.execute("UPDATE clips SET camera='side-on' WHERE clip_id=?",
+                       (self.clip_id,))
+        before = self.succeed()
+        from strokesense.registry import register_clip
+        other_source = self.root / "invented-bow-camera.mov"
+        other_source.write_bytes(b"synthetic distinct recording content")
+        second_clip = register_clip(
+            other_source, self.registry, permission="granted",
+            provenance="synthetic permission claim, not verified",
+            camera="bow-on",
+        )[0]["clip_id"]
+        other_job = self.worker.submit(second_clip)["job_id"]
+        self.assertEqual(
+            self.worker.wait(other_job, timeout=5)["status"], "succeeded"
+        )
+        code, headers, page = self.request(
+            f"/compare?before={before}&after={other_job}"
+        )
+        self.assertEqual(code, 200)
+        self.assertIn(b"Earlier viewpoint (operator-entered): side-on", page)
+        self.assertIn(b"Later viewpoint (operator-entered): bow-on", page)
+        self.assertIn(b"Camera viewpoints differ", page)
+        self.assertIn(b"not proof of improvement", page)
+        self.assertIn("no-store", headers["Cache-Control"])
+        self.assertNotIn(str(self.root).encode(), page)
+        self.assertNotIn(b"synthetic permission claim", page)
+
+    def test_comparison_labels_unspecified_camera_without_inventing_metadata(self):
+        first, second = self.succeed(), self.succeed()
+        code, _, page = self.request(
+            f"/compare?before={first}&after={second}"
+        )
+        self.assertEqual(code, 200)
+        self.assertIn(b"Earlier viewpoint (operator-entered): unspecified", page)
+        self.assertIn(b"Later viewpoint (operator-entered): unspecified", page)
+        self.assertNotIn(b"Camera viewpoints differ", page)
+        self.assertNotIn(str(self.root).encode(), page)
+
+
 if __name__ == "__main__":
     unittest.main()

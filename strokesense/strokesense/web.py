@@ -7,6 +7,7 @@ is revalidated against the job's trusted results root.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from email import policy
 from email.parser import BytesParser
 import hmac
@@ -306,6 +307,14 @@ def create_server(
                 if len(data) > _MAX_REPORT:
                     self._error(413)
                     return
+                # The recorded success must attest to these exact HTML bytes.
+                expected_digest = jobs.report_sha256(job_id)
+                if (not isinstance(expected_digest, str)
+                        or not hmac.compare_digest(
+                            expected_digest, hashlib.sha256(data).hexdigest()
+                        )):
+                    self._error(409)
+                    return
             except (OSError, ValueError, TypeError):
                 self._error(404)
                 return
@@ -349,6 +358,21 @@ def create_server(
                 report = (result_root / report_rel).resolve(strict=True)
                 if not report.is_file() or not report.is_relative_to(job_root):
                     self._error(404)
+                    return
+                if report.stat().st_size > _MAX_REPORT:
+                    self._error(413)
+                    return
+                with report.open("rb") as stream:
+                    verified_report = stream.read(_MAX_REPORT + 1)
+                if len(verified_report) > _MAX_REPORT:
+                    self._error(413)
+                    return
+                expected_digest = jobs.report_sha256(job_id)
+                if (not isinstance(expected_digest, str)
+                        or not hmac.compare_digest(
+                            expected_digest, hashlib.sha256(verified_report).hexdigest()
+                        )):
+                    self._error(409)
                     return
                 metrics = (report.parent / "metrics.json").resolve(strict=True)
                 if (metrics.name != "metrics.json" or not metrics.is_file()

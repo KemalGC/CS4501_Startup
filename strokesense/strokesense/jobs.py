@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     started_utc TEXT,
     finished_utc TEXT,
     report_path TEXT,
+    report_sha256 TEXT,
     error_code TEXT,
     coaching_state TEXT NOT NULL DEFAULT 'withheld'
         CHECK(coaching_state IN ('withheld','released'))
@@ -100,29 +101,32 @@ class JobQueue:
         self._futures = {}
         with closing(self._connection()) as conn, conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise ValueError("unsupported newer jobs schema")
             conn.executescript(_SCHEMA)
-            if version < 2:
-                # Existing jobs retain status/report references and receive
-                # a safe withheld default; no generated advice is reclassified.
+            if version < 3:
+                # Version 3: new successes get a private report digest.
+                # Historical jobs/reports remain intact, but old rows cannot
+                # be authenticated on read until a fresh analysis runs.
                 conn.execute("BEGIN IMMEDIATE")
                 current = conn.execute("PRAGMA user_version").fetchone()[0]
-                if current > 2:
+                if current > 3:
                     raise ValueError("unsupported newer jobs schema")
-                if current < 2:
-                    columns = {c["name"] for c in
-                               conn.execute("PRAGMA table_info(jobs)")}
-                    if "coaching_state" not in columns:
-                        conn.execute(
-                            "ALTER TABLE jobs ADD COLUMN coaching_state TEXT "
-                            "NOT NULL DEFAULT 'withheld' "
-                            "CHECK(coaching_state IN ('withheld','released'))"
-                        )
-                    conn.execute("PRAGMA user_version = 2")
+                columns = {col["name"] for col in
+                           conn.execute("PRAGMA table_info(jobs)")}
+                if "coaching_state" not in columns:
+                    conn.execute(
+                        "ALTER TABLE jobs ADD COLUMN coaching_state TEXT "
+                        "NOT NULL DEFAULT 'withheld' "
+                        "CHECK(coaching_state IN ('withheld','released'))"
+                    )
+                if "report_sha256" not in columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN report_sha256 TEXT")
+                conn.execute("PRAGMA user_version = 3")
                 conn.commit()
-            if "coaching_state" not in {c["name"] for c in
-                                        conn.execute("PRAGMA table_info(jobs)")}:
+            columns = {col["name"] for col in
+                       conn.execute("PRAGMA table_info(jobs)")}
+            if not {"coaching_state", "report_sha256"}.issubset(columns):
                 raise ValueError("incomplete jobs schema")
             # No in-memory worker from a prior process can complete these jobs.
             conn.execute(
@@ -143,7 +147,8 @@ class JobQueue:
     def _write(self, job_id: str, status: str, **changes) -> None:
         fields = ["status = ?"]
         values = [status]
-        for column in ("started_utc", "finished_utc", "report_path", "error_code"):
+        for column in ("started_utc", "finished_utc", "report_path",
+                       "report_sha256", "error_code"):
             if column in changes:
                 fields.append(column + " = ?")
                 values.append(changes[column])
@@ -163,6 +168,16 @@ class JobQueue:
                 + " FROM jobs WHERE job_id = ?", (job_id,),
             ).fetchone()
         return {key: row[key] for key in _PUBLIC_COLUMNS} if row is not None else None
+
+    def report_sha256(self, job_id: str) -> str | None:
+        """Private digest for the HTTP integrity gate; never in public status."""
+        if not isinstance(job_id, str) or not job_id:
+            return None
+        with closing(self._connection()) as conn:
+            row = conn.execute(
+                "SELECT report_sha256 FROM jobs WHERE job_id = ?", (job_id,),
+            ).fetchone()
+        return row["report_sha256"] if row is not None else None
 
     def list_recent(self, limit: int = 20) -> list[dict]:
         """Bounded newest-first public status records; never expose private paths."""
@@ -273,12 +288,13 @@ class JobQueue:
                         or not report.is_relative_to(run_root.resolve())):
                     raise ValueError("invalid report")
                 relative = report.relative_to(self._results_root).as_posix()
+                digest = _stream_sha256(report)
             except (OSError, TypeError, ValueError, KeyError):
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="invalid_report_location")
                 return
             self._write(job_id, "succeeded", finished_utc=_utc(),
-                        report_path=relative)
+                        report_path=relative, report_sha256=digest)
         finally:
             self._permits.release()
 

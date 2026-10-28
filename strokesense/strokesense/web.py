@@ -633,15 +633,31 @@ def create_server(
                 if review_template:
                     # A worksheet for future human review, not a label dataset.
                     # These review fields must never be prefilled by heuristics.
+                    # Optional clip-relative navigation is derived only from
+                    # the validated, saved source-relative stroke evidence.
+                    try:
+                        has_saved_video = jobs.media_artifact(job_id) is not None
+                    except Exception:
+                        has_saved_video = False
                     writer.writerow(("stroke_id", "seat", "stroke_index",
-                                     "catch_seconds", "fault_codes",
-                                     "coach_fault_present", "coach_comments",
-                                     "review_status"))
+                                     "catch_seconds", "video_seek_seconds",
+                                     "fault_codes", "coach_fault_present",
+                                     "coach_comments", "review_status"))
                     for stroke in curated["strokes"]:
+                        seek_seconds = ""
+                        if has_saved_video:
+                            elapsed = (stroke["catch_seconds"]
+                                       - curated["start_seconds"])
+                            if (math.isfinite(elapsed)
+                                    and 0 <= elapsed <= _MAX_SEEK_SECONDS):
+                                seek_seconds = (
+                                    f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                                )
                         writer.writerow((
                             _spreadsheet_text(stroke["id"]),
                             _spreadsheet_text(labels[stroke["seat_id"]]),
                             stroke["index"], stroke["catch_seconds"],
+                            seek_seconds,
                             _spreadsheet_text("; ".join(stroke["fault_codes"])),
                             "", "", "unreviewed",
                         ))

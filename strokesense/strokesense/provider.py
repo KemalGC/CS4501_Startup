@@ -18,6 +18,8 @@ from .evidence import MIN_SAMPLE_STROKES, validate_reference_graph
 
 DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 MAX_RESPONSE_BYTES = 131_072
+MAX_PROMPT_BYTES = 64 * 1024
+MAX_COMPLETION_TOKENS = 512  # Token ceiling; actual billing depends on provider/model.
 
 _SYSTEM_PROMPT = (
     "You are a rowing technique explanation formatter. Return exactly one JSON "
@@ -180,9 +182,12 @@ class OpenAIChatGenerator:
             "attempt": attempt,
             "prior_error_codes": prior_error_codes,
         }, separators=(",", ":"), allow_nan=False)
+        if len(question.encode("utf-8")) > MAX_PROMPT_BYTES:
+            raise ProviderError("provider_prompt_too_large")
         request_body = {
             "model": self._model,
             "temperature": 0,
+            "max_completion_tokens": MAX_COMPLETION_TOKENS,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},

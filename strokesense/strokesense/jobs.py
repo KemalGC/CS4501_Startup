@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     report_path TEXT,
     report_sha256 TEXT,
     metrics_sha256 TEXT,
+    video_path TEXT,
+    video_sha256 TEXT,
     error_code TEXT,
     coaching_state TEXT NOT NULL DEFAULT 'withheld'
         CHECK(coaching_state IN ('withheld','released'))
@@ -45,6 +47,7 @@ _PUBLIC_COLUMNS = (
 
 MAX_REPORT_BYTES = 32 * 1024 * 1024
 MAX_METRICS_BYTES = 16 * 1024 * 1024
+MAX_MEDIA_BYTES = 64 * 1024 * 1024  # conservative local playback cap
 
 
 class _ResultTooLarge(ValueError):
@@ -127,16 +130,17 @@ class JobQueue:
         self._futures = {}
         with closing(self._connection()) as conn, conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 4:
+            if version > 5:
                 raise ValueError("unsupported newer jobs schema")
             conn.executescript(_SCHEMA)
-            if version < 4:
-                # Version 4: bind optional evidence bytes to the same job.
+            if version < 5:
+                # Version 5: bind optional media bytes to the same job; keep
+                # earlier v4 report/metrics integrity migration non-destructive.
                 # Historical jobs/reports remain intact, but old rows cannot
                 # be authenticated on read until a fresh analysis runs.
                 conn.execute("BEGIN IMMEDIATE")
                 current = conn.execute("PRAGMA user_version").fetchone()[0]
-                if current > 4:
+                if current > 5:
                     raise ValueError("unsupported newer jobs schema")
                 columns = {col["name"] for col in
                            conn.execute("PRAGMA table_info(jobs)")}
@@ -150,12 +154,16 @@ class JobQueue:
                     conn.execute("ALTER TABLE jobs ADD COLUMN report_sha256 TEXT")
                 if "metrics_sha256" not in columns:
                     conn.execute("ALTER TABLE jobs ADD COLUMN metrics_sha256 TEXT")
-                conn.execute("PRAGMA user_version = 4")
+                if "video_path" not in columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN video_path TEXT")
+                if "video_sha256" not in columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN video_sha256 TEXT")
+                conn.execute("PRAGMA user_version = 5")
                 conn.commit()
             columns = {col["name"] for col in
                        conn.execute("PRAGMA table_info(jobs)")}
             if not {"coaching_state", "report_sha256",
-                    "metrics_sha256"}.issubset(columns):
+                    "metrics_sha256", "video_path", "video_sha256"}.issubset(columns):
                 raise ValueError("incomplete jobs schema")
             # No in-memory worker from a prior process can complete these jobs.
             conn.execute(
@@ -177,7 +185,8 @@ class JobQueue:
         fields = ["status = ?"]
         values = [status]
         for column in ("started_utc", "finished_utc", "report_path",
-                       "report_sha256", "metrics_sha256", "error_code"):
+                       "report_sha256", "metrics_sha256", "video_path",
+                       "video_sha256", "error_code"):
             if column in changes:
                 fields.append(column + " = ?")
                 values.append(changes[column])
@@ -217,6 +226,19 @@ class JobQueue:
                 "SELECT metrics_sha256 FROM jobs WHERE job_id = ?", (job_id,),
             ).fetchone()
         return row["metrics_sha256"] if row is not None else None
+
+    def media_artifact(self, job_id: str) -> tuple[str, str] | None:
+        """Private job-bound media location and digest; excluded from API."""
+        if not isinstance(job_id, str) or not job_id:
+            return None
+        with closing(self._connection()) as conn:
+            row = conn.execute(
+                "SELECT video_path, video_sha256 FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+        if row is None or not row["video_path"] or not row["video_sha256"]:
+            return None
+        return row["video_path"], row["video_sha256"]
 
     def list_recent(self, limit: int = 20) -> list[dict]:
         """Bounded newest-first public status records; never expose private paths."""
@@ -336,6 +358,16 @@ class JobQueue:
                             resolved.is_relative_to(run_root.resolve())):
                         raise ValueError("invalid metrics location")
                     metrics_digest = _bounded_sha256(resolved, MAX_METRICS_BYTES)
+                video_relative = media_digest = None
+                if result.get("video") is not None:
+                    rendered = Path(result["video"]).resolve(strict=True)
+                    if (not rendered.is_file() or
+                            rendered.suffix.lower() not in (".mp4", ".webm") or
+                            not rendered.is_relative_to(run_root.resolve())):
+                        raise ValueError("invalid media location")
+                    video_relative = rendered.relative_to(
+                        self._results_root).as_posix()
+                    media_digest = _bounded_sha256(rendered, MAX_MEDIA_BYTES)
             except _ResultTooLarge:
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="result_too_large")
@@ -346,7 +378,8 @@ class JobQueue:
                 return
             self._write(job_id, "succeeded", finished_utc=_utc(),
                         report_path=relative, report_sha256=digest,
-                        metrics_sha256=metrics_digest)
+                        metrics_sha256=metrics_digest,
+                        video_path=video_relative, video_sha256=media_digest)
         finally:
             self._permits.release()
 

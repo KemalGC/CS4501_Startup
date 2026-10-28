@@ -592,14 +592,24 @@ def create_server(
                 return
             table_rows = []
             for code in faults:
-                def rate(summary):
+                def rate(summary, job_id):
                     n = summary["analyzed"]
                     if n == 0:
-                        return "insufficient evidence (0 analyzed strokes)"
-                    return f'{summary["counts"].get(code, 0)} of {n} analyzed strokes'
+                        label = "insufficient evidence (0 analyzed strokes)"
+                    else:
+                        label = (
+                            f'{summary["counts"].get(code, 0)} of {n} analyzed strokes'
+                        )
+                    # Both the job ID and fault code have already passed
+                    # independent evidence/schema validation above.
+                    target = ("/jobs/" + job_id + "/evidence?fault="
+                              + html.escape(code, quote=True))
+                    return ('<a href="' + target + '">'
+                            + html.escape(label) + '</a>')
                 table_rows.append(
-                    "<tr><th scope=\"row\">" + html.escape(code) + "</th><td>"
-                    + rate(first) + "</td><td>" + rate(last) + "</td></tr>"
+                    '<tr><th scope="row">' + html.escape(code) + '</th><td>'
+                    + rate(first, before) + '</td><td>'
+                    + rate(last, after) + '</td></tr>'
                 )
             if table_rows:
                 frequency = (

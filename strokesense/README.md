@@ -994,6 +994,28 @@ This convenience navigation does not expose private footage, grant coach
 approval, release LLM advice or establish empirical rowing accuracy.
 Synthetic regression tests use invented report bytes and operator claims.
 
+### Download permission-scoped recent-analysis history (Alpha)
+
+On the private loopback homepage, choose the **camera**, **status** and/or **clip**
+filters under **Recent analyses**, then click **Download analysis history CSV**.
+The link uses `GET /history.csv` with the same optional `camera`, `status`
+and `clip` parameters as the current HTML view. For example, the local URL
+`http://127.0.0.1:<PORT>/history.csv?status=succeeded&camera=side-on`
+downloads at most the 20 latest permission-granted, withheld-coaching records
+that match those filters (empty views contain only column headings).
+
+Columns are `job_id`, `clip_id`, operator-assigned `camera`, job `status`,
+`created_utc`, `finished_utc`, `coaching_state` and `report_available`.
+No private source paths, consent/provenance strings, footage, metrics or provider
+messages are exported. Revoked or unknown clips are excluded; explicit invalid
+clip filters and malformed/duplicate filters return HTTP 400. The CSV is a
+local file download only, not an external upload or an assessment of technique.
+`report_available=yes` means the job status is `succeeded`, **not** that
+the report bytes have just been revalidated; opening a report still performs
+its existing independent SHA-256/path/permission checks. Any spreadsheet
+processing the file should treat it as untrusted input despite formula escaping.
+Exports are not a substitute for real user testing or measured accuracy.
+
 ### Versioned persisted coaching-withholding metadata (Alpha)
 
 Local analysis-job records now contain `coaching_schema_version=1` alongside

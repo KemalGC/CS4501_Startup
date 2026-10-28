@@ -188,5 +188,66 @@ class LocalWebTests(unittest.TestCase):
         self.assertNotIn(b"SECRET RESULT", body)
 
 
+    def test_transient_failed_job_offers_retry_without_losing_history(self):
+        """The status page can resubmit the same permitted clip through POST."""
+        original = self.worker._analyze_fn
+
+        def transient(*_args, **_kwargs):
+            raise RuntimeError("synthetic temporary analysis interruption")
+
+        self.worker._analyze_fn = transient
+        first = self.worker.submit(self.clip_id)["job_id"]
+        self.assertEqual(self.worker.wait(first, timeout=4)["status"], "failed")
+        self.assertEqual(self.worker.get(first)["error_code"], "analysis_failed")
+        self.worker._analyze_fn = original
+
+        code, _, page = self.request("GET", "/jobs/" + first)
+        self.assertEqual(code, 200)
+        html_page = page.decode()
+        self.assertIn("Retry analysis", html_page)
+        self.assertIn('action="/jobs"', html_page)
+        self.assertIn('name="clip_id" value="' + self.clip_id + '"', html_page)
+        self.assertIn('name="csrf" value="' + self.server.csrf_token + '"', html_page)
+        self.assertNotIn(str(self.video), html_page)
+        self.assertNotIn("offline fake operator assertion", html_page)
+
+        # Retry is a regular protected /jobs submission, not a bypass.
+        code, _, _ = self.request(
+            "POST", "/jobs", payload={"clip_id": self.clip_id, "csrf": "wrong"},
+            headers={"Origin": self.origin})
+        self.assertEqual(code, 403)
+        code, headers, _ = self.request(
+            "POST", "/jobs",
+            payload={"clip_id": self.clip_id, "csrf": self.server.csrf_token},
+            headers={"Origin": self.origin})
+        self.assertEqual(code, 303)
+        second = headers["Location"].split("/")[-1]
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.worker.wait(second, timeout=4)["status"], "succeeded")
+        self.assertEqual(self.worker.get(first)["status"], "failed")
+        self.assertEqual(self.worker.get(second)["status"], "succeeded")
+
+    def test_permanent_media_failure_and_success_do_not_offer_retry(self):
+        from strokesense.media import UndecodableMediaError
+
+        def bad_media(*_args, **_kwargs):
+            raise UndecodableMediaError("invalid_media")
+
+        original = self.worker._analyze_fn
+        self.worker._analyze_fn = bad_media
+        bad = self.worker.submit(self.clip_id)["job_id"]
+        self.assertEqual(self.worker.wait(bad, timeout=4)["error_code"],
+                         "invalid_media")
+        code, _, page = self.request("GET", "/jobs/" + bad)
+        self.assertEqual(code, 200)
+        self.assertNotIn(b"Retry analysis", page)
+        self.worker._analyze_fn = original
+        good = self.worker.submit(self.clip_id)["job_id"]
+        self.assertEqual(self.worker.wait(good, timeout=4)["status"], "succeeded")
+        code, _, page = self.request("GET", "/jobs/" + good)
+        self.assertEqual(code, 200)
+        self.assertNotIn(b"Retry analysis", page)
+
+
 if __name__ == "__main__":
     unittest.main()

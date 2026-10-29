@@ -100,6 +100,40 @@ class UploadHTTPTests(unittest.TestCase):
         self.assertEqual(code, 413)
         self.assertEqual(list_clips(self.db), [])
 
+    def test_streaming_parser_preserves_video_with_boundary_like_bytes(self):
+        import io
+        from strokesense.multipart_stream import receive
+        boundary = b"StrokeSenseTestBoundary"
+        video = SYNTHETIC_MP4 + b"\r\n--StrokeSenseTestBoundaryXnot-a-delimiter"
+        body, _ = multipart(self.server.csrf_token, data=video)
+        output = io.BytesIO()
+        fields, filename = receive(io.BytesIO(body), len(body), boundary,
+                                   output, 150 * 1024 * 1024)
+        self.assertEqual(filename, "practice.mp4")
+        self.assertEqual(fields["video"], len(video))
+        self.assertEqual(output.getvalue(), video)
+
+    def test_streaming_parser_bounds_memory_and_preserves_large_synthetic_clip(self):
+        import io
+        import tracemalloc
+        from strokesense.multipart_stream import receive
+        boundary = b"StrokeSenseTestBoundary"
+        size = 3 * 1024 * 1024
+        video = SYNTHETIC_MP4 + b"Z" * (size - len(SYNTHETIC_MP4))
+        body, _ = multipart(self.server.csrf_token, data=video)
+        tracemalloc.start()
+        try:
+            output = io.BytesIO()
+            fields, _ = receive(io.BytesIO(body), len(body), boundary,
+                                output, 150 * 1024 * 1024)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertEqual(fields["video"], size)
+        self.assertEqual(output.getvalue(), video)
+        # BytesIO is the test sink, so its copy counts toward peak.
+        self.assertLess(peak, 8 * 1024 * 1024)
+
     def test_homepage_offers_private_video_upload(self):
         code, _, body = self.request("GET", "/")
         self.assertEqual(code, 200)

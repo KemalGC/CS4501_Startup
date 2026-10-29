@@ -12,14 +12,14 @@ import unittest
 from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_evidence_ui import EvidenceInterfaceTests
+import test_evidence_ui as _evidence_fixture
 from strokesense import evidence
 from strokesense.registry import revoke_clip
 
 
 class ComparisonWorkspaceTests(unittest.TestCase):
     def setUp(self):
-        self.rig = EvidenceInterfaceTests(
+        self.rig = _evidence_fixture.EvidenceInterfaceTests(
             methodName="test_human_readable_evidence_links_to_strokes_and_times"
         )
         self.rig.setUp()

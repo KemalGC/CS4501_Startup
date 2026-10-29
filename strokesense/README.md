@@ -1127,6 +1127,28 @@ current clip permission, saved report/metrics hashes and evidence format;
 opening a link does not release unreviewed AI advice. These counts are heuristic
 candidates, not accuracy or proof of technique improvement.
 
+The **comparison workspace** now presents a distinct Earlier/Later run card
+for each saved analysis, with operator-entered viewpoint and existing
+report/evidence actions. Below the cards is a captioned candidate-fault table;
+keyboard users can focus the scrollable comparison region, and narrow
+320–390px screens keep the whole page within the viewport while allowing the
+wide table to scroll horizontally. Count links still open their own
+permission- and integrity-checked saved evidence. Matching source/viewpoint
+labels are context only, not an improvement claim. The CSV response and local
+server API are unchanged. No external JavaScript, font or stylesheet loads.
+
+Reproduce the isolated synthetic HTML/route tests from the repository root:
+
+`python -m unittest discover -s strokesense/tests -p test_comparison_workspace.py -v`
+
+Run `python strokesense/quality.py` for full offline regression, and
+`python strokesense/quality.py --doctor` for read-only environment diagnostics.
+On a test system with an installed Chrome/Chromium and Playwright 1.58.0,
+`python strokesense/tests/browser_comparison_workspace.py` checks three
+responsive viewport sizes and a direct filtered-evidence navigation.
+These tests cannot substitute for real permission-granted footage, manual
+accessibility inspection, coach review or accuracy denominators.
+
 ### Download the two-run candidate comparison (Alpha)
 
 The verified **Compare saved analyses** browser page also offers

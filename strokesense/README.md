@@ -447,6 +447,41 @@ not yet implemented. Server tests are synthetic and use a fake analysis
 worker; they do not establish pose accuracy or a full end-to-end model run.
 
 
+### Direct saved evidence from recent analyses (local Alpha, issue #85)
+
+The homepage's **Recent analyses** section now presents responsive run cards
+with clearly separated status, operator-entered camera label and actions. A
+**succeeded, currently permitted** run with a persisted metrics digest offers
+**Inspect saved evidence** beside the existing report/status navigation. The
+shortcut remains available under the camera, status and clip filters. Pending,
+failed, permission-revoked and historical report-only runs without a saved
+metrics digest do not advertise evidence that cannot be opened. The library
+reads at most 20 permitted jobs and never exposes private file locations or
+rights provenance.
+
+This is a *navigation hint*, not an integrity or accuracy assertion: the
+\`/jobs/<job-id>/evidence\` route independently checks current permission,
+withheld coaching state, job-owned report/metrics digest and evidence schema.
+After a snapshot changes, following a previously rendered link returns an
+error instead of unverified measurements. No new server routes, persistence
+changes, provider calls, external assets or released coaching were added.
+The controls remain native HTML links and keyboard-focusable without JS.
+
+Reproduce the tests from the repository root:
+
+\`\`\`sh
+python -m unittest discover -s strokesense/tests -p test_history_evidence_shortcut.py -v
+python strokesense/quality.py
+python strokesense/quality.py --doctor
+# Optional: installed Chrome/Chromium + test-only Playwright 1.58.0
+python strokesense/tests/browser_evidence_overview.py
+\`\`\`
+
+All fixtures use synthetic reports and evidence. The browser test checks
+rendered 320/390/1280 px geometry and link navigation, not an independent
+visual/accessibility audit or validation of any real rowing footage. Human
+review and empirical precision/recall remain pending.
+
 ### Saved evidence overview (local Alpha UI, issue #91)
 
 For a successful, permitted analysis, use **Inspect saved evidence** on the

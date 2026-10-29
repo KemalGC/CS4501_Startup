@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from strokesense.jobs import JobQueue
 from strokesense.registry import list_clips
 from strokesense.web import create_server
+from strokesense import web
+
 
 
 # Minimal synthetic container headers for HTTP behavior tests only. These are
@@ -85,6 +87,18 @@ class UploadHTTPTests(unittest.TestCase):
     def upload(self, **kwargs):
         body, ct = multipart(self.server.csrf_token, **kwargs)
         return self.request("POST", "/upload", body, ct)
+
+    def test_upload_size_limit_accepts_150_mib_video_plus_form_overhead(self):
+        self.assertEqual(web._MAX_VIDEO_BYTES, 150 * 1024 * 1024)
+        self.assertGreater(web._MAX_UPLOAD, web._MAX_VIDEO_BYTES)
+        self.assertLessEqual(web._MAX_UPLOAD, web._MAX_VIDEO_BYTES + 1024 * 1024)
+
+    def test_oversized_declared_request_rejected_before_reading(self):
+        body, ct = multipart(self.server.csrf_token)
+        code, _, _ = self.request("POST", "/upload", b"", ct,
+                                  headers={"Content-Length": str(152 * 1024 * 1024)})
+        self.assertEqual(code, 413)
+        self.assertEqual(list_clips(self.db), [])
 
     def test_homepage_offers_private_video_upload(self):
         code, _, body = self.request("GET", "/")

@@ -1302,3 +1302,38 @@ also exercises the native upload from a browser with JavaScript disabled,
 and verifies the visible import controls at **320, 390 and 1280 px**.
 These are layout and upload integration checks, **not** real-video
 decoding, computer-vision accuracy, or coach validation.
+
+
+### Completed analysis review workspace (issue #93)
+
+Open a permitted saved run through **Recent results → Analysis status**. While
+queued/running, the page shows a truthful three-stage timeline and a live
+processing notice, without a fabricated percentage. On failure it explains
+that no results were released, shows the saved error code, and offers a
+CSRF-protected retry only for eligible errors. A successful run presents
+**Technique report** and **Saved evidence** as two responsive review actions.
+When annotated playback exists, it appears in a separate local video section.
+All existing job, media, evidence, report, origin and digest gates still apply;
+a link is not proof of consent, media validity, metric accuracy or approval.
+**Generated coaching remains withheld** and candidate technique findings are
+not coach-verified.
+
+For a local demo from the `strokesense/` directory on Windows, run
+`python -m strokesense.web --port 8766`, then open
+`http://127.0.0.1:8766/` and choose a permission-granted clip. If the
+process has restarted, open a **new** homepage before submitting an import to
+receive a fresh CSRF token; do not reuse an old `/upload` form. For reproducible
+synthetic UI verification from the repository root:
+
+```sh
+python -m unittest discover -s strokesense/tests -p test_results_workspace.py -v
+python strokesense/quality.py
+python strokesense/quality.py --doctor
+# Optional: installed Chrome/Chromium and test-only playwright==1.58.0
+python strokesense/tests/browser_results_workspace.py
+```
+
+These are synthetic job/UI tests, not evaluation on real rowing footage.
+The responsive browser smoke test covers 320/390/1280px, but does not replace
+human visual/accessibility review or Windows-specific usability testing.
+Human team inspection of the AI-assisted tests remains pending.

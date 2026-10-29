@@ -1148,3 +1148,25 @@ Optional actual-browser smoke: install test-only `playwright==1.58.0` and Chrome
 then run `python strokesense/tests/browser_form_origin.py`. This uses a synthetic
 header fixture through the native HTML form (no JavaScript fetch, no model/provider).
 The read-only browser workflow keeps this regression checked on development branches.
+
+
+## Analysis stage cards (issue #89)
+
+The local HTML **Analysis status** page displays three coarse stages:
+**Queued → Analyzing → Results**, using the job's persisted
+`queued`, `running`, or `succeeded` status. The active stage is labeled
+`aria-current="step"`. Completed jobs show **Results available**;
+failed jobs show **Processing stopped / Results unavailable** without
+claiming a successful report. The status API JSON and automatic refresh
+for pending/running jobs are unchanged.
+
+This is a **state indicator, not a progress bar or measured percentage**.
+In particular, the local pose estimator does not expose trustworthy
+percentage completion to this interface. The stages are tested over
+synthetic HTTP fixtures; no real-video inference or empirical accuracy
+is implied. The layout was visually inspected using static Chromium HTML
+renders at desktop and 390 px mobile widths; navigation of a live local
+server in the sandbox browser was blocked by
+`ERR_BLOCKED_BY_ADMINISTRATOR`. Keyboard/screen-reader and Windows
+Chrome verification require human review.
+

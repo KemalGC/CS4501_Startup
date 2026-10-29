@@ -864,7 +864,7 @@ def create_server(
                 return
             status = html.escape(record["status"])
             err = record.get("error_code")
-message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
+            message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
             link = (
                 '<section class="result-workspace" aria-labelledby="result-heading">'
                 '<div class="result-head">'
@@ -933,7 +933,7 @@ message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
                     mime = ("video/webm" if media[0].lower().endswith(".webm")
                             else "video/mp4")
                     fragment = f"#t={at}" if at is not None else ""
-media_player = (
+                    media_player = (
                         '<section class="result-video" aria-labelledby="result-video-heading">'
                         '<h2 id="result-video-heading">Annotated video</h2>'
                         '<p>Review locally rendered footage alongside the saved '

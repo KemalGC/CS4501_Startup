@@ -196,7 +196,7 @@ class UploadHTTPTests(unittest.TestCase):
         body, ct = multipart(self.server.csrf_token)
         code, _, _ = self.request(
             "POST", "/upload", b"", ct,
-            headers={"Content-Length": str(26 * 1024 * 1024)})
+            headers={"Content-Length": str(152 * 1024 * 1024)})
         self.assertEqual(code, 413)
         code, _, _ = self.request("POST", "/upload", b"invalid content", ct)
         self.assertEqual(code, 400)

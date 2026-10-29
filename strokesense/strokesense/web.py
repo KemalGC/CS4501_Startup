@@ -343,7 +343,9 @@ def create_server(
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
+            # Native POST forms under no-referrer send Origin: null and fail
+            # our strict Origin gate. Keep local origins, hide cross-site referrers.
+            self.send_header("Referrer-Policy", "same-origin")
             self.send_header("Content-Security-Policy", csp)
             if accept_ranges:
                 self.send_header("Accept-Ranges", "bytes")
@@ -1573,7 +1575,7 @@ def main(argv=None):
         with create_server(jobs, registry_db=args.registry_db,
                            upload_dir=args.uploads, port=args.port) as server:
             print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")
-            print("Upload mode: streaming-150MiB-v1 (maximum video: 150 MiB)",
+            print("Upload mode: streaming-150MiB-v2 (maximum video: 150 MiB; same-origin forms)",
                   flush=True)
             try:
                 server.serve_forever()

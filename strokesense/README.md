@@ -1126,3 +1126,25 @@ homepage response and its anchor targets. These tests cannot determine whether
 every browser/font/zoom combination looks correct. **No manual visual
 screenshot, real footage evaluation, coach approval, customer study, or live
 LLM provider call was performed as part of this design-only increment.**
+
+
+### Native browser import returns HTTP 403 (issue #88)
+
+Start the updated `dev-consolidated` server and check that the banner includes
+`streaming-150MiB-v2` and `same-origin forms`. After every server restart,
+reload the homepage at the exact host and port you are using before submitting.
+Do not resubmit an old `/upload` page: its CSRF token belongs to the prior process.
+Do not mix `localhost` and `127.0.0.1` during a form session.
+
+The previous `Referrer-Policy: no-referrer` made native browser POST forms send
+`Origin: null`, which correctly failed the strict Origin gate. The application
+now uses `Referrer-Policy: same-origin`: local forms retain their origin and
+cross-origin referrers remain suppressed. Null/foreign origins and forged tokens
+are still rejected; no Origin/CSRF checks were disabled. See the Fetch standard:
+https://fetch.spec.whatwg.org/#append-a-request-origin-header .
+
+Offline regression: `python -m unittest discover -s strokesense/tests -p test_form_origin.py -v`.
+Optional actual-browser smoke: install test-only `playwright==1.58.0` and Chrome/Chromium,
+then run `python strokesense/tests/browser_form_origin.py`. This uses a synthetic
+header fixture through the native HTML form (no JavaScript fetch, no model/provider).
+The read-only browser workflow keeps this regression checked on development branches.

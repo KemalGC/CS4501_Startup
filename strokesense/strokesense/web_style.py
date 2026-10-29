@@ -85,6 +85,14 @@ video { display: block; width: 100%; max-width: 760px; height: auto; border-radi
 .state-queued, .state-running { background: #e8f1ff; color: #164e88; border-color: #b6cbe8; }
 .state-failed { background: #fff0eb; color: #a3371e; border-color: #e2b2a6; }
 .state-unknown { background: #edf0f3; color: #334155; border-color: #cbd5e1; }
+/* Coarse job stages: never suggest numeric completion or unverified accuracy. */
+ol.job-steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; margin: 1.25rem 0 1.6rem; padding: 0; border: 0; background: transparent; }
+ol.job-steps .job-step { min-width: 0; display: flex; gap: .7rem; align-items: center; padding: 1rem; border: 1px solid var(--line); border-radius: .85rem; background: #f7fafc; color: #485c70; font-weight: 700; }
+.job-steps .step-index { flex-shrink: 0; display: grid; place-items: center; height: 2.2rem; width: 2.2rem; border-radius: 50%; border: 2px solid currentColor; font-size: .79rem; font-weight: 800; }
+.job-steps .step-label { overflow-wrap: anywhere; }
+ol.job-steps .is-complete { color: #185b42; background: #e5f6ec; border-color: #a4d8ba; }
+ol.job-steps .is-current { color: #075e55; background: #e3f7f2; border: 2px solid #087f70; padding: calc(1rem - 1px); box-shadow: 0 3px 10px rgb(8 127 112 / 9%); }
+ol.job-steps .is-failed { color: #962d1b; background: #fff0eb; border-color: #e2b2a6; }
 footer { padding: 1.2rem .25rem; font-size: .87rem; color: var(--muted); }
 footer strong { color: var(--night); }
 @media (max-width: 720px) {
@@ -99,6 +107,7 @@ footer strong { color: var(--night); }
   form label { flex: 1 1 auto; width: 100%; }
   button { width: 100%; }
   input[type="file"] { padding: .8rem; }
+  ol.job-steps { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

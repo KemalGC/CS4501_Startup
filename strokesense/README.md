@@ -1090,3 +1090,39 @@ approval rules, approve existing heuristic cues, or invoke any paid provider.
 The local UI continues to refuse unexpected stored release flags. Synthetic
 regression tests verify migration and persistence, **not** live model outputs,
 genuine coach review, customer validation, or measured rowing fault accuracy.
+
+## Responsive local browser workspace (Alpha, issue #86)
+
+The existing loopback-only browser UI now uses a self-contained visual design
+system: navy/teal navigation, a prominent analysis header, styled upload and
+consent inputs, analysis history, responsive forms/lists, a skip-to-main link,
+and visible keyboard focus. The interface is **still the same local Python
+application**, not a public deployment or a ChatGPT website. No framework,
+JavaScript, remote stylesheet, tracking pixel, font download, or new network
+service is required. Layout CSS lives in `strokesense/web_style.py` and is
+inlined under the existing restrictive Content Security Policy.
+
+From the repository's `strokesense/` directory on Windows PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt
+.\\.venv\\Scripts\\python.exe -m strokesense.web
+# Open http://127.0.0.1:8765/ in your browser
+```
+
+The top navigation links to the same homepage's **Register a new local clip**
+and **Recent analyses** sections. The file control uses the native operating
+system picker; it is **not** an implemented drag-and-drop upload widget.
+Existing upload limits, permission attestation, CSRF, private job isolation,
+saved evidence integrity checks and withheld coaching state are unchanged.
+The page-refresh mechanism for queued/running jobs still works without scripts.
+The browser must run on the same machine (127.0.0.1); do not port-forward it
+to the public internet.
+
+Contract tests cover escaped titles, structural navigation, CSS keyboard
+focus/mobile/reduced-motion hooks and automatic refresh, plus a real loopback
+homepage response and its anchor targets. These tests cannot determine whether
+every browser/font/zoom combination looks correct. **No manual visual
+screenshot, real footage evaluation, coach approval, customer study, or live
+LLM provider call was performed as part of this design-only increment.**

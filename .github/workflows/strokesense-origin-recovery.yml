@@ -1,0 +1,136 @@
+name: Verify bounded form-origin correction
+
+on:
+  push:
+    branches: ['dev/2026-10-29-1201-form-origin']
+    paths: ['.github/workflows/strokesense-origin-recovery.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  verify-fix:
+    if: github.ref == 'refs/heads/dev/2026-10-29-1201-form-origin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/2026-10-29-1201-form-origin
+      - name: Require exact topic checkpoint
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "BASE_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install project and test-only browser dependencies
+        run: python -m pip install -r strokesense/requirements.txt playwright==1.58.0
+      - name: Verify missing-behavior red before editing production
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s strokesense/tests -p test_form_origin.py -v > /tmp/origin-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/origin-red.log
+          test "$status" -ne 0
+          grep -F 'FAILED (failures=2)' /tmp/origin-red.log
+          grep -F 'AssertionError: 403 != 303' /tmp/origin-red.log
+      - name: Apply reviewed minimal correction and troubleshooting guidance
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('strokesense/strokesense/web.py')
+          s = p.read_text()
+          old = '            self.send_header("Referrer-Policy", "no-referrer")'
+          new = '''            # Native POST forms under no-referrer send Origin: null and fail
+                      # our strict Origin gate. Keep local origins, hide cross-site referrers.
+                      self.send_header("Referrer-Policy", "same-origin")'''
+          new = new.replace('\n                      ', '\n            ')
+          assert s.count(old) == 1, 'ambiguous production source'
+          s = s.replace(old, new)
+          old = 'Upload mode: streaming-150MiB-v1 (maximum video: 150 MiB)'
+          new = 'Upload mode: streaming-150MiB-v2 (maximum video: 150 MiB; same-origin forms)'
+          assert s.count(old) == 1, 'unexpected startup banner'
+          p.write_text(s.replace(old, new))
+          p = Path('strokesense/README.md')
+          p.write_text(p.read_text() + '''
+
+          ### Native browser import returns HTTP 403 (issue #88)
+
+          Start the updated `dev-consolidated` server and check that the banner includes
+          `streaming-150MiB-v2` and `same-origin forms`. After every server restart,
+          reload the homepage at the exact host and port you are using before submitting.
+          Do not resubmit an old `/upload` page: its CSRF token belongs to the prior process.
+          Do not mix `localhost` and `127.0.0.1` during a form session.
+
+          The previous `Referrer-Policy: no-referrer` made native browser POST forms send
+          `Origin: null`, which correctly failed the strict Origin gate. The application
+          now uses `Referrer-Policy: same-origin`: local forms retain their origin and
+          cross-origin referrers remain suppressed. Null/foreign origins and forged tokens
+          are still rejected; no Origin/CSRF checks were disabled. See the Fetch standard:
+          https://fetch.spec.whatwg.org/#append-a-request-origin-header .
+
+          Offline regression: `python -m unittest discover -s strokesense/tests -p test_form_origin.py -v`.
+          Optional actual-browser smoke: install test-only `playwright==1.58.0` and Chrome/Chromium,
+          then run `python strokesense/tests/browser_form_origin.py`. This uses a synthetic
+          header fixture through the native HTML form (no JavaScript fetch, no model/provider).
+          The read-only browser workflow keeps this regression checked on development branches.
+          '''.replace('\n          ', '\n'))
+          Path('.github/workflows/strokesense-origin-recovery.yml').unlink()
+      - name: Verify targeted tests full offline suite and native browser form
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile strokesense/strokesense/web.py
+          python -m unittest discover -s strokesense/tests -p test_form_origin.py -v
+          python strokesense/quality.py 2>&1 | tee /tmp/origin-quality.log
+          python strokesense/quality.py --doctor
+          python strokesense/tests/browser_form_origin.py | tee /tmp/origin-browser.log
+          git diff --check
+      - name: Record factual durable handoff
+        shell: python
+        run: |
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import os, re, json
+          quality = Path('/tmp/origin-quality.log').read_text()
+          counts = re.findall(r'Ran (\d+) tests', quality)
+          assert counts and '\nOK\n' in quality
+          browser = json.loads(Path('/tmp/origin-browser.log').read_text().splitlines()[-1])
+          assert browser['upload_status'] == 303 and browser['origin_matches']
+          now = datetime.now(ZoneInfo('America/New_York'))
+          start = datetime.fromisoformat('2026-10-29T12:01:46.560525-04:00')
+          elapsed = (now-start).total_seconds()
+          run = 'https://github.com/KemalGC/CS4501_Startup/actions/runs/' + os.environ['GITHUB_RUN_ID']
+          entry = f'''## 2026-10-29-1201-sprint — native form 403 correction (#88)
+
+          - Manual continuation requested after repeated upload 403s, not a new scheduled occurrence. Local start {start.isoformat()}, verification checkpoint {now.isoformat()}, wall-clock elapsed to checkpoint {elapsed:.1f} seconds; a monotonic timer was also captured locally and final measured closeout belongs in the issue/email. No schedules changed; prior three-day sprint override remains active and earlier history is retained.
+          - Topic `dev/2026-10-29-1201-form-origin`, base `d826ccd665ac9e4bf87a3b8aca184fc790d104dd` on both integration and dev-consolidated. Main inspected `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`; never modified. No conflicting integration work was observed at selection.
+          - Story: coach submits a legitimate local native HTML form without a false 403. Acceptance and edge cases are tracked in #88; preserve strict Host/Origin, CSRF, permission, size and storage checks. Human review of AI-assisted tests remains pending.
+          - Root cause: no-referrer suppresses Origin on native POST navigation to null, rejected by the strict Origin gate. Real Chrome test-first RED at https://github.com/KemalGC/CS4501_Startup/actions/runs/40908273877 recorded Chrome 156.0.8078.47, policy no-referrer, origin_is_null=true, HTTP 403 and zero registered clips. The local/CI five-test command `python -m unittest discover -s strokesense/tests -p test_form_origin.py -v` failed two expected behavior assertions (policy mismatch; 403 instead of 303), not imports/environment.
+          - Minimal production change: response Referrer-Policy becomes same-origin, keeping same-origin form identity while withholding cross-origin referrers; startup banner becomes streaming-150MiB-v2. No permissive null-Origin fallback, CSRF removal or new application dependencies. README explains reloading fresh forms after a restart and using consistent hostname/port.
+          - GREEN: five targeted tests pass; `python strokesense/quality.py` passed {counts[-1]} unittests plus four legacy synthetic checks; read-only doctor also passed on CI. Native browser test using installed Chrome {browser['browser']} recorded policy {browser['policy']}, upload HTTP {browser['upload_status']}, correct Origin and {browser['registered_clips']} registered clip with exact bytes and no analysis job. Verification run: {run}. Browser regression is now a separate read-only CI workflow; Playwright 1.58.0 is test-only.
+          - Local Chromium launch worked but navigation was blocked by ERR_BLOCKED_BY_ADMINISTRATOR; actual browser proof above comes from the GitHub runner, not the local container or user's Windows machine. Local doctor lacks onnxruntime and a pose model; CI has dependencies, but no inference, live provider or coach evaluation was run. Synthetic fixtures do not establish real-video accuracy or coaching effectiveness. User media was not published or used in GitHub Actions.
+          - Traceability: #88 -> test_form_origin.py + browser_form_origin.py -> web.py -> verified topic checkpoint. Selected proposal 1/3/8 usable local import, 4 UI preserved; 2 real customer validation pending; 5/6/7 coaching unchanged and withheld. Activity 2 issue/story/criteria and Activity 3 observed red-to-green satisfied for this increment; human team review still pending.
+          - Scope: one bounded compatibility bug. Temporary verification workflow deletes itself before the publishable checkpoint. Publication and email pending at this commit; next action is guarded fast-forward of dev-consolidated and dev/strokesense-2026-10-26, confirm main unchanged, then have the user restart and reload the homepage for a fresh CSRF token.
+
+          '''.replace('\n          ', '\n')
+          p = Path('llm.md')
+          p.write_text(entry + p.read_text())
+      - name: Publish tested topic only with expected-head guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='dev/2026-10-29-1201-form-origin'
+          observed=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$observed" = "$BASE_SHA"
+          git diff --check
+          git add -- strokesense/strokesense/web.py strokesense/README.md llm.md .github/workflows/strokesense-origin-recovery.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix: preserve same-origin browser form submissions without weakening CSRF (#88)'
+          git push origin "HEAD:refs/heads/$branch"
+          git rev-parse HEAD

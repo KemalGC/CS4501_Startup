@@ -56,7 +56,7 @@ class GuidedImportWorkspaceTests(unittest.TestCase):
         self.assertIn("text/html", headers["Content-Type"])
         page = body.decode("utf-8")
         self.assertIn('action="/upload"', page)
-        fragment = page.split('action="/upload"', 1)[1].split("</form>", 1)[0]
+        fragment = page.split('<form method="post" action="/upload" enctype="multipart/form-data">', 1)[1].split("</form>", 1)[0]
         return page, fragment
 
     def test_import_has_visually_distinct_two_step_landmarks(self):

@@ -754,16 +754,16 @@ def create_server(
                 '<article class="comparison-run" aria-label="Earlier analysis">'
                 '<p class="comparison-run-label">01 / EARLIER</p>'
                 '<h3>Earlier run</h3>'
-                '<dl class="comparison-meta"><dt>Viewpoint (operator-entered)</dt><dd>'
-                + html.escape(first["camera"]) + '</dd></dl>'
+                '<p class="comparison-meta">Earlier viewpoint (operator-entered): '
+                + html.escape(first["camera"]) + '</p>'
                 '<div class="comparison-actions"><a href="/reports/' + before
                 + '">Open report</a><a href="/jobs/' + before
                 + '/evidence">Inspect evidence</a></div></article>'
                 '<article class="comparison-run" aria-label="Later analysis">'
                 '<p class="comparison-run-label">02 / LATER</p>'
                 '<h3>Later run</h3>'
-                '<dl class="comparison-meta"><dt>Viewpoint (operator-entered)</dt><dd>'
-                + html.escape(last["camera"]) + '</dd></dl>'
+                '<p class="comparison-meta">Later viewpoint (operator-entered): '
+                + html.escape(last["camera"]) + '</p>'
                 '<div class="comparison-actions"><a href="/reports/' + after
                 + '">Open report</a><a href="/jobs/' + after
                 + '/evidence">Inspect evidence</a></div></article>'

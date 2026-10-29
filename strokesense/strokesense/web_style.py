@@ -93,6 +93,39 @@ ol.job-steps .job-step { min-width: 0; display: flex; gap: .7rem; align-items: c
 ol.job-steps .is-complete { color: #185b42; background: #e5f6ec; border-color: #a4d8ba; }
 ol.job-steps .is-current { color: #075e55; background: #e3f7f2; border: 2px solid #087f70; padding: calc(1rem - 1px); box-shadow: 0 3px 10px rgb(8 127 112 / 9%); }
 ol.job-steps .is-failed { color: #962d1b; background: #fff0eb; border-color: #e2b2a6; }
+/* Guided native upload: no fake drop handler or external resources. */
+.import-panel {
+  margin: 2.2rem 0;
+  padding: clamp(1rem, 2.4vw, 1.7rem);
+  background: linear-gradient(145deg, #e8f6f2 0%, #f7fbfc 64%, #f4f8ff 100%);
+  border: 1px solid #b9d9d1;
+  border-radius: 1.25rem;
+  box-shadow: 0 12px 36px rgb(12 65 72 / 8%);
+}
+.import-heading { display: flex; align-items: center; justify-content: space-between; gap: 1.1rem; flex-wrap: wrap; margin-bottom: 1.35rem; }
+.import-eyebrow { margin: 0; color: var(--teal-deep); text-transform: uppercase; font-size: .75rem; font-weight: 850; letter-spacing: .13em; }
+.import-panel h2 { border: 0; margin: .25rem 0 .3rem; padding: 0; font-size: clamp(1.45rem, 3vw, 1.85rem); }
+.import-intro { margin: 0; color: #40576a; }
+.import-private { display: inline-flex; align-items: center; gap: .55rem; padding: .45rem .8rem; border-radius: 99px; background: #fff; border: 1px solid #b2d6cc; font-size: .85rem; font-weight: 750; color: #185d50; white-space: nowrap; }
+.import-private::before { content: ""; width: .5rem; height: .5rem; background: #087f70; border-radius: 50%; }
+form[action="/upload"] { border: 0; margin: 0; padding: 0; background: transparent; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); gap: 1rem; align-items: stretch; }
+.import-stage { min-width: 0; margin: 0; padding: 1.1rem; border: 1px solid #c9dddf; border-radius: .95rem; background: #fff; box-shadow: 0 3px 10px rgb(28 72 84 / 4%); }
+.import-stage legend { padding: 0 .4rem; font-size: 1.02rem; font-weight: 850; color: var(--night); }
+.import-stage legend span { display: inline-grid; place-items: center; margin-right: .4rem; width: 1.75rem; height: 1.75rem; color: #fff; background: var(--teal-deep); border-radius: .5rem; font-size: .78rem; }
+.import-stage label { display: block; min-width: 0; width: 100%; color: #32465b; font-weight: 700; }
+.import-file input[type="file"] { min-width: 0; max-width: 100%; min-height: 8rem; padding: 1.3rem .8rem; background: #eff8f6; border: 2px dashed #4c988b; border-radius: .8rem; }
+.import-file input[type="file"]:hover { background: #e2f4ee; border-color: var(--teal-deep); }
+.import-file input[type="file"]::file-selector-button { background: var(--teal-deep); }
+.import-help { max-width: 58ch; margin: .8rem 0 0; color: #52677a; font-size: .84rem; line-height: 1.45; }
+form[action="/upload"] .import-consent { display: flex; align-items: flex-start; gap: .55rem; padding: .75rem; background: #edf8f4; border: 1px solid #c8e5db; border-radius: .65rem; font-size: .89rem; line-height: 1.4; }
+.import-consent input { flex: 0 0 auto; margin-top: .15rem; }
+.import-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: .8rem; margin-top: 1rem; }
+.import-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; column-gap: 1rem; row-gap: .2rem; padding: 1.15rem .1rem .2rem; border-top: 1px solid #c6ddd7; }
+form[action="/upload"] .import-actions label { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto; font-size: .96rem; font-weight: 750; }
+.import-actions label input { margin: 0; flex: 0 0 auto; }
+.import-actions p { grid-column: 1; grid-row: 2; margin: 0 0 0 1.65rem; color: #52677a; font-size: .83rem; }
+form[action="/upload"] .import-actions button { grid-column: 2; grid-row: 1 / span 2; justify-self: end; min-width: 11rem; background: var(--night); border-color: var(--night); box-shadow: 0 6px 14px rgb(16 28 47 / 13%); }
+form[action="/upload"] .import-actions button:hover { background: var(--night-light); border-color: var(--night-light); }
 footer { padding: 1.2rem .25rem; font-size: .87rem; color: var(--muted); }
 footer strong { color: var(--night); }
 @media (max-width: 720px) {
@@ -107,6 +140,15 @@ footer strong { color: var(--night); }
   form label { flex: 1 1 auto; width: 100%; }
   button { width: 100%; }
   input[type="file"] { padding: .8rem; }
+  .import-panel { margin: 1.35rem 0; padding: 1rem; border-radius: 1rem; }
+  .import-heading { align-items: flex-start; gap: .75rem; }
+  form[action="/upload"] { display: grid; grid-template-columns: minmax(0, 1fr); gap: .85rem; }
+  .import-stage { padding: .9rem; }
+  .import-file input[type="file"] { padding: 1rem .6rem; }
+  .import-actions { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; gap: .65rem; }
+  form[action="/upload"] .import-actions label, .import-actions p, form[action="/upload"] .import-actions button { grid-column: 1; grid-row: auto; }
+  .import-actions p { margin: 0; }
+  form[action="/upload"] .import-actions button { justify-self: stretch; width: 100%; }
   ol.job-steps { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {

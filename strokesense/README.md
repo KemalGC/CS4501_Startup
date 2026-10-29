@@ -460,7 +460,7 @@ reads at most 20 permitted jobs and never exposes private file locations or
 rights provenance.
 
 This is a *navigation hint*, not an integrity or accuracy assertion: the
-\`/jobs/<job-id>/evidence\` route independently checks current permission,
+`/jobs/<job-id>/evidence` route independently checks current permission,
 withheld coaching state, job-owned report/metrics digest and evidence schema.
 After a snapshot changes, following a previously rendered link returns an
 error instead of unverified measurements. No new server routes, persistence
@@ -469,13 +469,13 @@ The controls remain native HTML links and keyboard-focusable without JS.
 
 Reproduce the tests from the repository root:
 
-\`\`\`sh
+```sh
 python -m unittest discover -s strokesense/tests -p test_history_evidence_shortcut.py -v
 python strokesense/quality.py
 python strokesense/quality.py --doctor
 # Optional: installed Chrome/Chromium + test-only Playwright 1.58.0
 python strokesense/tests/browser_evidence_overview.py
-\`\`\`
+```
 
 All fixtures use synthetic reports and evidence. The browser test checks
 rendered 320/390/1280 px geometry and link navigation, not an independent

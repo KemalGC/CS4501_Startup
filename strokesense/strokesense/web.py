@@ -28,6 +28,7 @@ from .jobs import JobError, JobQueue, MAX_MEDIA_BYTES
 from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
 from .strokes import FAULTS  # fixed, deterministic candidate-fault catalogue
+from .web_style import PAGE_CSS
 from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
                        list_clips, register_clip, revoke_clip)
 
@@ -51,19 +52,34 @@ _STATUS_CSP = _PAGE_CSP + "; media-src 'self'"
 
 
 def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
+    """Render a self-contained private analysis workspace; preserve CSP and escaping."""
     safe_title = html.escape(title, quote=True)
     meta = '<meta http-equiv="refresh" content="2">' if refresh else ""
-    return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
-            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f'{meta}<title>{safe_title}</title>'
-            '<style>body{font:16px/1.5 system-ui,sans-serif;max-width:820px;'
-            'margin:2rem auto;padding:0 1rem;color:#202734;background:#f7f9fc}'
-            'main{background:white;border:1px solid #dbe1e9;border-radius:12px;'
-            'padding:1.4rem}button{padding:.45rem 1rem;cursor:pointer}'
-            'code{overflow-wrap:anywhere}label{display:block;margin:1rem 0}'
-            'a{color:#164d9a}</style></head><body><main>'
-            f'<h1>{safe_title}</h1>{content}</main></body></html>').encode("utf-8")
-
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'{meta}<title>{safe_title}</title><style>{PAGE_CSS}</style></head>'
+        '<body><a class="skip-link" href="#content">Skip to content</a>'
+        '<header class="topbar"><div class="topbar-inner">'
+        '<a class="brand" href="/" aria-label="StrokeSense home">'
+        '<span class="brand-mark" aria-hidden="true">\u224b</span>'
+        'Stroke<span class="brand-accent">Sense</span></a>'
+        '<nav aria-label="Primary navigation">'
+        '<a href="/#upload-clip">New analysis</a>'
+        '<a href="/#recent-analyses">Recent results</a></nav>'
+        '<span class="local-pill">Private on this device</span>'
+        '</div></header><div class="workspace">'
+        '<div class="hero"><div class="eyebrow">ROWING INTELLIGENCE '
+        '<span>/ LOCAL ALPHA</span></div>'
+        f'<h1>{safe_title}</h1>'
+        '<p>Technique patterns and the video evidence behind them, '
+        'all in one private workspace.</p></div>'
+        f'<main id="content" class="content-surface">{content}</main>'
+        '<footer><strong>StrokeSense Alpha</strong> &middot; '
+        'Local analysis only. Candidate faults are not coach-verified '
+        'and generated coaching remains withheld without approval.'
+        '</footer></div></body></html>'
+    ).encode("utf-8")
 
 
 def _seek_query(query: str) -> str | None:
@@ -466,7 +482,7 @@ def create_server(
                 ) if value
             ])
             history_csv_link = "/history.csv" + ("?" + history_q if history_q else "")
-            history = ('<h2>Recent analyses</h2>'
+            history = ('<h2 id="recent-analyses">Recent analyses</h2>'
                        '<form method="get" action="/">'
                        '<label>Filter analyses by camera <select name="camera">'
                        + camera_select + '</select></label>'
@@ -482,7 +498,7 @@ def create_server(
                        + ('<ol>' + history_items + '</ol>' if history_items
                           else '<p>None yet.</p>'))
             upload_form = (
-                '<h2>Register a new local clip</h2>'
+                '<h2 id="upload-clip">Register a new local clip</h2>'
                 '<form method="post" action="/upload" enctype="multipart/form-data">'
                 '<label>Video (.mp4, .mov, .mkv, .avi, .webm): '
                 '<input type="file" name="video" required></label>'

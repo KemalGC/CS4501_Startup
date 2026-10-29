@@ -447,6 +447,39 @@ not yet implemented. Server tests are synthetic and use a fake analysis
 worker; they do not establish pose accuracy or a full end-to-end model run.
 
 
+### Saved evidence overview (local Alpha UI, issue #91)
+
+For a successful, permitted analysis, use **Inspect saved evidence** on the
+job page to visit `/jobs/<job-id>/evidence`. The top overview displays three
+**full-snapshot counts**: number of saved seats, saved stroke rows and candidate
+finding entries. These numbers come only from the integrity-checked, stored
+snapshot; they are **not** coaching confidence, diagnostic accuracy, or
+coach-reviewed judgments. The candidate-fault filter only changes the detailed
+rows; the overview explicitly retains whole-snapshot totals.
+
+The overview uses responsive cards and native links to jump to **Seats**,
+**Stroke times** and **Candidate findings**. Each detailed row retains its
+existing stroke/time reference links, optional saved-video navigation and
+CSV/blank human-review exports. Empty result sets show text rather than an
+empty list. The page does not release generated coaching, add a JavaScript
+dependency or relax local permission, CSRF, origin, or digest checks.
+
+Reproduce the synthetic UI tests from the repository root:
+
+```sh
+python -m unittest discover -s strokesense/tests -p test_evidence_overview.py -v
+python strokesense/quality.py
+python strokesense/quality.py --doctor
+# Optional: installed Chrome or Chromium and test-only playwright==1.58.0
+python strokesense/tests/browser_evidence_overview.py
+```
+
+These tests use an isolated fake analysis worker and invented saved measurements.
+The native Chrome smoke check confirms navigation and viewport geometry at
+320/390/1280 px, not real-video behavior or independent human visual review.
+Coach feedback, live model evaluation, and measured real-world precision/recall
+remain pending.
+
 ### Saved evidence navigation (local browser, issue #22)
 
 Successful jobs expose an **unreviewed, read-only** evidence view at

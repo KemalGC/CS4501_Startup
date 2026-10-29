@@ -391,7 +391,7 @@ without silently changing its earlier camera label. The private registry
 can be listed to inspect the saved label.
 
 The browser import form (also reachable with `POST /upload`) accepts a
-**maximum 25 MiB multipart request**, enforces nonempty bytes and a video
+**maximum 150 MiB video**, with up to 1 MiB additional multipart overhead (151 MiB total request), enforces nonempty bytes and a video
 extension allowlist (`.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`), and
 requires a checked operator permission attestation plus a nonempty
 provenance statement. Files are stored locally in a private uploads directory

@@ -48,6 +48,24 @@ def main():
                             page = browser.new_page(java_script_enabled=False)
                             home = page.goto(origin + "/")
                             assert home.status == 200
+                            # Browser-rendered viewport bounds, not a simulated CSS check.
+                            # All tests use synthetic bytes and disabled page JavaScript.
+                            checked_viewports = []
+                            assert page.locator("fieldset.import-stage").count() == 2
+                            for width in (320, 390, 1280):
+                                page.set_viewport_size({"width": width, "height": 900})
+                                for selector in (
+                                    "#upload-video", "fieldset.import-file",
+                                    "fieldset.import-permission",
+                                    'form[action="/upload"] button[type="submit"]',
+                                ):
+                                    bounds = page.locator(selector).bounding_box()
+                                    assert bounds is not None, f"{selector} absent at {width}px"
+                                    assert bounds["x"] >= -1, f"{selector} left-clipped at {width}px"
+                                    assert bounds["x"] + bounds["width"] <= width + 1, (
+                                        f"{selector} right-clipped at {width}px"
+                                    )
+                                checked_viewports.append(width)
                             form = page.locator('form[action="/upload"]')
                             form.locator('input[name="video"]').set_input_files(str(source))
                             form.locator('input[name="permission"]').check()
@@ -69,6 +87,7 @@ def main():
                                 "origin_is_null": actual_origin == "null",
                                 "origin_matches": actual_origin == origin,
                                 "registered_clips": len(rows),
+                                "rendered_viewports": checked_viewports,
                             }), flush=True)
                             assert response.status == 303, (
                                 f"native form upload returned HTTP {response.status}, expected 303")

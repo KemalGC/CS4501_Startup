@@ -1316,20 +1316,68 @@ def create_server(
                 if strokes or not fault_filter
                 else "<p>No strokes flagged for this candidate fault.</p>"
             )
-            body = ("<p><strong>Generated coaching withheld.</strong> "
-                    "These measurements are unreviewed evidence, not "
-                    "coach-approved advice or verified model accuracy.</p>"
-                    + fault_controls
-                    + "<h2>Seats</h2><ul>" + seats + "</ul>"
-                    + "<h2>Stroke times</h2>" + stroke_list
-                    + "<h2>Candidate findings</h2><ul>" + findings + "</ul>"
-                    + f'<p><a href="/api/jobs/{job_id}/strokes.csv">'
-                    'Export stroke evidence (CSV)</a></p>'
-                    + f'<p><a href="/api/jobs/{job_id}/review.csv">'
-                    'Blank coach-review worksheet</a></p>'
-                    + f'<p><a href="/api/jobs/{job_id}/fault-review.csv">'
-                    'Complete per-fault coach-review grid</a></p>'
-                    + f'<p><a href="/jobs/{job_id}">Back to job</a></p>')
+            # Counts are from the independently checked *full* saved snapshot,
+            # not from the currently filtered candidate rows or coach labels.
+            overview = (
+                '<section class="evidence-workspace" aria-labelledby="evidence-summary-title">'
+                '<div class="evidence-head">'
+                '<p class="evidence-eyebrow">Analysis snapshot</p>'
+                '<h2 id="evidence-summary-title">Saved evidence overview</h2>'
+                '<p>Totals describe the full saved snapshot, even when filtering '
+                'details. These are model-generated candidates, not coach-reviewed '
+                'accuracy.</p></div>'
+                '<dl class="evidence-stats">'
+                + "".join(
+                    '<div class="evidence-stat"><dt>' + label + '</dt><dd>'
+                    + str(count) + '</dd></div>'
+                    for label, count in (
+                        ("Seats", len(curated["seats"])),
+                        ("Saved strokes", len(curated["strokes"])),
+                        ("Candidate findings", len(curated["findings"])),
+                    )
+                )
+                + '</dl>'
+                '<nav class="evidence-jump" aria-label="Jump to evidence details">'
+                '<a href="#evidence-seats">Seats</a>'
+                '<a href="#evidence-strokes">Stroke times</a>'
+                '<a href="#evidence-findings">Candidate findings</a>'
+                '</nav></section>'
+            )
+            findings_list = (
+                "<ul>" + findings + "</ul>"
+                if findings else (
+                    "<p>No candidate findings for this selected fault.</p>"
+                    if fault_filter else
+                    "<p>No candidate findings in this saved snapshot.</p>"
+                )
+            )
+            body = (
+                "<p><strong>Generated coaching withheld.</strong> "
+                "These measurements are unreviewed evidence, not "
+                "coach-approved advice or verified model accuracy.</p>"
+                + overview
+                + fault_controls
+                + '<section id="evidence-seats" class="evidence-section" '
+                'aria-label="Saved seats"><h2>Seats</h2>'
+                + ("<ul>" + seats + "</ul>" if seats
+                   else "<p>No seats in this saved snapshot.</p>")
+                + "</section>"
+                + '<section id="evidence-strokes" class="evidence-section" '
+                'aria-label="Saved stroke times"><h2>Stroke times</h2>'
+                + stroke_list + "</section>"
+                + '<section id="evidence-findings" class="evidence-section" '
+                'aria-label="Saved candidate findings"><h2>Candidate findings</h2>'
+                + findings_list + "</section>"
+                + '<nav class="evidence-downloads" aria-label="Evidence exports">'
+                + f'<a href="/api/jobs/{job_id}/strokes.csv">'
+                'Export stroke evidence (CSV)</a>'
+                + f'<a href="/api/jobs/{job_id}/review.csv">'
+                'Blank coach-review worksheet</a>'
+                + f'<a href="/api/jobs/{job_id}/fault-review.csv">'
+                'Complete per-fault coach-review grid</a>'
+                + '</nav>'
+                + f'<p><a href="/jobs/{job_id}">Back to job</a></p>'
+            )
             self._send(200, _document("Saved evidence", body))
 
         def _reject_unsupported_method(self):

@@ -85,6 +85,32 @@ def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
     ).encode("utf-8")
 
 
+
+def _job_stage_list(status: str) -> str:
+    """Render only observed coarse job states, never invented percentages."""
+    if status == "failed":
+        steps = (("is-complete", "Queued"),
+                 ("is-failed", "Processing stopped"),
+                 ("is-upcoming", "Results unavailable"))
+    else:
+        completed = {"queued": 0, "running": 1, "succeeded": 3}.get(status)
+        if completed is None:
+            return '<p role="status">Analysis stage unavailable.</p>'
+        names = ("Queued", "Analyzing", "Results available" if completed == 3 else "Results")
+        steps = tuple(("is-complete" if index < completed else
+                       "is-current" if index == completed else "is-upcoming", name)
+                      for index, name in enumerate(names))
+    items = []
+    for index, (state, label) in enumerate(steps, start=1):
+        current = ' aria-current="step"' if state == "is-current" else ""
+        items.append(
+            f'<li class="job-step {state}"{current}>'
+            f'<span class="step-index" aria-hidden="true">{index:02d}</span>'
+            f'<span class="step-label">{label}</span></li>'
+        )
+    return '<ol class="job-steps" aria-label="Analysis stages">' + "".join(items) + '</ol>'
+
+
 def _seek_query(query: str) -> str | None:
     """Allow only one small, unambiguous playback timestamp parameter."""
     if not query:
@@ -797,7 +823,8 @@ def create_server(
             state_token = status if status in ("queued", "running", "succeeded", "failed") else "unknown"
             content = (f"<p>Job: <code>{job_id}</code></p>"
                        f'<p>Status: <span class="state-badge state-{state_token}" role="status">{status}</span></p>'
-                       '<p>Coaching: <strong>withheld</strong></p>'
+                       + _job_stage_list(status)
+                       + '<p>Coaching: <strong>withheld</strong></p>'
                        + message + link + media_player + retry
                        + '<p><a href="/">Choose another clip</a></p>')
             self._send(200, _document("Analysis status", content,

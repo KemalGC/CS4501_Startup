@@ -32,6 +32,10 @@ jobs:
         run: python -m unittest discover -s strokesense/tests -p test_comparison_workspace.py -v
       - name: Render and navigate synthetic comparison workspace
         run: python strokesense/tests/browser_comparison_workspace.py
+      - name: Run targeted completed-analysis review regressions
+        run: python -m unittest discover -s strokesense/tests -p test_results_workspace.py -v
+      - name: Render and inspect synthetic job result cards in native Chrome
+        run: python strokesense/tests/browser_results_workspace.py
       - name: Submit native form using installed Chrome
         run: python strokesense/tests/browser_form_origin.py
       - name: Render and navigate synthetic saved evidence overview

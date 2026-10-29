@@ -174,9 +174,7 @@ main ol.history-list li.history-card { padding: 1.05rem 1.15rem; border: 1px sol
 .comparison-run { min-width: 0; padding: 1rem 1.1rem; background: #fff; border: 1px solid #cbdfe1; border-radius: .9rem; box-shadow: 0 4px 18px rgb(24 68 72 / 5%); }
 .comparison-run-label { margin: 0; color: #087365; font-size: .74rem; letter-spacing: .12em; font-weight: 850; }
 .comparison-run h3 { margin: .2rem 0 .7rem; color: var(--night); font-size: 1.2rem; }
-.comparison-meta { display: grid; margin: 0 0 1rem; gap: .25rem; }
-.comparison-meta dt { font-size: .79rem; font-weight: 700; color: #536979; }
-.comparison-meta dd { margin: 0; overflow-wrap: anywhere; color: var(--night); font-size: 1rem; font-weight: 800; }
+.comparison-meta { margin: 0 0 1rem; color: #405868; font-size: .92rem; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
 .comparison-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
 .comparison-actions a, .comparison-utilities a { display: inline-flex; align-items: center; justify-content: center; min-height: 2.65rem; padding: .53rem .84rem; border: 1px solid #8bbdb1; border-radius: .6rem; color: var(--teal-deep); background: #fff; font-size: .91rem; font-weight: 750; text-decoration: none; }
 .comparison-actions a:hover, .comparison-utilities a:hover { background: #def4eb; border-color: var(--teal-deep); }

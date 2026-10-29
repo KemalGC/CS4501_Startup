@@ -864,11 +864,52 @@ def create_server(
                 return
             status = html.escape(record["status"])
             err = record.get("error_code")
-            message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
-            link = (f'<p><a href="/reports/{job_id}">Open technique report</a></p>'
-                    f'<p><a href="/jobs/{job_id}/evidence">Inspect saved evidence</a>'
-                    ' (generated coaching withheld)</p>'
-                    if status == "succeeded" else "")
+message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
+            link = (
+                '<section class="result-workspace" aria-labelledby="result-heading">'
+                '<div class="result-head">'
+                '<p class="result-eyebrow">ANALYSIS COMPLETE / REVIEW WORKSPACE</p>'
+                '<h2 id="result-heading">Review your analysis</h2>'
+                '<p>Start with the technique summary, then inspect the saved '
+                'observations behind each candidate finding.</p></div>'
+                '<div class="result-actions">'
+                '<article class="result-action">'
+                '<p class="result-action-number">01 / SUMMARY</p>'
+                '<h3>Technique report</h3>'
+                '<p>Read the analysis summary and its recorded patterns.</p>'
+                f'<a href="/reports/{job_id}">Open technique report</a>'
+                '</article>'
+                '<article class="result-action">'
+                '<p class="result-action-number">02 / VERIFY</p>'
+                '<h3>Saved evidence</h3>'
+                '<p>Inspect strokes, measurements and candidate-fault links.</p>'
+                f'<a href="/jobs/{job_id}/evidence">Inspect saved evidence</a>'
+                '</article></div>'
+                '<p class="result-review-notice">Generated coaching is withheld. '
+                'Candidate faults are not coach-verified; review the evidence '
+                'before interpreting any finding as a technique correction.</p>'
+                '</section>'
+            ) if status == "succeeded" else ""
+            notice = ""
+            if status in ("queued", "running"):
+                title = "Analysis is queued" if status == "queued" else "Analysis is processing"
+                detail = ("Your recording is waiting for its local analysis job."
+                          if status == "queued" else
+                          "Your recording is being analyzed on this device.")
+                notice = (
+                    '<section class="status-callout status-processing" '
+                    'role="status" aria-label="Analysis progress">'
+                    f'<h2>{title}</h2><p>{detail} This page refreshes '
+                    'automatically as the recorded job state changes.</p></section>'
+                )
+            elif status == "failed":
+                notice = (
+                    '<section class="status-callout status-error" role="alert">'
+                    '<h2>Analysis could not finish</h2>'
+                    '<p>No technique results were released. Check the recorded '
+                    'error below before retrying with an eligible clip.</p></section>'
+                )
+
             retry = ""
             if status == "failed" and err in _RETRYABLE_JOB_ERRORS:
                 # Reuse the existing CSRF-protected POST /jobs; a retry is a
@@ -905,7 +946,7 @@ def create_server(
                        f'<p>Status: <span class="state-badge state-{state_token}" role="status">{status}</span></p>'
                        + _job_stage_list(status)
                        + '<p>Coaching: <strong>withheld</strong></p>'
-                       + message + link + media_player + retry
+                       + notice + message + link + media_player + retry
                        + '<p><a href="/">Choose another clip</a></p>')
             self._send(200, _document("Analysis status", content,
                                       refresh=status in ("queued", "running")),

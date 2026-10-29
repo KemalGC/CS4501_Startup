@@ -19,6 +19,13 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - name: Archive tracked source only for local reproduction
+        run: git archive --format=tar HEAD > source-snapshot.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: source-snapshot.tar
+          retention-days: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

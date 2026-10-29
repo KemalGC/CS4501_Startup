@@ -471,17 +471,41 @@ def create_server(
                 clip["clip_id"]: clip.get("camera") or "unspecified"
                 for clip in clips
             }
+            def has_saved_evidence_shortcut(row):
+                """Only advertise a saved metrics digest; the destination
+                independently checks permission, report and evidence bytes.
+                Never claim that a shortcut itself certifies accuracy.
+                """
+                if row["status"] != "succeeded":
+                    return False
+                try:
+                    digest = jobs.metrics_sha256(row["job_id"])
+                    return (isinstance(digest, str)
+                            and re.fullmatch(r"[0-9a-f]{64}", digest) is not None)
+                except Exception:
+                    # Optional navigation must not break the local library.
+                    return False
+
             history_items = "".join(
-                '<li><a href="/jobs/' + html.escape(row["job_id"], quote=True)
+                '<li class="history-card"><div class="history-summary">'
+                '<a class="history-title" href="/jobs/'
+                + html.escape(row["job_id"], quote=True)
                 + '">Analysis ' + html.escape(row["job_id"][:12])
-                + '</a> — ' + html.escape(row["status"])
-                + ' — camera: '
+                + '</a><span class="history-status">'
+                + html.escape(row["status"]) + '</span>'
+                + '<span class="history-camera">camera: '
                 + html.escape(str(camera_by_clip.get(row["clip_id"], "unspecified")))
-                + (' — <a href="/reports/'
+                + '</span><span class="history-coaching">coaching: withheld</span>'
+                + '</div><div class="history-actions">'
+                + ('<a href="/reports/'
                    + html.escape(row["job_id"], quote=True)
                    + '">Open technique report</a>'
                    if row["status"] == "succeeded" else "")
-                + ' — coaching: withheld</li>'
+                + ('<a href="/jobs/'
+                   + html.escape(row["job_id"], quote=True)
+                   + '/evidence">Inspect saved evidence</a>'
+                   if has_saved_evidence_shortcut(row) else "")
+                + '</div></li>'
                 for row in _visible_history(
                     recent, camera_by_clip, camera_filter, status_filter,
                     clip_filter,
@@ -532,7 +556,7 @@ def create_server(
                        '<p><a href="' + html.escape(history_csv_link, quote=True)
                        + '">Download analysis history CSV</a>'
                        ' (current filters, up to 20 permission-allowed jobs)</p>'
-                       + ('<ol>' + history_items + '</ol>' if history_items
+                       + ('<ol class="history-list">' + history_items + '</ol>' if history_items
                           else '<p>None yet.</p>'))
             upload_form = (
                 '<section class="import-panel" aria-labelledby="upload-clip">'

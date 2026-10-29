@@ -783,8 +783,9 @@ def create_server(
             if at is not None and not media_player:
                 self._error(404)
                 return
+            state_token = status if status in ("queued", "running", "succeeded", "failed") else "unknown"
             content = (f"<p>Job: <code>{job_id}</code></p>"
-                       f"<p>Status: <strong>{status}</strong></p>"
+                       f'<p>Status: <span class="state-badge state-{state_token}" role="status">{status}</span></p>'
                        '<p>Coaching: <strong>withheld</strong></p>'
                        + message + link + media_player + retry
                        + '<p><a href="/">Choose another clip</a></p>')

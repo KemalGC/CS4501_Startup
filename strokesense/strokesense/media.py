@@ -12,9 +12,14 @@ _SUPPORTED_BMFF = frozenset({".mp4", ".mov"})
 _SUPPORTED_EBML = frozenset({".mkv", ".webm"})
 
 
-def plausible_container(data: bytes, extension: str) -> bool:
+def plausible_container(data: bytes, extension: str, *, total_size: int | None = None) -> bool:
     """Fail closed for clearly incompatible or truncated container headers."""
     if not isinstance(data, bytes) or not isinstance(extension, str):
+        return False
+    # A streamed prefix may be shorter than the actual body. The caller must
+    # pass its observed byte count, never an unverified Content-Length.
+    actual_size = len(data) if total_size is None else total_size
+    if type(actual_size) is not int or actual_size < len(data):
         return False
     extension = extension.lower()
     if extension in _SUPPORTED_BMFF:
@@ -27,7 +32,7 @@ def plausible_container(data: bytes, extension: str) -> bool:
         if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"AVI ":
             return False
         declared_size = int.from_bytes(data[4:8], "little")
-        return 16 <= declared_size <= len(data) - 8
+        return 16 <= declared_size <= actual_size - 8
     if extension in _SUPPORTED_EBML:
         if len(data) < 6 or data[:4] != b"\x1a\x45\xdf\xa3":
             return False

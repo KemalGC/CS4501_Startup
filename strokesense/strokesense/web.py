@@ -10,8 +10,6 @@ import argparse
 import csv
 import io
 import hashlib
-from email import policy
-from email.parser import BytesParser
 import hmac
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +21,7 @@ import re
 import secrets
 import shutil
 import tempfile
+import sys
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .evidence import verify_evidence_snapshot
@@ -328,6 +327,12 @@ def create_server(
         def log_message(self, fmt, *args):
             # Do not emit clip IDs, private paths or raw user-supplied routes.
             pass
+
+        def log_request(self, code="-", size="-"):
+            # Visible local diagnostics, without filenames, tokens or paths.
+            if (self.command == "POST" and urlsplit(self.path).path == "/upload"
+                    and isinstance(code, int)):
+                print(f"StrokeSense upload: HTTP {code}", file=sys.stderr, flush=True)
 
         def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",
                   csp=_PAGE_CSP, location=None, allow=None,
@@ -1426,7 +1431,8 @@ def create_server(
                         self._error(422)
                         return
                     staging.seek(0)
-                    if not plausible_container(staging.read(4096), extension):
+                    if not plausible_container(staging.read(4096), extension,
+                                               total_size=fields["video"]):
                         self._error(415)
                         return
                     staging.seek(0)
@@ -1450,11 +1456,12 @@ def create_server(
             except MultipartError as exc:
                 self._error(413 if "size limit" in str(exc) else 400)
                 return
+            except RegistryError:
+                # RegistryError subclasses ValueError: catch it first.
+                self._error(422)
+                return
             except (UnicodeError, ValueError, TypeError, OSError, TimeoutError):
                 self._error(400)
-                return
-            except RegistryError:
-                self._error(422)
                 return
             except Exception:
                 self._error(503)
@@ -1566,6 +1573,8 @@ def main(argv=None):
         with create_server(jobs, registry_db=args.registry_db,
                            upload_dir=args.uploads, port=args.port) as server:
             print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")
+            print("Upload mode: streaming-150MiB-v1 (maximum video: 150 MiB)",
+                  flush=True)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

@@ -720,45 +720,71 @@ def create_server(
                 )
             if table_rows:
                 frequency = (
-                    '<table border="1"><thead><tr><th>Candidate fault</th>'
-                    '<th>Earlier run</th><th>Later run</th></tr></thead><tbody>'
-                    + "".join(table_rows) + '</tbody></table>'
+                    '<section class="comparison-findings" aria-labelledby="comparison-findings-heading">'
+                    '<h2 id="comparison-findings-heading">Candidate faults to inspect</h2>'
+                    '<p>Each count links directly to the integrity-checked saved strokes '
+                    'for that candidate fault.</p>'
+                    '<div class="comparison-scroll" role="region" '
+                    'aria-label="Candidate fault comparison table" tabindex="0">'
+                    '<table class="comparison-table">'
+                    '<caption>Observed candidate faults across saved analyzed strokes</caption>'
+                    '<thead><tr><th scope="col">Candidate fault</th>'
+                    '<th scope="col">Earlier run</th>'
+                    '<th scope="col">Later run</th></tr></thead><tbody>'
+                    + "".join(table_rows) + '</tbody></table></div></section>'
                 )
             else:
                 frequency = (
-                    "<p>Neither saved evidence snapshot flagged a candidate "
-                    "fault. This is not a negative coach-reviewed label.</p>"
+                    '<section class="comparison-findings" aria-labelledby="comparison-findings-heading">'
+                    '<h2 id="comparison-findings-heading">Candidate faults to inspect</h2>'
+                    '<p class="comparison-empty">Neither saved evidence snapshot flagged '
+                    'a candidate fault. This is not a negative coach-reviewed label.</p>'
+                    '</section>'
                 )
             same_clip = first["clip_id"] == last["clip_id"]
             content = (
-                "<p>Candidate fault counts over analyzed strokes only; "
-                "not proof of improvement, diagnostic accuracy, or coaching "
-                "effectiveness. Different footage, viewpoints and settings "
-                "can make these runs incomparable.</p>"
-                + ("<p>Same registered source clip.</p>" if same_clip
-                   else "<p>Different registered source clips.</p>")
-                + "<p>Earlier viewpoint (operator-entered): "
-                + html.escape(first["camera"]) + "</p>"
-                + "<p>Later viewpoint (operator-entered): "
-                + html.escape(last["camera"]) + "</p>"
-                + ("<p><strong>Camera viewpoints differ.</strong> "
-                   "Candidate counts are not normalized across viewpoints.</p>"
+                '<section class="comparison-panel" aria-labelledby="comparison-panel-heading">'
+                '<p class="comparison-eyebrow">SAVED MEASUREMENT REVIEW</p>'
+                '<h2 id="comparison-panel-heading">Two runs, one evidence trail</h2>'
+                '<p class="comparison-context">Candidate fault counts over analyzed strokes only; '
+                'not proof of improvement, diagnostic accuracy, or coaching '
+                'effectiveness. Different footage, viewpoints and settings '
+                'can make these runs incomparable.</p>'
+                '<div class="comparison-runs">'
+                '<article class="comparison-run" aria-label="Earlier analysis">'
+                '<p class="comparison-run-label">01 / EARLIER</p>'
+                '<h3>Earlier run</h3>'
+                '<dl class="comparison-meta"><dt>Viewpoint (operator-entered)</dt><dd>'
+                + html.escape(first["camera"]) + '</dd></dl>'
+                '<div class="comparison-actions"><a href="/reports/' + before
+                + '">Open report</a><a href="/jobs/' + before
+                + '/evidence">Inspect evidence</a></div></article>'
+                '<article class="comparison-run" aria-label="Later analysis">'
+                '<p class="comparison-run-label">02 / LATER</p>'
+                '<h3>Later run</h3>'
+                '<dl class="comparison-meta"><dt>Viewpoint (operator-entered)</dt><dd>'
+                + html.escape(last["camera"]) + '</dd></dl>'
+                '<div class="comparison-actions"><a href="/reports/' + after
+                + '">Open report</a><a href="/jobs/' + after
+                + '/evidence">Inspect evidence</a></div></article>'
+                '</div>'
+                '<p class="comparison-source">'
+                + ("Same registered source clip." if same_clip
+                   else "Different registered source clips.") + '</p>'
+                + ('<p class="comparison-warning"><strong>Camera viewpoints differ.</strong> '
+                   'Candidate counts are not normalized across viewpoints.</p>'
                    if first["camera"] != last["camera"] else "")
-                + "<p>Coaching withheld on both analyses.</p>"
-                + '<p>Earlier: <a href="/reports/' + before
-                + '">Open report</a> · <a href="/jobs/' + before
-                + '/evidence">Inspect evidence</a></p>'
-                + '<p>Later: <a href="/reports/' + after
-                + '">Open report</a> · <a href="/jobs/' + after
-                + '/evidence">Inspect evidence</a></p>'
+                + '<p class="comparison-withheld"><strong>Coaching withheld</strong> '
+                'on both analyses. Candidate counts are unreviewed.</p>'
+                '</section>'
                 + frequency
-                + '<p><a href="'
+                + '<div class="comparison-utilities"><a href="'
                 + html.escape(
                     "/compare.csv?" + urlencode((("before", before), ("after", after))),
                     quote=True,
                 )
-                + '">Download comparison CSV</a></p>'
-                + '<p><a href="/">Back to analysis library</a></p>'
+                + '">Download comparison CSV</a>'
+                '<a href="/">Back to analysis library</a></div>'
             )
             self._send(200, _document("Compare saved analyses", content))
 

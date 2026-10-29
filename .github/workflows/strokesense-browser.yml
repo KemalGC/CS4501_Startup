@@ -28,6 +28,10 @@ jobs:
         run: python -m unittest discover -s strokesense/tests -p test_evidence_overview.py -v
       - name: Run targeted recent-history evidence shortcut tests
         run: python -m unittest discover -s strokesense/tests -p test_history_evidence_shortcut.py -v
+      - name: Run targeted comparison workspace regressions
+        run: python -m unittest discover -s strokesense/tests -p test_comparison_workspace.py -v
+      - name: Render and navigate synthetic comparison workspace
+        run: python strokesense/tests/browser_comparison_workspace.py
       - name: Submit native form using installed Chrome
         run: python strokesense/tests/browser_form_origin.py
       - name: Render and navigate synthetic saved evidence overview

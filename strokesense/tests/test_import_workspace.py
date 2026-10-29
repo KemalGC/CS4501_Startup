@@ -17,7 +17,7 @@ from strokesense.registry import list_clips
 from strokesense.web import create_server
 
 
-SYNTHETIC_MP4 = b"\\x00\\x00\\x00\\x18ftypisom" + b"\\x00" * 12
+SYNTHETIC_MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 12
 
 
 class GuidedImportWorkspaceTests(unittest.TestCase):
@@ -110,16 +110,16 @@ class GuidedImportWorkspaceTests(unittest.TestCase):
         blocks = []
         for name, value in fields:
             blocks.append(
-                (f'--{boundary}\\r\\nContent-Disposition: form-data; name="{name}"'
-                 f'\\r\\n\\r\\n{value}\\r\\n').encode("utf-8")
+                (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"'
+                 f'\r\n\r\n{value}\r\n').encode("utf-8")
             )
         blocks.append(
-            (f'--{boundary}\\r\\nContent-Disposition: form-data; name="video";'
-             f' filename="fixture.mp4"\\r\\nContent-Type: video/mp4'
-             f'\\r\\n\\r\\n').encode("ascii")
-            + SYNTHETIC_MP4 + b"\\r\\n"
+            (f'--{boundary}\r\nContent-Disposition: form-data; name="video";'
+             f' filename="fixture.mp4"\r\nContent-Type: video/mp4'
+             f'\r\n\r\n').encode("ascii")
+            + SYNTHETIC_MP4 + b"\r\n"
         )
-        blocks.append(f"--{boundary}--\\r\\n".encode("ascii"))
+        blocks.append(f"--{boundary}--\r\n".encode("ascii"))
         code, headers, _ = self.request(
             "POST", "/upload", body=b"".join(blocks),
             headers={

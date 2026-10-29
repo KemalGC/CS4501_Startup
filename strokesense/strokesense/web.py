@@ -933,11 +933,16 @@ message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
                     mime = ("video/webm" if media[0].lower().endswith(".webm")
                             else "video/mp4")
                     fragment = f"#t={at}" if at is not None else ""
-                    media_player = (
-                        '<h2>Annotated video</h2><video controls preload="metadata" '
+media_player = (
+                        '<section class="result-video" aria-labelledby="result-video-heading">'
+                        '<h2 id="result-video-heading">Annotated video</h2>'
+                        '<p>Review locally rendered footage alongside the saved '
+                        'measurements. Playback does not mean coach verification.</p>'
+                        '<video controls preload="metadata" '
                         f'width="720" src="/media/{job_id}{fragment}" type="{mime}">'
-                        'Your browser does not support HTML5 video.</video>'
+                        'Your browser does not support HTML5 video.</video></section>'
                     )
+
             if at is not None and not media_player:
                 self._error(404)
                 return

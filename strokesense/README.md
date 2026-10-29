@@ -1170,3 +1170,45 @@ server in the sandbox browser was blocked by
 `ERR_BLOCKED_BY_ADMINISTRATOR`. Keyboard/screen-reader and Windows
 Chrome verification require human review.
 
+
+
+## Guided local video import workspace (issue #90)
+
+The local Alpha home page has a **two-step native import panel**, not a
+JavaScript uploader: **Choose a recording**, then **Confirm permission**.
+Use the file picker for an allowed \`.mp4\`, \`.mov\`, \`.mkv\`, \`.avi\`, or
+\`.webm\` recording up to **150 MiB**. The second step requires an operator
+permission attestation and a brief provenance reference; camera viewpoint is
+optional. The checked **Analyze immediately after import** choice submits the
+registered clip to the existing job queue. Uncheck it to import only. The
+form remains usable without JavaScript; this UI does **not** promise a
+drag-and-drop feature or a percentage upload progress bar.
+
+For an existing Windows checkout (from the repository's \`strokesense/\`
+directory), start the loopback UI with:
+
+\`\`\`powershell
+python -m strokesense.web --port 8766
+\`\`\`
+
+Open \`http://127.0.0.1:8766/\` in a **fresh tab after each server restart**
+to obtain the current anti-CSRF token. Do not submit an old saved
+\`/upload\` form. Only import content you have permission to analyze.
+The stored provenance is an **operator claim**, not verified consent.
+Uploads are kept on the local machine; the server does not deploy
+footage to cloud storage or call an LLM, and candidate coaching is
+withheld until independently approved.
+
+UI route and HTTP fixture regression tests (no real rowing footage):
+
+\`\`\`bash
+python -m unittest discover -s strokesense/tests -p test_import_workspace.py -v
+python strokesense/quality.py
+\`\`\`
+
+On machines with the test-only Playwright dependency and an installed
+Chrome/Chromium, \`python strokesense/tests/browser_form_origin.py\`
+also exercises the native upload from a browser with JavaScript disabled,
+and verifies the visible import controls at **320, 390 and 1280 px**.
+These are layout and upload integration checks, **not** real-video
+decoding, computer-vision accuracy, or coach validation.

@@ -35,7 +35,8 @@ from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
 
 _JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
 _MAX_FORM = 2048
-_MAX_UPLOAD = 25 * 1024 * 1024
+_MAX_VIDEO_BYTES = 150 * 1024 * 1024
+_MAX_UPLOAD = _MAX_VIDEO_BYTES + 1024 * 1024  # Bounded multipart fields/headers
 _VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
 _CAMERA_CHOICES = frozenset({"", "side-on", "bow-on", "stern-on"})
 _MAX_REPORT = 32 * 1024 * 1024
@@ -500,7 +501,7 @@ def create_server(
             upload_form = (
                 '<h2 id="upload-clip">Register a new local clip</h2>'
                 '<form method="post" action="/upload" enctype="multipart/form-data">'
-                '<label>Video (.mp4, .mov, .mkv, .avi, .webm): '
+                '<label>Video (up to 150 MiB; .mp4, .mov, .mkv, .avi, .webm): '
                 '<input type="file" name="video" required></label>'
                 '<label>Permission attestation: '
                 '<input type="checkbox" name="permission" value="granted" required>'
@@ -1436,6 +1437,9 @@ def create_server(
                 video = fields["video"].get_payload(decode=True)
                 if not isinstance(video, bytes) or not video:
                     self._error(422)
+                    return
+                if len(video) > _MAX_VIDEO_BYTES:
+                    self._error(413)
                     return
                 if not plausible_container(video, extension):
                     self._error(415)

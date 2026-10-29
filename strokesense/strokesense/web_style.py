@@ -148,6 +148,23 @@ form[action="/upload"] .import-actions button:hover { background: var(--night-li
 .evidence-section { margin: 1.6rem 0; scroll-margin-top: 1.5rem; }
 .evidence-section h2 { margin-top: 0; }
 .evidence-downloads { padding: 1rem 0; border-top: 1px solid var(--line); }
+/* Recent saved runs: quick, honest actions without a second navigation step. */
+main ol.history-list { list-style: none; padding: 0; border: 0; background: transparent; display: grid; gap: .75rem; }
+main ol.history-list li.history-card { padding: 1.05rem 1.15rem; border: 1px solid var(--line); border-radius: .85rem; background: #fbfdfe; box-shadow: 0 4px 16px rgb(25 59 79 / 5%); }
+.history-summary { display: flex; gap: .4rem .9rem; align-items: center; flex-wrap: wrap; }
+.history-title { color: var(--night); font-weight: 800; font-size: 1.04rem; text-decoration: none; }
+.history-title:hover { text-decoration: underline; }
+.history-status { display: inline-flex; align-items: center; border-radius: 99px; padding: .15rem .65rem; background: #e7f3ef; color: #075e55; font-size: .83rem; font-weight: 750; text-transform: capitalize; }
+.history-camera, .history-coaching { color: var(--muted); font-size: .88rem; }
+.history-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .65rem; }
+.history-actions a { display: inline-flex; min-height: 2.6rem; align-items: center; justify-content: center; padding: .48rem .8rem; border: 1px solid #84bcb1; background: #fff; border-radius: .6rem; text-decoration: none; font-weight: 750; font-size: .9rem; color: var(--teal-deep); }
+.history-actions a:hover { background: var(--mint); border-color: var(--teal-deep); }
+.history-actions a[href$="/evidence"] { background: var(--mint); }
+@media (max-width: 720px) {
+  main ol.history-list li.history-card { padding: .9rem; }
+  .history-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .history-actions a { width: 100%; }
+}
 footer { padding: 1.2rem .25rem; font-size: .87rem; color: var(--muted); }
 footer strong { color: var(--night); }
 @media (max-width: 720px) {

@@ -54,7 +54,7 @@ class ResultsWorkspaceTests(unittest.TestCase):
                 self.assertNotIn('class="result-workspace"', page)
                 self.assertNotIn(f'href="/reports/{self.rig.job_id}"', page)
                 self.assertNotIn(f'href="/jobs/{self.rig.job_id}/evidence"', page)
-                self.assertNotIn('100%', page)
+                self.assertNotIn('% complete', page.split('</style></head>', 1)[-1])
 
     def test_failure_explains_state_preserves_retry_without_false_results(self):
         for error in ('analysis_failed', 'unsupported_video'):

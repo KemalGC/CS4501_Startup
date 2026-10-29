@@ -79,6 +79,12 @@ table { width: 100%; border-collapse: collapse; display: block; max-width: 100%;
 th, td { padding: .65rem; text-align: left; border-bottom: 1px solid var(--line); }
 th { background: #ecf3f5; }
 video { display: block; width: 100%; max-width: 760px; height: auto; border-radius: .8rem; background: #091421; }
+.state-badge { display: inline-flex; align-items: center; padding: .3rem .85rem; border: 1px solid transparent; border-radius: 100px; font-size: .9rem; font-weight: 800; text-transform: capitalize; line-height: 1.6; }
+.state-badge::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; margin-right: .5rem; }
+.state-succeeded { background: #e1f6ec; color: #116041; border-color: #9acdb4; }
+.state-queued, .state-running { background: #e8f1ff; color: #164e88; border-color: #b6cbe8; }
+.state-failed { background: #fff0eb; color: #a3371e; border-color: #e2b2a6; }
+.state-unknown { background: #edf0f3; color: #334155; border-color: #cbd5e1; }
 footer { padding: 1.2rem .25rem; font-size: .87rem; color: var(--muted); }
 footer strong { color: var(--night); }
 @media (max-width: 720px) {

@@ -165,6 +165,46 @@ main ol.history-list li.history-card { padding: 1.05rem 1.15rem; border: 1px sol
   .history-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .history-actions a { width: 100%; }
 }
+/* Two-run comparison: source context and observed evidence stay distinct. */
+.comparison-panel { margin: 1.1rem 0 1.8rem; padding: clamp(1rem, 2.6vw, 1.6rem); border: 1px solid #b6dcd4; border-radius: 1.15rem; background: linear-gradient(135deg, #e8f6f2, #f6fafc 78%); }
+.comparison-eyebrow { margin: 0; color: var(--teal-deep); font-size: .76rem; font-weight: 850; letter-spacing: .13em; }
+.comparison-panel h2 { border: 0; margin: .3rem 0 .5rem; padding: 0; font-size: clamp(1.4rem, 3vw, 1.85rem); }
+.comparison-context { margin: 0 0 1.15rem; color: #43576a; line-height: 1.6; }
+.comparison-runs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .95rem; }
+.comparison-run { min-width: 0; padding: 1rem 1.1rem; background: #fff; border: 1px solid #cbdfe1; border-radius: .9rem; box-shadow: 0 4px 18px rgb(24 68 72 / 5%); }
+.comparison-run-label { margin: 0; color: #087365; font-size: .74rem; letter-spacing: .12em; font-weight: 850; }
+.comparison-run h3 { margin: .2rem 0 .7rem; color: var(--night); font-size: 1.2rem; }
+.comparison-meta { display: grid; margin: 0 0 1rem; gap: .25rem; }
+.comparison-meta dt { font-size: .79rem; font-weight: 700; color: #536979; }
+.comparison-meta dd { margin: 0; overflow-wrap: anywhere; color: var(--night); font-size: 1rem; font-weight: 800; }
+.comparison-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.comparison-actions a, .comparison-utilities a { display: inline-flex; align-items: center; justify-content: center; min-height: 2.65rem; padding: .53rem .84rem; border: 1px solid #8bbdb1; border-radius: .6rem; color: var(--teal-deep); background: #fff; font-size: .91rem; font-weight: 750; text-decoration: none; }
+.comparison-actions a:hover, .comparison-utilities a:hover { background: #def4eb; border-color: var(--teal-deep); }
+.comparison-actions a:focus-visible, .comparison-utilities a:focus-visible { outline: 3px solid #087f70; outline-offset: 3px; }
+.comparison-source { margin: 1rem 0 .55rem; color: #415c65; font-weight: 700; }
+.comparison-warning { padding: .7rem .9rem; border-left: 4px solid #ad6613; background: #fff5df; border-radius: .35rem; color: #5d3d0b; }
+.comparison-withheld { margin: .8rem 0 0; padding: .7rem .9rem; border: 1px solid #c8d8df; border-radius: .6rem; background: #fff; color: #314b5d; }
+.comparison-findings { margin: 1.4rem 0 1.6rem; }
+.comparison-findings h2 { margin-top: 0; }
+.comparison-findings > p { color: #43576a; }
+.comparison-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #cadde0; border-radius: .85rem; background: #fff; }
+.comparison-scroll:focus-visible { outline: 3px solid #087f70; outline-offset: 3px; }
+.comparison-table { display: table; width: 100%; min-width: 38rem; border-collapse: collapse; }
+.comparison-table caption { padding: .75rem 1rem; text-align: left; color: #385462; font-size: .85rem; font-weight: 750; background: #f3f8fa; }
+.comparison-table th, .comparison-table td { padding: .8rem 1rem; border-bottom: 1px solid #dce8eb; vertical-align: top; }
+.comparison-table thead th { background: #eaf4f2; color: #1b4c44; font-size: .9rem; }
+.comparison-table tbody tr:last-child th, .comparison-table tbody tr:last-child td { border-bottom: 0; }
+.comparison-table td a { display: inline-flex; align-items: center; min-height: 2.5rem; padding: .35rem .55rem; border: 1px solid #a4cfbf; border-radius: .5rem; background: #eff8f5; color: #075e55; font-weight: 750; }
+.comparison-table td a:hover { background: #daeee6; }
+.comparison-empty { padding: 1rem; background: #eff6f8; border: 1px dashed #acc6cf; border-radius: .8rem; }
+.comparison-utilities { display: flex; gap: .65rem; flex-wrap: wrap; padding-top: 1rem; border-top: 1px solid var(--line); }
+@media (max-width: 720px) {
+  .comparison-panel { padding: .95rem; }
+  .comparison-runs { grid-template-columns: minmax(0, 1fr); }
+  .comparison-run { padding: .9rem; }
+  .comparison-actions a { flex: 1 1 100%; }
+  .comparison-utilities a { flex: 1 1 100%; }
+}
 footer { padding: 1.2rem .25rem; font-size: .87rem; color: var(--muted); }
 footer strong { color: var(--night); }
 @media (max-width: 720px) {

@@ -1,3 +1,11 @@
+
+### 2026-10-29-1115-sprint — browser imports up to 150 MiB (issue #87)
+
+- Branch: `dev/2026-10-29-1115-upload-150mb`; base `dev/strokesense-2026-10-26`; local start approximately 11:15 America/New_York. Actual measured session duration unavailable (no monotonic timer); do not claim a full session.
+- Story: coach can import local files up to 150 MiB. Test-first commit `452d4f43` added exact configured limit and pre-read 152 MiB rejection assertions; production commit `ca2bd793` raised the video size to 150 MiB and bounded multipart request to 151 MiB, rejecting excess decoded media bytes; documentation commit followed. Old 25 MiB maximum removed from browser route. Explicit permission, CSRF, media signature and local-only behavior retained.
+- Test execution: GitHub status returned no checks and PR-run lookup returned no runs at inspection time. **No observed red/green or full quality suite result yet; changes NOT integrated.** Browser actual 150 MiB upload and resident-memory footprint unverified. Tests use synthetic bytes, not labeled real footage; no empirical accuracy claims. Team inspection pending.
+- Remaining: dedicated upload reader holds entire multipart body and parser in memory; rendered media remains separately capped at 64 MiB. Next: run `python strokesense/quality.py`, exercise real near-limit media under memory profiling, then guarded integration if green. No credentials or private videos committed; progress communication pending.
+
 # StrokeSense development log and handoff
 
 This file is the durable handoff for development of `KemalGC/CS4501_Startup`.

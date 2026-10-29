@@ -60,6 +60,32 @@ def main():
                 assert page.locator("#evidence-findings h2").inner_text() == (
                     "Candidate findings"
                 )
+                # Confirm the real native browser can navigate straight from
+                # the responsive history card into the saved evidence route.
+                history_widths = []
+                for width in (320, 390, 1280):
+                    page.set_viewport_size({"width": width, "height": 900})
+                    home = page.goto(origin + "/")
+                    assert home.status == 200, f"history route {home.status}"
+                    card = page.locator("ol.history-list li.history-card")
+                    assert card.count() == 1, "synthetic completed job not in library"
+                    for selector in ("ol.history-list", ".history-card",
+                                     ".history-actions"):
+                        bounds = page.locator(selector).bounding_box()
+                        assert bounds is not None, f"{selector} missing at {width}px"
+                        assert bounds["x"] >= -1, f"{selector} clipped at {width}px"
+                        assert bounds["x"] + bounds["width"] <= width + 1, (
+                            f"{selector} clips at {width}px"
+                        )
+                    link = page.locator(
+                        f'ol.history-list a[href="/jobs/{job_id}/evidence"]'
+                    )
+                    assert link.count() == 1
+                    assert link.is_visible(), f"evidence shortcut hidden at {width}px"
+                    link.click()
+                    assert page.url.endswith(f"/jobs/{job_id}/evidence")
+                    assert page.locator("#evidence-summary-title").is_visible()
+                    history_widths.append(width)
                 print(json.dumps({
                     "browser": browser.version,
                     "synthetic_snapshot_only": True,
@@ -67,6 +93,8 @@ def main():
                     "card_count": 3,
                     "rendered_viewports": widths,
                     "anchor_navigation": "passed",
+                    "history_card_widths": history_widths,
+                    "history_link_navigation": "passed",
                 }), flush=True)
             finally:
                 browser.close()

@@ -119,6 +119,26 @@ class LocalWebTests(unittest.TestCase):
         self.assertIn("sandbox", headers["Content-Security-Policy"])
         self.assertEqual(self.calls, [str(self.video)])
 
+    def test_completed_job_has_legible_semantic_status_badge(self):
+        """A completed offline synthetic job is visibly marked without JS."""
+        status, headers, _ = self.request(
+            "POST", "/jobs",
+            payload={"clip_id": self.clip_id, "csrf": self.server.csrf_token},
+            headers={"Origin": self.origin},
+        )
+        self.assertEqual(status, 303)
+        job_id = headers["Location"].rsplit("/", 1)[-1]
+        self.assertEqual(self.worker.wait(job_id, timeout=3)["status"], "succeeded")
+        status, _, body = self.request("GET", f"/jobs/{job_id}")
+        self.assertEqual(status, 200)
+        page = body.decode()
+        self.assertIn(
+            '<span class="state-badge state-succeeded" role="status">succeeded</span>',
+            page,
+        )
+        self.assertIn("Coaching: <strong>withheld</strong>", page)
+        self.assertNotIn(str(self.video), page)
+
     def test_csrf_token_required_without_enqueuing(self):
         for csrf in ("", "fake"):
             with self.subTest(csrf=csrf):

@@ -1,0 +1,131 @@
+name: Verify and publish upload recovery
+on:
+  push:
+    branches: ['dev/2026-10-29-1128-upload-recovery']
+    paths: ['.github/workflows/strokesense-upload-recovery.yml']
+permissions:
+  contents: read
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/dev/2026-10-29-1128-upload-recovery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/2026-10-29-1128-upload-recovery
+      - name: Verify exact checkout before any changes
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "BASE_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing project dependencies
+        run: python -m pip install -r strokesense/requirements.txt
+      - name: Apply reviewed source edits and remove temporary workflows
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('strokesense/strokesense/web.py')
+          s = p.read_text()
+          def replace(old, new):
+              global s
+              assert s.count(old) == 1, 'source changed; refusing ambiguous edit'
+              s = s.replace(old, new, 1)
+          replace('from email import policy\nfrom email.parser import BytesParser\n', '')
+          replace('import tempfile\n', 'import tempfile\nimport sys\n')
+          marker = '        def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",'
+          replace(marker, '''        def log_request(self, code="-", size="-"):
+                      # Visible local diagnostics, without filenames, tokens or paths.
+                      if (self.command == "POST" and urlsplit(self.path).path == "/upload"
+                              and isinstance(code, int)):
+                          print(f"StrokeSense upload: HTTP {code}", file=sys.stderr, flush=True)
+          
+          '''.replace('                      ', '            ').replace('                              ', '                    ').replace('                          print', '                print') + marker)
+          replace('if not plausible_container(staging.read(4096), extension):',
+                  'if not plausible_container(staging.read(4096), extension,\n                                               total_size=fields["video"]):')
+          replace('''            except (UnicodeError, ValueError, TypeError, OSError, TimeoutError):
+                          self._error(400)
+                          return
+                      except RegistryError:
+                          self._error(422)
+                          return'''.replace('                          ', '                ').replace('                      except', '            except'),
+                  '''            except RegistryError:
+                          # RegistryError subclasses ValueError: catch it first.
+                          self._error(422)
+                          return
+                      except (UnicodeError, ValueError, TypeError, OSError, TimeoutError):
+                          self._error(400)
+                          return'''.replace('                          ', '                ').replace('                      except', '            except'))
+          marker = '            print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")'
+          replace(marker, marker + '\n            print("Upload mode: streaming-150MiB-v1 (maximum video: 150 MiB)",\n                  flush=True)')
+          p.write_text(s)
+          p = Path('strokesense/strokesense/media.py')
+          s = p.read_text()
+          replace('def plausible_container(data: bytes, extension: str) -> bool:',
+                  'def plausible_container(data: bytes, extension: str, *, total_size: int | None = None) -> bool:')
+          replace('    extension = extension.lower()',
+                  '    # A streamed prefix may be shorter than the actual body. The caller must\n    # pass its observed byte count, never an unverified Content-Length.\n    actual_size = len(data) if total_size is None else total_size\n    if type(actual_size) is not int or actual_size < len(data):\n        return False\n    extension = extension.lower()')
+          replace('16 <= declared_size <= len(data) - 8', '16 <= declared_size <= actual_size - 8')
+          p.write_text(s)
+          # Restore the original read-only quality workflow; this one-shot recipe
+          # also removes itself from the commit that may be integrated.
+          p = Path('.github/workflows/strokesense-quality.yml')
+          s = p.read_text()
+          a = s.index('      - name: Archive tracked source only for local reproduction\n')
+          b = s.index('      - uses: actions/setup-python@v5\n', a)
+          p.write_text(s[:a] + s[b:])
+          Path('.github/workflows/strokesense-upload-recovery.yml').unlink()
+      - name: Compile and verify complete offline suite
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m py_compile strokesense/strokesense/web.py strokesense/strokesense/media.py
+          python strokesense/quality.py 2>&1 | tee /tmp/strokesense-recovery-quality.log
+          python strokesense/quality.py --doctor
+          git diff --check
+      - name: Append factual handoff after tests pass
+        shell: python
+        run: |
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import os, re
+          text = Path('/tmp/strokesense-recovery-quality.log').read_text()
+          counts = re.findall(r'Ran (\d+) tests', text)
+          assert counts and '\nOK\n' in text
+          now = datetime.now(ZoneInfo('America/New_York')).isoformat()
+          run = 'https://github.com/KemalGC/CS4501_Startup/actions/runs/' + os.environ['GITHUB_RUN_ID']
+          entry = f'''## 2026-10-29-1128-sprint — verified upload recovery (#87)
+          
+          - Manual continuation of unfinished #87; not an extra scheduled occurrence. Local start 2026-10-29T11:28:58-04:00; monotonic timer captured in private execution environment. CI verification checkpoint: {now}. Final local elapsed duration belongs in the progress email; no unmeasured 30-minute claim.
+          - Branch: `dev/2026-10-29-1128-upload-recovery`, created from verified integration `c64eadd616ef0c83d13de24f7a4bf5dc16dbb74f`, then fast-forwarded to unfinished streaming work `d293d27002c2e50ff69720811c756f28e366c312`. Demo target `dev-consolidated` was `3334b1ed6faa80578625f13b3530b3fd4c496b6f` and still had the old 25 MiB cap. Main observed `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc`; never written.
+          - Story/acceptance: coach imports up to 150 MiB through the actual local HTTP form, with bounded memory, exact stored content, preserved permission/CSRF/deduplication, and usable diagnostics. Activity 2 tracked in #87. Activity 3: before new production edits, existing camera-conflict test failed 400 instead of 422; newly added HTTP regressions failed for larger AVI (415 instead of 303) and missing safe upload logging. Existing streaming implementation was implementation-first; do not relabel it as TDD.
+          - Local red commands: `python -m unittest discover -s strokesense/tests -p test_upload.py -v` (20 tests, one expected behavior failure) and `python -m unittest discover -s strokesense/tests -p test_large_upload_http.py -v` (4 tests, two expected behavior failures). No import/environment failure in those red runs. Local targeted green: `python -m unittest discover -s strokesense/tests -p 'test*upload*.py' -v` (32 passed).
+          - Fix: catch RegistryError before its ValueError base; validate streamed AVI RIFF size against observed complete bytes rather than the 4096-byte prefix; emit only fixed upload endpoint/status to stderr and a streaming-150MiB-v1 startup banner. Existing 64 KiB multipart reads, disk-backed temporary staging, 150 MiB video/151 MiB request caps remain. Tests cover exactly 150 MiB, one byte too large, browser-order file-first/token-last, stored SHA-256, and peak traced allocations below 16 MiB. Private files are never added to Git.
+          - Real private uploaded MOV: complete loopback POST /upload returned 303 in 0.834 seconds with identical saved SHA-256 and one registry row; app/test process peak sampled RSS 149.21 MiB (not peak Python allocations or a Windows measurement). Repeating with the old 25 MiB cap produced BrokenPipeError. No pose/LLM inference or empirical technique accuracy was measured. Browser automation was attempted but blocked by ERR_BLOCKED_BY_ADMINISTRATOR; no browser/Windows verification claim.
+          - Complete offline verification: `python strokesense/quality.py` passed {counts[-1]} unittest cases and four legacy synthetic checks in {run}; `python strokesense/quality.py --doctor` is diagnostic only. Local full-suite attempt exceeded a tool execution timeout; CI is the completed full-suite evidence. Missing cached pose model/live provider/coach labels/customer validation remain blockers for corresponding claims.
+          - Traceability: #87 -> test_large_upload_http.py + existing test_upload.py -> web.py/media.py -> this topic's verified commit. Selected proposal: 1/3/8 usable local import, 4 evidence UI preserved, 5/6/7 coaching behavior unchanged/withheld, 2 customer validation pending. Human inspection of AI-assisted tests and real coaching approval remain pending.
+          - Temporary tracked-source diagnostic artifacts contained repository source only, never user video. Diagnostic workflow changes are removed/restored by this checkpoint. Three-day sprint override remains in force; historical backlog retained; no schedules changed.
+          - Publication/email: pending at this commit. Next action: guarded fast-forward of authorized development branches after rereading heads, confirm main unchanged, send one deduplicated factual update, and restart the demo from dev-consolidated with the streaming banner visible.
+          
+          '''
+          # Preserve every earlier entry byte-for-byte after the new summary.
+          p = Path('llm.md')
+          p.write_text(entry + p.read_text())
+      - name: Commit only verified files and guarded fast-forward topic
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='dev/2026-10-29-1128-upload-recovery'
+          observed=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$observed" = "$BASE_SHA"
+          git diff --check
+          git add -- strokesense/strokesense/web.py strokesense/strokesense/media.py llm.md .github/workflows/strokesense-quality.yml .github/workflows/strokesense-upload-recovery.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix: verify large streaming uploads and restore demo error semantics (#87)'
+          git push origin "HEAD:refs/heads/$branch"
+          git rev-parse HEAD

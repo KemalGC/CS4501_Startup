@@ -21,10 +21,13 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
+import tempfile
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .evidence import verify_evidence_snapshot
 from .jobs import JobError, JobQueue, MAX_MEDIA_BYTES
+from .multipart_stream import receive, MultipartError
 from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
 from .strokes import FAULTS  # fixed, deterministic candidate-fault catalogue
@@ -1368,6 +1371,13 @@ def create_server(
                     any(ord(char) < 32 or ord(char) > 126 for char in content_type)):
                 self._error(415)
                 return
+            from email.message import Message
+            header = Message()
+            header["content-type"] = content_type
+            boundary = header.get_param("boundary")
+            if not isinstance(boundary, str) or not boundary.isascii():
+                self._error(400)
+                return
             try:
                 length = int(self.headers.get("Content-Length", ""))
             except ValueError:
@@ -1379,93 +1389,70 @@ def create_server(
             if length < 1:
                 self._error(400)
                 return
+            # TemporaryFile spools the video to disk without retaining 150 MiB
+            # plus parser copies in process memory. Nothing is registered until
+            # all fields and the video header pass validation.
             try:
-                self.connection.settimeout(15)
-                content = self.rfile.read(length)
-                if len(content) != length:
-                    raise ValueError("incomplete upload")
-                raw = (b"Content-Type: " + content_type.encode("ascii")
-                       + b"\r\nMIME-Version: 1.0\r\n\r\n" + content)
-                message = BytesParser(policy=policy.default).parsebytes(raw)
-                if not message.is_multipart():
-                    self._error(400)
-                    return
-                parts = list(message.iter_parts())
-                fields = {}
-                for part in parts:
-                    if part.is_multipart() or part.get_content_disposition() != "form-data":
-                        raise ValueError("invalid upload field")
-                    key = part.get_param("name", header="content-disposition")
-                    if not key or key in fields:
-                        raise ValueError("duplicate upload field")
-                    fields[key] = part
-                required = {"csrf", "permission", "provenance", "video"}
-                allowed = required | {"analyze", "camera"}
-                if not required.issubset(fields) or not set(fields).issubset(allowed):
-                    raise ValueError("incorrect upload fields")
-                def field(name):
-                    data = fields[name].get_payload(decode=True)
-                    if data is None or len(data) > 1024:
-                        raise ValueError("invalid text field")
-                    return data.decode("utf-8")
-                if not hmac.compare_digest(field("csrf"), token):
-                    self._error(403)
-                    return
-                analyze_now = False
-                if "analyze" in fields:
-                    if field("analyze") != "now":
+                with tempfile.TemporaryFile(mode="w+b") as staging:
+                    self.connection.settimeout(60)
+                    fields, filename = receive(
+                        self.rfile, length, boundary.encode("ascii"), staging,
+                        _MAX_VIDEO_BYTES,
+                    )
+                    required = {"csrf", "permission", "provenance", "video"}
+                    if not required.issubset(fields):
+                        raise MultipartError("missing fields")
+                    if not hmac.compare_digest(fields["csrf"], token):
+                        self._error(403)
+                        return
+                    analyze_now = fields.get("analyze") == "now"
+                    if "analyze" in fields and not analyze_now:
                         self._error(400)
                         return
-                    analyze_now = True
-                permission = field("permission")
-                provenance = field("provenance").strip()
-                if permission != "granted" or not provenance or len(provenance) > 256:
-                    self._error(422)
-                    return
-                camera = field("camera") if "camera" in fields else ""
-                if camera not in _CAMERA_CHOICES:
-                    self._error(422)
-                    return
-                filename = fields["video"].get_filename()
-                if not filename or not isinstance(filename, str):
-                    self._error(400)
-                    return
-                extension = Path(filename).suffix.lower()
-                if extension not in _VIDEO_EXTENSIONS:
-                    self._error(415)
-                    return
-                video = fields["video"].get_payload(decode=True)
-                if not isinstance(video, bytes) or not video:
-                    self._error(422)
-                    return
-                if len(video) > _MAX_VIDEO_BYTES:
-                    self._error(413)
-                    return
-                if not plausible_container(video, extension):
-                    self._error(415)
-                    return
-            except (UnicodeError, ValueError, TypeError, OSError):
+                    provenance = fields["provenance"].strip()
+                    if (fields["permission"] != "granted" or not provenance
+                            or len(provenance) > 256):
+                        self._error(422)
+                        return
+                    camera = fields.get("camera", "")
+                    if camera not in _CAMERA_CHOICES:
+                        self._error(422)
+                        return
+                    extension = Path(filename).suffix.lower()
+                    if extension not in _VIDEO_EXTENSIONS:
+                        self._error(415)
+                        return
+                    if fields["video"] == 0:
+                        self._error(422)
+                        return
+                    staging.seek(0)
+                    if not plausible_container(staging.read(4096), extension):
+                        self._error(415)
+                        return
+                    staging.seek(0)
+                    private_uploads.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    destination = private_uploads / (secrets.token_hex(16) + extension)
+                    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    try:
+                        with os.fdopen(fd, "wb") as stream:
+                            shutil.copyfileobj(staging, stream, length=1024 * 1024)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        clip, created = register_clip(
+                            destination, registry_path, permission="granted",
+                            provenance=provenance, camera=camera or None,
+                        )
+                    except Exception:
+                        destination.unlink(missing_ok=True)
+                        raise
+                    if not created:
+                        destination.unlink(missing_ok=True)
+            except MultipartError as exc:
+                self._error(413 if "size limit" in str(exc) else 400)
+                return
+            except (UnicodeError, ValueError, TypeError, OSError, TimeoutError):
                 self._error(400)
                 return
-
-            try:
-                private_uploads.mkdir(parents=True, exist_ok=True, mode=0o700)
-                destination = private_uploads / (secrets.token_hex(16) + extension)
-                fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                try:
-                    with os.fdopen(fd, "wb") as stream:
-                        stream.write(video)
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                    clip, created = register_clip(
-                        destination, registry_path, permission="granted",
-                        provenance=provenance, camera=camera or None,
-                    )
-                except Exception:
-                    destination.unlink(missing_ok=True)
-                    raise
-                if not created:
-                    destination.unlink(missing_ok=True)
             except RegistryError:
                 self._error(422)
                 return
@@ -1475,11 +1462,6 @@ def create_server(
             if analyze_now:
                 try:
                     job = jobs.submit(clip["clip_id"])
-                except JobError:
-                    # The imported clip remains listed for a manual retry.
-                    # Do not misreport an unavailable queue as success.
-                    self._error(503)
-                    return
                 except Exception:
                     self._error(503)
                     return

@@ -11,13 +11,13 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_evidence_ui import EvidenceInterfaceTests
+import test_evidence_ui
 from strokesense.registry import revoke_clip
 
 
 class HistoryEvidenceShortcutTests(unittest.TestCase):
     def setUp(self):
-        self.rig = EvidenceInterfaceTests(
+        self.rig = test_evidence_ui.EvidenceInterfaceTests(
             methodName="test_human_readable_evidence_links_to_strokes_and_times"
         )
         self.rig.setUp()

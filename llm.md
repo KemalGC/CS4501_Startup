@@ -1,3 +1,11 @@
+### 2026-10-29 streaming upload hotfix — manual follow-up to #87
+
+- Topic branch `dev/2026-10-29-1120-stream-upload`, based on `dev/2026-10-29-1115-upload-150mb`; local time around 11:20 ET. No reliable whole-session stopwatch duration captured.
+- Streaming multipart parser `strokesense/strokesense/multipart_stream.py` reads bounded 64 KiB increments and writes video into a disk-backed temporary file; web route validates fields, CSRF, filename, container signature and permissions before private registration. It does not load the whole video in RAM.
+- Local standalone parser test against user's provided 126,307,307-byte MOV: parsed 126,307,307 exact video bytes in 0.57 seconds, peak traced Python allocations 0.21 MiB (not whole-process RSS). Synthetic boundary-like-byte regression also passed in a separate local script. Added repository regression cases in `test_upload.py`.
+- **Full repository quality suite and integrated HTTP route not executed/verified.** GitHub topic commit `8e2262c` exists; neither integration nor main was updated. Human testing pending. Need execute `python strokesense/quality.py`, actual HTTP upload and compare checksum of saved MOV; inspect CI, then guarded integrate. Browser errors and Windows disk/timeout behavior remain unverified. No real coaching accuracy or live provider validation.
+- This hotfix was prompted by a reproducible 1.8 GiB peak-memory parser problem for the same MOV under previous implementation; do not confuse parser-only test with end-to-end success. Communication pending.
+
 
 ### 2026-10-29-1115-sprint — browser imports up to 150 MiB (issue #87)
 

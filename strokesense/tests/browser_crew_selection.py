@@ -80,4 +80,7 @@ def main():
                 finally:server.shutdown();thread.join(3)
     return 0
 
-if __name__=='__main__':raise SystemExit(main())
+if __name__=='__main__':
+    main()
+    from browser_auto_selection import main as automatic_confirmation
+    raise SystemExit(automatic_confirmation())

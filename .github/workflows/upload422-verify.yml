@@ -1,0 +1,148 @@
+name: Verify upload 422 recovery
+on:
+  push:
+    branches: ['dev/2026-10-30-1156-upload-feedback']
+    paths: ['.github/workflows/upload422-verify.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/dev/2026-10-30-1156-upload-feedback'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/2026-10-30-1156-upload-feedback
+      - name: Guard exact topic checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing project and browser test dependencies
+        run: python -m pip install -r strokesense/requirements.txt playwright==1.58.0
+      - name: Confirm missing-behavior red before production edits
+        shell: bash
+        run: |
+          if python -m unittest discover -s strokesense/tests -p test_upload_feedback.py -v > /tmp/upload-red.log 2>&1; then
+            cat /tmp/upload-red.log
+            exit 1
+          fi
+          grep 'Ran 6 tests' /tmp/upload-red.log
+          grep 'FAILED (failures=9)' /tmp/upload-red.log
+      - name: Apply exact locally reviewed production patch
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, subprocess
+          path = Path('.github/upload422-source.patch')
+          data = path.read_bytes().replace(b'\n diff --git ', b'\ndiff --git ')
+          assert hashlib.sha256(data).hexdigest() == 'e48654e1a137d514de7a5d8e3d086fb76fd0931e64589bb6cc98f0321bff9fe3'
+          patch = Path('/tmp/upload422.patch'); patch.write_bytes(data)
+          subprocess.run(['git', 'apply', '--check', str(patch)], check=True)
+          subprocess.run(['git', 'apply', str(patch)], check=True)
+          expected = {
+              'strokesense/strokesense/registry.py': 'c62441ae5c705879131753d30cb3fa3dd250926fcefc6cafa8d06e879d235219',
+              'strokesense/strokesense/web.py': 'b9e2b295cd230e29e5c5e90c35da33d52bf2552dd7e8b4296efffc81474d6a54',
+              'strokesense/tests/browser_upload_feedback.py': '38670611bc7dc8a0a8dc7fa1da2b2ffdb829e3d4cdfeabb033d6d50da6709b62',
+          }
+          for name, digest in expected.items():
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+          path.unlink()
+          Path('.github/workflows/upload422-verify.yml').unlink()
+      - name: Run targeted and complete offline verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q strokesense/strokesense
+          python -m unittest discover -s strokesense/tests -p test_upload_feedback.py -v
+          python strokesense/quality.py 2>&1 | tee /tmp/upload-quality.log
+          python strokesense/quality.py --doctor
+          git diff --check
+      - name: Verify recovery and existing native browser flows
+        shell: bash
+        run: |
+          set -euo pipefail
+          STROKESENSE_TEST_SCREENSHOTS=/tmp/upload-feedback-screens python strokesense/tests/browser_upload_feedback.py
+          python strokesense/tests/browser_form_origin.py
+          python strokesense/tests/browser_crew_selection.py
+          python strokesense/tests/browser_results_workspace.py
+          python strokesense/tests/browser_evidence_overview.py
+          python strokesense/tests/browser_comparison_workspace.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upload-feedback-synthetic-browser
+          path: /tmp/upload-feedback-screens
+          retention-days: 1
+      - name: Record verified handoff and operator instructions
+        shell: python
+        run: |
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import os, re
+          log = Path('/tmp/upload-quality.log').read_text()
+          counts = re.findall(r'Ran (\d+) tests', log)
+          assert counts and '\nOK\n' in log
+          now = datetime.now(ZoneInfo('America/New_York')).isoformat()
+          run = 'https://github.com/KemalGC/CS4501_Startup/actions/runs/' + os.environ['GITHUB_RUN_ID']
+          entry = f'''## October 30 manual upload-422 retry (#96)
+
+          - New user-authorized manual repair, not a resumed sprint or automation change. Actual retry start 2026-10-30T12:03:36.501584-04:00; local monotonic timer recorded. Verification checkpoint {now}; final measured closeout belongs in issue/email. Earlier interrupted work is not included in this retry's duration.
+          - Continued existing topic `dev/2026-10-30-1156-upload-feedback` from test-only `976fbbc7b8d8bacb3a75caedb505685d85b08611`, originally based on integration `51585eae74bb7fb0d837dcde147b38fbb9c58a32`. No new duplicate issue; #96 retains story, acceptance and edge cases. Main/default and schedules not written. Publication and email pending at this commit.
+          - Local reproduction used actual loopback server, multipart POST and registry: first import 303, changed permission source or camera 422 with generic unavailable page, identical metadata 303. This is reproducible duplicate-metadata behavior, NOT proof of the user's exact local Video Project 18.mp4/database cause (unavailable here).
+          - Test-first remote checkpoint above and local `python -m unittest discover -s strokesense/tests -p test_upload_feedback.py -v`: 6 tests, 9 expected missing-message/recovery assertion failures including subtests, no import/environment errors; after implementation all 6 passed. The CI recipe independently re-observed the same red before applying the exact locally tested patch.
+          - Fix: typed DuplicateClipConflict preserves registry transaction/immutable metadata and legacy error strings; allowlisted upload 422 reasons explain permission/provenance/camera/empty-file failures. A permission-checked Choose rowers for saved clip link offers explicit recovery; never auto-launch analysis, change metadata, restore revoked permissions, echo raw errors, or retain duplicate staged media. Preview and selection recheck existing integrity/permission gates. Startup banner is streaming-150MiB-v4. Schema unchanged; v3 crew selection/photos/legend retained.
+          - Private actual MOV (126,307,307 bytes) local HTTP results after fix: fresh upload 303 in 1.137 s; changed-note conflict 422 in 0.855 s and changed-camera conflict 422 in 0.411 s, both with recovery GET 200 and decoded JPEG preview. Exactly one saved file/registry row, identical SHA-256, no analysis job. This tests upload/storage/preview only, not pose inference or empirical technique accuracy; footage/hash were not published.
+          - Local full `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python strokesense/quality.py` passed 445 test executions in 48.730 s plus four legacy synthetic functions. Counts include existing rediscovered fixtures, not unique-case claims. Local read-only doctor reports missing ONNX Runtime/model, so inference not attempted. Local Chromium navigation was ERR_BLOCKED_BY_ADMINISTRATOR; no bypass attempted.
+          - CI full `python strokesense/quality.py` passed {counts[-1]} executions; doctor and all six native Chrome flows passed in {run}. New browser harness uploads generated AVI twice with different metadata, checks actionable recovery at 320/390/1280px, follows the actual selection form into one fake analysis, and confirms original metadata/one stored copy. This is synthetic browser evidence, not the user's Windows environment or coach validation.
+          - Changed production: registry.py and web.py only. Tests: test_upload_feedback.py and browser_upload_feedback.py; permanent read-only browser workflow covers recovery. Temporary source/patch/verification helpers removed before integration. Traceability #96 -> test-only red -> local tested patch -> CI/browser -> this checkpoint. Human team review pending. No suspicious hidden AI-checker directive observed.
+          - Next action: guarded integration after rereading heads; confirm main unchanged, send one factual update, then restart v4 and use saved-clip recovery (or act on the exact new reason) without deleting the registry or changing consent.
+
+          '''
+          p = Path('llm.md'); p.write_text(entry + p.read_text())
+          p = Path('strokesense/README.md')
+          p.write_text(p.read_text() + '''
+
+          ### Upload HTTP 422: recover without deleting your library
+
+          The server banner `streaming-150MiB-v4` identifies actionable upload errors.
+          If identical video bytes are already registered but a new permission source
+          or camera viewpoint differs, the original record is not overwritten.
+          The page explains the conflicting field and, only while permission remains
+          granted, offers **Choose rowers for saved clip**. This opens the existing
+          private selection preview; inference begins only after explicit selection.
+          The recovery uses the saved camera/permission metadata, not the new values.
+          Do not delete the registry or invent a consent statement to get past a 422.
+
+          Other 422 reasons name missing permission, missing/overlong provenance,
+          invalid viewpoint, empty footage, or a safe registration failure. PowerShell
+          prints an allowlisted code such as `HTTP 422 (duplicate_provenance)` without
+          printing private paths, provenance values, filenames or security tokens.
+          Revoked clips cannot be re-authorized by re-uploading. Unknown registry
+          errors expose no raw exception text or recovery identifier.
+
+          Tests from repository root:
+          `python -m unittest discover -s strokesense/tests -p test_upload_feedback.py -v`
+          and `python strokesense/quality.py`. With installed Chrome and test-only
+          Playwright, `python strokesense/tests/browser_upload_feedback.py` checks
+          native recovery and selection using generated footage and a fake analyzer.
+          These are not real rowing-accuracy or Windows-certification measurements.
+          ''')
+      - name: Commit tested application and fast-forward topic with head guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='dev/2026-10-30-1156-upload-feedback'
+          observed=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$observed" = "$GITHUB_SHA"
+          git diff --check
+          git add -- strokesense/strokesense/registry.py strokesense/strokesense/web.py strokesense/README.md llm.md .github/upload422-source.patch .github/workflows/upload422-verify.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix: explain upload 422 and recover saved clips safely (#96)'
+          git push origin "HEAD:refs/heads/$branch"
+          git rev-parse HEAD

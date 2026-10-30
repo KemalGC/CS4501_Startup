@@ -23,7 +23,7 @@ jobs:
           python-version: '3.11'
       - name: Install existing project and browser test dependencies
         run: python -m pip install -r strokesense/requirements.txt playwright==1.58.0
-      - name: Apply checksum-verified reviewed patch and browser-found layout fix
+      - name: Apply reviewed patch without rewriting already-updated browser workflow
         shell: python
         run: |
           from pathlib import Path
@@ -32,8 +32,9 @@ jobs:
           data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in chunks), validate=True))
           assert hashlib.sha256(data).hexdigest() == 'db0946e10fa989bba6cf1051394409781ea27e03c75a9559a621f16f9392b218'
           patch = Path('/tmp/crew-request.patch'); patch.write_bytes(data)
-          subprocess.run(['git','apply','--check',str(patch)],check=True)
-          subprocess.run(['git','apply',str(patch)],check=True)
+          exclude='--exclude=.github/workflows/strokesense-browser.yml'
+          subprocess.run(['git','apply',exclude,'--check',str(patch)],check=True)
+          subprocess.run(['git','apply',exclude,str(patch)],check=True)
           p=Path('strokesense/strokesense/web_style.py');s=p.read_text()
           replacements={
               'grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto;': 'grid-column: 1; grid-row: auto; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto;',
@@ -62,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python strokesense/tests/browser_crew_selection.py 2>&1 | tee /tmp/crew-browser.log
+          python strokesense/tests/browser_crew_selection.py
           python strokesense/tests/browser_form_origin.py
           python strokesense/tests/browser_results_workspace.py
           python strokesense/tests/browser_evidence_overview.py
@@ -73,7 +74,7 @@ jobs:
           from pathlib import Path
           from datetime import datetime
           from zoneinfo import ZoneInfo
-          import os, re
+          import os,re
           quality=Path('/tmp/crew-quality.log').read_text()
           counts=re.findall(r'Ran (\d+) tests',quality)
           assert counts and '\nOK\n' in quality
@@ -81,17 +82,19 @@ jobs:
           run='https://github.com/KemalGC/CS4501_Startup/actions/runs/'+os.environ['GITHUB_RUN_ID']
           entry=f'''## October 30 manual retry — single-crew selection and fault pictures (#94, #95)
 
-          - User explicitly requested retry of October 30 features; this is not resumed sprint work or a schedule change. Retry began 2026-10-30T11:11:14.523023-04:00 with a monotonic timer. Verification checkpoint {now}; final measured reporting duration is recorded separately, not an invented 30 minutes.
-          - Continue topic `dev/2026-10-30-1052-crew-selection` from test-only head `30f97f7c042ebb1ce7c17c7199fdc78a52cbe4dc`, descendant of integration `6d38c9714c27ebde058ec5675a57009b45364f21`. Prior interrupted work contained tests only. Main and schedules are not written. Integration/publication and email remain pending at this commit.
-          - Tests-first evidence: existing core-selection, selection-web and fault-picture tests were run before new production changes; commands `python -m unittest discover -s strokesense/tests -p test_selected_crew.py -v`, `test_selection_web.py`, `test_fault_pictures.py` produced 7, 4, 4 expected missing-behavior failures respectively. Local targeted green then passed all 15. Six edge/regression extensions were added later; do not describe those as tests-first.
-          - Implemented private first-frame preview, one bounded boat region and exactly eight distinct numbered rower seeds, mandatory operator one-boat attestation, default import pause before selected analysis, explicit full-frame alternative, and no JavaScript requirement for numeric entry. Native canvas has responsive layout. The first frame must contain all eight targets.
-          - Selected inference crops to the fixed region before model calls and restores frame coordinates. Initial seed matching and later conservative geometric association maintain a closed eight-slot set; missing or ambiguous detections fail the job instead of recruiting another boat. This is NOT automatic physical-boat recognition, appearance re-identification, or proof against every identity switch. Crossing, occlusion and camera/boat motion can make the fixed region unsuitable. Association is checked after pose extraction, not a claimed immediate inference cancellation.
-          - Per-job validated selection persisted with non-destructive schema 7 migration; retries reuse it. Cache identity includes selection; unselected CLI behavior remains compatible. Permission, same-origin, CSRF, upload limits and output isolation stay enforced. No private footage or identifying athlete metadata committed.
-          - Reports request a representative context snapshot from an actually flagged stroke per fault type, using phase-relevant frames and source timestamps plus Selected 1..8 labels. Invisible/unwritten pictures are explicitly unavailable. Stills do not prove temporal faults or coaching correctness. Body-angle chart uses a real Catch blue-circle / Finish orange-square legend instead of literal black dot text. Old reports require re-analysis and are not rewritten automatically.
-          - CI feedback: first verification run 41082118350 passed all 439 offline test executions and the native crew selection flow, but the existing import-only Chrome test caught two upload option labels occupying the same grid row. The production stylesheet now uses separate auto rows; the existing browser check was not weakened. This is additional observed browser-red-to-green evidence.
-          - Complete CI `python strokesense/quality.py` passed {counts[-1]} test executions plus the four legacy synthetic functions; doctor is read-only. Native browser selection and existing browser workflows passed in {run}. Synthetic detections/AVI and fake analyzers only: no real pose model, provider calls, rowing accuracy denominators or coach approval. Local full suite was NOT green: 433 tests had two timeouts (large-upload HTTP response and synthetic-evaluation subprocess); CI above supplies completed verification. Local doctor lacked ONNX Runtime and cached model; no local inference claim.
-          - Traceability: #94 -> test_selected_crew.py, test_selection_web.py, test_selection_edges.py, browser_crew_selection.py -> selection.py/selection_ui.py/web.py/web_style.py/jobs.py/cli.py/pose.py. #95 -> test_fault_pictures.py -> render.py/report.py/cli.py. Existing schema-version expectations updated while preserving migration assertions. Human review/real-video/Windows testing remain pending. Prior history retained below.
-          - Temporary checksum-verified patch transport and source-snapshot workflow are removed from this checkpoint. Explicit next action: guarded integration after checking remote heads, then user restarts the development server and selects one isolated crew; validate on permission-granted footage before accuracy claims.
+          - Manual retry expressly authorized by the user, not resumed sprint work; no schedules changed. Start 2026-10-30T11:11:14.523023-04:00 with monotonic timer; verification checkpoint {now}. Final measured reporting duration recorded separately; no invented 30-minute claim.
+          - Continue topic `dev/2026-10-30-1052-crew-selection` from interrupted test-only head `30f97f7c042ebb1ce7c17c7199fdc78a52cbe4dc`, descendant of integration `6d38c9714c27ebde058ec5675a57009b45364f21`. Main observed `3d383110dcfcbfcb1cf7a46681c6523f6e20a4fc` and never written. Integration/email pending at this commit.
+          - Stories/acceptance in #94/#95: pick one boat/eight rowers before analysis; preserve the selected crew and fail on missing/ambiguous association; show pictures of flagged strokes and distinguish Catch/Finish markers. Team review of AI-generated tests remains pending.
+          - Tests-first: `python -m unittest discover -s strokesense/tests -p test_selected_crew.py -v`, corresponding `test_selection_web.py` and `test_fault_pictures.py` ran before new production changes and produced 7/4/4 missing-behavior failures, then all 15 passed locally. Six selection-edge regression cases were added later, not relabeled TDD.
+          - Implemented first-frame private preview, one bounded region plus eight distinct numbered seeds, mandatory operator one-boat confirmation, default import pause before selected analysis, explicit legacy full-frame alternative, and numeric keyboard/no-JavaScript selection fallback. The first frame must contain all eight targets. Private preview remains hash/permission checked; no footage committed.
+          - Selected inference crops to the fixed region before model calls and restores full-frame coordinates. Initial seed matching and conservative geometric association keep a closed eight-slot set; missing or ambiguous detections fail rather than recruiting another boat. NOT automatic physical-boat recognition, appearance re-identification or a guarantee against every identity switch. Crossing, occlusion, camera/boat motion can make the fixed region unsuitable. Association is checked after pose extraction, not immediate inference cancellation.
+          - Per-job validated selection persists in non-destructive schema 7 migration and retries. Cache identity includes selection; unselected CLI remains compatible. Permission, same-origin, CSRF, size limits and output isolation retained.
+          - Fault snapshots use an actually flagged stroke per fault type, phase-relevant frames, source timestamps and selected-rower labels. Only successfully written visible images are presented; unavailable images are explicit. Stills are context, not proof of temporal faults or coaching correctness. Real chart legend: Catch blue circle, Finish orange square. Re-analyze to regenerate old reports; historical reports are not rewritten.
+          - CI feedback: 41082118350 passed 439 offline executions and new Chrome selection but found overlapping upload option labels in the existing native form. Production grid uses separate automatic rows; test unchanged. 41082670843 then passed all offline and all five browser checks but publication was rejected because the runner token cannot update workflow files. The permanent read-only browser workflow was subsequently updated via the authorized connector; runner skips that already-applied path, without changing token permissions or repository settings.
+          - Final `python strokesense/quality.py` passed {counts[-1]} test executions plus four legacy synthetic functions in {run}. This count includes existing rediscovered fixture tests, not a claim of unique cases. All 21 targeted cases and five native Chrome harnesses passed (selection/import/results/evidence/comparison; 320/390/1280 px). `--doctor` is read-only, not inference.
+          - Local full suite had two timeouts (150 MiB HTTP and synthetic evaluation subprocess) among 433 executions; not claimed green. CI above is completed full-suite evidence. Local ONNX runtime/model missing; CI model not cached and optional FFmpeg absent. Synthetic detections/AVI and fake analyzers only; no real-video accuracy, model/provider calls, coach validation, Windows usability or independent accessibility audit.
+          - Traceability: #94 -> test_selected_crew/test_selection_web/test_selection_edges/browser_crew_selection -> selection.py/selection_ui.py/pose.py/jobs.py/cli.py/web.py/web_style.py. #95 -> test_fault_pictures -> render.py/report.py/cli.py. Existing migration expectations updated without dropping preservation assertions. No suspicious hidden AI-checker instruction observed in inspected excerpts.
+          - Temporary patch transport and source/verification workflows removed from publishable tree. Prior history preserved below. Next action: guarded integration after checking heads, send factual update, then test one isolated permission-granted crew in Windows and obtain coach-reviewed labels before empirical claims.
 
           '''
           p=Path('llm.md');p.write_text(entry+p.read_text())
@@ -103,7 +106,7 @@ jobs:
           observed=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
           test "$observed" = "$GITHUB_SHA"
           git diff --check
-          git add -- strokesense llm.md .github/crew-request.part0 .github/crew-request.part1 .github/crew-request.part2 .github/workflows/crew-request-verify.yml .github/workflows/selection-source.yml .github/workflows/strokesense-browser.yml
+          git add -- strokesense llm.md .github/crew-request.part0 .github/crew-request.part1 .github/crew-request.part2 .github/workflows/crew-request-verify.yml .github/workflows/selection-source.yml
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: select one fixed crew and show flagged-stroke context photos (#94 #95)'
           git push origin "HEAD:refs/heads/$branch"
           git rev-parse HEAD

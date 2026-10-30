@@ -33,7 +33,8 @@ from .strokes import FAULTS  # fixed, deterministic candidate-fault catalogue
 from .web_style import PAGE_CSS
 from .selection import validate_selection, SelectionError
 from .selection_ui import selection_form, preview_jpeg, SELECTION_JS
-from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
+from .registry import (DEFAULT_DB, RegistryError, DuplicateClipConflict,
+                       analysis_permission_granted,
                        list_clips, register_clip, revoke_clip)
 
 
@@ -54,6 +55,21 @@ _PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
 _REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
                "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
 _STATUS_CSP = _PAGE_CSP + "; media-src 'self'"
+
+
+# Fixed text only: never render raw exceptions or operator-supplied metadata.
+_UPLOAD_REJECTIONS = {
+    "permission_required": ("Confirm permission", "Confirm that you have permission to analyze this recording."),
+    "provenance_required": ("Add a permission source", "Enter a permission source or consent reference before importing."),
+    "provenance_too_long": ("Shorten the permission source", "Keep the permission source to 256 characters or fewer."),
+    "invalid_camera": ("Choose a camera viewpoint", "Choose a supported camera viewpoint or leave it unspecified."),
+    "empty_video": ("Choose a nonempty video", "The selected file is empty. Choose a nonempty local recording."),
+    "duplicate_provenance": ("Video already in your library", "The permission source differs from the saved record. The original permission and metadata have not been changed."),
+    "duplicate_camera": ("Video already in your library", "The camera viewpoint differs from the saved record. The original permission and metadata have not been changed."),
+    "duplicate_metadata": ("Video already in your library", "The supplied details differ from the saved record. The original permission and metadata have not been changed."),
+    "permission_not_granted": ("Saved clip is not permitted", "This video is already registered, but permission is not granted. Re-uploading cannot restore withdrawn permission."),
+    "registry_rejected": ("Video could not be registered", "The video could not be registered. Return to import and check the recording and its permission details."),
+}
 
 
 def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
@@ -364,7 +380,9 @@ def create_server(
             # Visible local diagnostics, without filenames, tokens or paths.
             if (self.command == "POST" and urlsplit(self.path).path == "/upload"
                     and isinstance(code, int)):
-                print(f"StrokeSense upload: HTTP {code}", file=sys.stderr, flush=True)
+                reason = getattr(self, "_upload_reason", None)
+                suffix = f" ({reason})" if reason in _UPLOAD_REJECTIONS else ""
+                print(f"StrokeSense upload: HTTP {code}{suffix}", file=sys.stderr, flush=True)
 
         def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",
                   csp=_PAGE_CSP, location=None, allow=None,
@@ -420,6 +438,41 @@ def create_server(
             self._send(status, _document("Request unavailable",
                                          "<p>The requested action is unavailable.</p>"),
                        allow=allow)
+
+        def _upload_rejected(self, reason: str, *, duplicate_id=None):
+            """Explain a 422 without overwriting records or auto-starting jobs."""
+            if reason not in _UPLOAD_REJECTIONS:
+                reason = "registry_rejected"
+            recovery = ""
+            if (reason in {"duplicate_provenance", "duplicate_camera", "duplicate_metadata"}
+                    and isinstance(duplicate_id, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", duplicate_id)):
+                try:
+                    permitted = analysis_permission_granted(duplicate_id, registry_path)
+                except Exception:
+                    # Failed permission reads must not offer a recovery action.
+                    reason = "registry_rejected"
+                else:
+                    if permitted:
+                        recovery = (
+                            '<p>Your saved video is still available. Continue with its '
+                            'original permission and camera settings; no new copy or '
+                            'analysis has been created.</p>'
+                            f'<p><a class="button" href="/select?clip={duplicate_id}">'
+                            'Choose rowers for saved clip</a></p>'
+                        )
+                    else:
+                        reason = "permission_not_granted"
+            self._upload_reason = reason
+            title, message = _UPLOAD_REJECTIONS[reason]
+            body = (
+                '<section aria-label="Import feedback"><p role="alert">'
+                + html.escape(message) + '</p>' + recovery
+                + '<p><a href="/#upload-clip">Back to import</a></p>'
+                + '<p class="muted">Upload status: 422 · '
+                + html.escape(reason) + '</p></section>'
+            )
+            self._send(422, _document(title, body))
 
         def _trusted_request(self):
             hosts = self.headers.get_all("Host") or []
@@ -1720,20 +1773,25 @@ def create_server(
                         self._error(400)
                         return
                     provenance = fields["provenance"].strip()
-                    if (fields["permission"] != "granted" or not provenance
-                            or len(provenance) > 256):
-                        self._error(422)
+                    if fields["permission"] != "granted":
+                        self._upload_rejected("permission_required")
+                        return
+                    if not provenance:
+                        self._upload_rejected("provenance_required")
+                        return
+                    if len(provenance) > 256:
+                        self._upload_rejected("provenance_too_long")
                         return
                     camera = fields.get("camera", "")
                     if camera not in _CAMERA_CHOICES:
-                        self._error(422)
+                        self._upload_rejected("invalid_camera")
                         return
                     extension = Path(filename).suffix.lower()
                     if extension not in _VIDEO_EXTENSIONS:
                         self._error(415)
                         return
                     if fields["video"] == 0:
-                        self._error(422)
+                        self._upload_rejected("empty_video")
                         return
                     staging.seek(0)
                     if not plausible_container(staging.read(4096), extension,
@@ -1761,9 +1819,19 @@ def create_server(
             except MultipartError as exc:
                 self._error(413 if "size limit" in str(exc) else 400)
                 return
+            except DuplicateClipConflict as exc:
+                # The registry preserves original metadata and rolls back first.
+                # Recovery is explicit and rechecks permission; never regrant it.
+                reason = {
+                    "permission": "permission_not_granted",
+                    "provenance": "duplicate_provenance",
+                    "camera": "duplicate_camera",
+                }.get(exc.field, "duplicate_metadata")
+                self._upload_rejected(reason, duplicate_id=exc.clip_id)
+                return
             except RegistryError:
-                # RegistryError subclasses ValueError: catch it first.
-                self._error(422)
+                # Unknown errors never leak exception text or a guessed clip ID.
+                self._upload_rejected("registry_rejected")
                 return
             except (UnicodeError, ValueError, TypeError, OSError, TimeoutError):
                 self._error(400)
@@ -1893,7 +1961,7 @@ def main(argv=None):
         with create_server(jobs, registry_db=args.registry_db,
                            upload_dir=args.uploads, port=args.port) as server:
             print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")
-            print("Upload mode: streaming-150MiB-v3 (maximum video: 150 MiB; same-origin forms; select one crew)",
+            print("Upload mode: streaming-150MiB-v4 (maximum video: 150 MiB; same-origin forms; select one crew; upload recovery)",
                   flush=True)
             try:
                 server.serve_forever()

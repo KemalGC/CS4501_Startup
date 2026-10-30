@@ -1378,3 +1378,29 @@ Verification: `python strokesense/quality.py`; targeted regressions
 `test_fault_pictures.py`; optional installed Chrome + test-only Playwright:
 `python strokesense/tests/browser_crew_selection.py`. These tests use synthetic
 fixtures and a fake analyzer, not empirical rowing accuracy or coach approval.
+
+
+### Upload HTTP 422: recover without deleting your library
+
+The server banner `streaming-150MiB-v4` identifies actionable upload errors.
+If identical video bytes are already registered but a new permission source
+or camera viewpoint differs, the original record is not overwritten.
+The page explains the conflicting field and, only while permission remains
+granted, offers **Choose rowers for saved clip**. This opens the existing
+private selection preview; inference begins only after explicit selection.
+The recovery uses the saved camera/permission metadata, not the new values.
+Do not delete the registry or invent a consent statement to get past a 422.
+
+Other 422 reasons name missing permission, missing/overlong provenance,
+invalid viewpoint, empty footage, or a safe registration failure. PowerShell
+prints an allowlisted code such as `HTTP 422 (duplicate_provenance)` without
+printing private paths, provenance values, filenames or security tokens.
+Revoked clips cannot be re-authorized by re-uploading. Unknown registry
+errors expose no raw exception text or recovery identifier.
+
+Tests from repository root:
+`python -m unittest discover -s strokesense/tests -p test_upload_feedback.py -v`
+and `python strokesense/quality.py`. With installed Chrome and test-only
+Playwright, `python strokesense/tests/browser_upload_feedback.py` checks
+native recovery and selection using generated footage and a fake analyzer.
+These are not real rowing-accuracy or Windows-certification measurements.

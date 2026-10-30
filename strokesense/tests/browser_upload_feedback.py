@@ -101,11 +101,12 @@ def main():
                             assert upload('Changed synthetic attestation', '', True) == 422
                             page.get_by_role('link', name='Choose rowers for saved clip').click()
                             page.wait_for_url(origin + '/select?clip=*')
+                            page.locator('details > summary').click()
                             for name, value in {'left': 4, 'top': 12, 'right': 96, 'bottom': 70}.items():
                                 page.locator(f'[name={name}]').fill(str(value))
                             for i in range(8):
-                                page.locator(f'[name=x{i}]').fill(str((73 + i * 65) / 640 * 100))
-                                page.locator(f'[name=y{i}]').fill(str(140 / 360 * 100))
+                                page.locator(f'[name=x{i}]').fill(f'{(73 + i * 65) / 640 * 100:.3f}')
+                                page.locator(f'[name=y{i}]').fill(f'{140 / 360 * 100:.3f}')
                             page.locator('[name=same_boat]').check()
                             page.get_by_role('button', name='Analyze selected crew').click()
                             page.wait_for_url(origin + '/jobs/*')

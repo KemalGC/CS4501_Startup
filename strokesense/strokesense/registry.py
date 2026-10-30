@@ -26,6 +26,15 @@ class RegistryError(ValueError):
     """Invalid registry operation that must not create or modify an entry."""
 
 
+class DuplicateClipConflict(RegistryError):
+    """Typed conflict for an existing content hash; never carries private values."""
+
+    def __init__(self, field: str, clip_id: str):
+        super().__init__("duplicate content conflicts on " + field)
+        self.field = field
+        self.clip_id = clip_id
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clips (
     clip_id TEXT PRIMARY KEY,
@@ -172,9 +181,9 @@ def register_clip(
             }
             for key, value in proposed.items():
                 if value is not None and previous[key] != value:
-                    raise RegistryError("duplicate content conflicts on " + key)
+                    raise DuplicateClipConflict(key, digest)
             if split != "unassigned" and split != previous["split"]:
-                raise RegistryError("duplicate content conflicts on split")
+                raise DuplicateClipConflict("split", digest)
             result = _view(previous)
             conn.commit()
             return result, False

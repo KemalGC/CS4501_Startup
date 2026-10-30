@@ -44,3 +44,5 @@ jobs:
         run: python strokesense/tests/browser_crew_selection.py
       - name: Recover a duplicate upload without overwriting metadata
         run: python strokesense/tests/browser_upload_feedback.py
+      - name: Remove blocked entries explicitly and reimport through the library launcher
+        run: python strokesense/tests/browser_library_removal.py

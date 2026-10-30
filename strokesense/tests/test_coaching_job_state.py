@@ -70,7 +70,7 @@ class CoachingJobStateTests(unittest.TestCase):
             self.assertEqual(reopened.get(job_id)["coaching_schema_version"], 1)
         import sqlite3
         with sqlite3.connect(self.job_db) as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 7)
             record = db.execute(
                 "SELECT coaching_schema_version FROM jobs WHERE job_id = ?",
                 (job_id,),

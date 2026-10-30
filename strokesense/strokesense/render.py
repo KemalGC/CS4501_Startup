@@ -186,6 +186,7 @@ def _crop_rower(fr, r, fi, pad=1.0, min_h=360):
 def snapshots(video_path, pose, rowers, requests):
     """requests: list of (frame_idx, rower_or_None, out_path). One pass over the video."""
     want = {}
+    written = set()
     for fi, r, path in requests:
         want.setdefault(fi, []).append((r, path))
     colors = {r.tid: PALETTE[i % len(PALETTE)] for i, r in enumerate(rowers)}
@@ -201,4 +202,53 @@ def snapshots(video_path, pose, rowers, requests):
             else:
                 draw_rower(img, r, fi, colors[r.tid], thickness=2)
                 img = _crop_rower(img, r, fi)
-            cv2.imwrite(str(path), img)
+            if img.size == 0:
+                continue
+            if max(img.shape[:2]) > 720:
+                scale = 720 / max(img.shape[:2])
+                img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            if cv2.imwrite(str(path), img, [cv2.IMWRITE_JPEG_QUALITY, 85]):
+                written.add(Path(path))
+    return written
+
+
+def fault_snapshot_requests(rower, pose, out_dir):
+    """One visible evidence-context photo per actual flagged code (not generic catch).
+
+    Phase-specific measurements use the same smoothed signals as the detector.
+    Timing/sequence faults still require surrounding frames; a still image does
+    not prove a diagnosis or coach approval. Missing target frames are omitted.
+    """
+    from .kinematics import smooth
+    from .strokes import _progress, _first_at
+    k = rower.k
+    angles = {name: smooth(v, k.fps, .2) for name, v in k.angles.items()}
+    shots, requests = {}, []
+    for stroke in rower.strokes:
+        c, f, n = stroke.catch, stroke.finish, stroke.next_catch
+        if not 0 <= c < f < n < k.n:
+            continue
+        legs = _progress(angles['thigh'], c, f)
+        drive30 = c + _first_at(legs, .3)
+        drive70 = c + _first_at(legs, .7)
+        recovery30 = f + _first_at(_progress(angles['thigh'], f, n), .3)
+        phase = {
+            'short_catch': c, 'overreach': c, 'over_compression': c,
+            'excess_layback': f, 'no_layback': f,
+            'shooting_slide': c + int(np.argmax(angles['trunk'][c:drive30+1])),
+            'early_arms': c + int(np.argmin(angles['elbow'][c:drive70+1])),
+            'early_body': c + _first_at(legs, .4),
+            'late_body_prep': recovery30,
+            'rushed_recovery': (f+n)//2,
+        }
+        for code in stroke.faults:
+            if code in shots or code not in FAULTS:
+                continue
+            fi = int(phase[code])
+            if not k.visible[fi]:
+                continue
+            path = Path(out_dir) / f'fault_{int(rower.tid)}_{code}.jpg'
+            shots[code] = {'stroke': stroke.idx, 'frame': fi,
+                           'seconds': float(pose.start + fi / pose.fps), 'path': path}
+            requests.append((fi, rower, path))
+    return shots, requests

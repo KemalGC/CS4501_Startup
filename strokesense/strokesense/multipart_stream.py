@@ -56,7 +56,7 @@ def receive(stream, length, boundary, video_file, max_video):
         if headers.get_content_disposition() != "form-data":
             raise MultipartError("invalid part disposition")
         name = headers.get_param("name", header="content-disposition")
-        if name not in {"csrf", "permission", "provenance", "camera", "analyze", "video"} or name in fields:
+        if name not in {"csrf", "permission", "provenance", "camera", "analyze", "select_crew", "video"} or name in fields:
             raise MultipartError("invalid or duplicate field")
         fields[name] = None
         if name == "video":

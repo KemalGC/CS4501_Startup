@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -19,6 +20,7 @@ from uuid import uuid4
 
 from .registry import _stream_sha256, list_clips, analysis_permission_granted
 from .media import UndecodableMediaError, probe_decodable_video
+from .selection import validate_selection, SelectionError
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -99,13 +101,14 @@ def _matches_registered_source(video: Path, expected_sha: str) -> bool:
         return False
 
 
-def _default_analyze(video: Path, *, out_dir: Path):
+def _default_analyze(video: Path, *, out_dir: Path, selection=None):
     # Only the production analyzer performs decoding; injected offline
     # analyze_fn fixtures deliberately have no dependency on real video files.
     if not probe_decodable_video(video):
         raise UndecodableMediaError("invalid_media")
     from .cli import analyse_video  # Heavy pose dependencies load only on execution.
-    return analyse_video(video, out_dir=out_dir)
+    opts = {"selection": selection} if selection is not None else {}
+    return analyse_video(video, out_dir=out_dir, **opts)
 
 
 class JobQueue:
@@ -133,7 +136,7 @@ class JobQueue:
         self._futures = {}
         with closing(self._connection()) as conn, conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 6:
+            if version > 7:
                 raise ValueError("unsupported newer jobs schema")
             conn.executescript(_SCHEMA)
             if version < 5:
@@ -182,6 +185,14 @@ class JobQueue:
             if not {"coaching_state", "coaching_schema_version", "report_sha256",
                     "metrics_sha256", "video_path", "video_sha256"}.issubset(columns):
                 raise ValueError("incomplete jobs schema")
+            # Version 7: nullable, versioned per-job operator selection.
+            if version < 7:
+                if 'selection_json' not in columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN selection_json TEXT")
+                conn.execute("PRAGMA user_version = 7")
+                conn.commit()
+            elif 'selection_json' not in columns:
+                raise ValueError('incomplete selection schema')
             # No in-memory worker from a prior process can complete these jobs.
             conn.execute(
                 "UPDATE jobs SET status='failed', error_code='interrupted', "
@@ -270,7 +281,16 @@ class JobQueue:
         return [{column: row[column] for column in _PUBLIC_COLUMNS}
                 for row in rows]
 
-    def submit(self, clip_id: str) -> dict:
+    def selection(self, job_id: str):
+        """Return a validated private copy, never a raw filesystem location."""
+        with closing(self._connection()) as conn:
+            row = conn.execute('SELECT selection_json FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        if row is None or row['selection_json'] is None:
+            return None
+        return validate_selection(json.loads(row['selection_json']))
+
+    def submit(self, clip_id: str, *, selection=None) -> dict:
+        selection = validate_selection(selection) if selection is not None else None
         if not isinstance(clip_id, str) or not clip_id:
             raise JobError("invalid_clip_id")
         with self._mutex:
@@ -294,9 +314,10 @@ class JobQueue:
                 created = _utc()
                 with closing(self._connection()) as conn, conn:
                     conn.execute(
-                        "INSERT INTO jobs (job_id,clip_id,status,created_utc) "
-                        "VALUES (?,?,?,?)",
-                        (job_id, clip_id, "queued", created),
+                        "INSERT INTO jobs (job_id,clip_id,status,created_utc,selection_json) "
+                        "VALUES (?,?,?,?,?)",
+                        (job_id, clip_id, "queued", created,
+                         json.dumps(selection, allow_nan=False) if selection is not None else None),
                     )
                 self._futures[job_id] = self._executor.submit(
                     self._run, job_id, clip_id, Path(clip["source_path"]), clip["sha256"]
@@ -333,7 +354,13 @@ class JobQueue:
                             error_code="output_unavailable")
                 return
             try:
-                result = self._analyze_fn(video, out_dir=run_root)
+                selected = self.selection(job_id)
+                opts = {'selection': selected} if selected is not None else {}
+                result = self._analyze_fn(video, out_dir=run_root, **opts)
+            except SelectionError:
+                self._write(job_id, "failed", finished_utc=_utc(),
+                            error_code="selected_crew_lost_or_ambiguous")
+                return
             except UndecodableMediaError:
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="invalid_media")

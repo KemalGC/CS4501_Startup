@@ -430,10 +430,13 @@ def auto_tiles(video_path, detector, start, src_fps, max_width, samples=8):
 
 def run_video(video_path, detector: PoseDetector | None = None, tiles: int | str = "auto",
               start: float = 0.0, duration: float | None = None, max_width: int = 1920,
-              target_fps: float = 15.0, progress=None):
+              target_fps: float = 15.0, progress=None, selection=None):
     """Run pose detection over a video. Returns (detections per frame, meta).
 
     Frames are subsampled to ~target_fps (15 fps is plenty for stroke rates up to ~45 spm)."""
+    if selection is not None:
+        from .selection import validate_selection
+        selection = validate_selection(selection)
     detector = detector or PoseDetector()
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -459,9 +462,26 @@ def run_video(video_path, detector: PoseDetector | None = None, tiles: int | str
             s = max_width / frame.shape[1]
             frame = cv2.resize(frame, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
         H, W = frame.shape[:2]
-        if tiles == "auto":
-            tiles = auto_tiles(video_path, detector, start, src_fps, max_width)
-        boxes, _, kpts = detector(frame, tiles=tiles)
+        if selection is not None:
+            left, top, right, bottom = selection['roi']
+            x0, y0 = int(left * W), int(top * H)
+            x1, y1 = int(right * W), int(bottom * H)
+            cropped = frame[y0:y1, x0:x1]
+            if cropped.size == 0:
+                cap.release()
+                raise ValueError('empty_selection_region')
+            selected_tiles = (PoseDetector.tile_grid(x1-x0, y1-y0)
+                              if tiles == 'auto' else None)
+            boxes, _, kpts = detector(cropped, tiles=selected_tiles)
+            boxes, kpts = boxes.copy(), kpts.copy()
+            boxes[:, [0, 2]] += x0
+            boxes[:, [1, 3]] += y0
+            kpts[..., 0] += x0
+            kpts[..., 1] += y0
+        else:
+            if tiles == "auto":
+                tiles = auto_tiles(video_path, detector, start, src_fps, max_width)
+            boxes, _, kpts = detector(frame, tiles=tiles)
         dets.append((boxes, kpts))
         fi += 1
         if progress and fi % 10 == 0:

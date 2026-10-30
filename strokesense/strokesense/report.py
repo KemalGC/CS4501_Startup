@@ -78,12 +78,16 @@ def chart_trunk(rower):
     ax.axhspan(15, 35, color=C_LEGS, alpha=0.07, lw=0)
     ax.axhspan(-30, -10, color=C_BODY, alpha=0.07, lw=0)
     ax.plot(t, np.where(k.visible, tr, np.nan), color=INK, lw=1.6)
-    for s in rower.strokes:
-        ax.plot(s.catch / k.fps, tr[s.catch], "o", color=C_LEGS, ms=5)
-        ax.plot(s.finish / k.fps, tr[s.finish], "o", color=C_BODY, ms=5)
+    for i, s in enumerate(rower.strokes):
+        ax.plot(s.catch / k.fps, tr[s.catch], "o", color=C_LEGS, ms=5,
+                label="Catch" if i == 0 else "_nolegend_")
+        ax.plot(s.finish / k.fps, tr[s.finish], "s", color=C_BODY, ms=5,
+                label="Finish" if i == 0 else "_nolegend_")
+    if rower.strokes:
+        ax.legend(frameon=False, loc='upper right', ncol=2, fontsize=9)
     ax.axhline(0, color=GRID, lw=1)
     ax.set_xlabel("time (s)"); ax.set_ylabel("body angle (°)")
-    ax.set_title("Body angle — ● catch  ● finish  (shaded = target zones)", fontsize=10, color=INK, loc="left")
+    ax.set_title("Body angle (shaded = target zones)", fontsize=10, color=INK, loc="left")
     return _png(fig)
 
 
@@ -136,6 +140,28 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path):
         sn = snaps.get(r.tid, {})
         shots = "".join(f"<figure><img src='{_img(p)}'><figcaption>{cap}</figcaption></figure>"
                         for cap, p in (("Catch", sn.get("catch")), ("Finish", sn.get("finish"))) if _img(p))
+        fault_photos = []
+        from .strokes import FAULTS
+        for code, photo in sn.get('faults', {}).items():
+            if code not in FAULTS:
+                continue
+            src = _img(photo['path'])
+            if src is None:
+                continue
+            caption = (f"{r.seat} · {FAULTS[code]['title']} · stroke {photo['stroke'] + 1} · "
+                       f"{photo['seconds']:.2f} s (source video)")
+            fault_photos.append(
+                '<figure class="fault-photo"><img src="' + src + '" alt="'
+                + html.escape(caption, quote=True) + '"><figcaption>'
+                + html.escape(caption) + '<br>Flagged-stroke context frame; candidate finding, '
+                'not coach-verified. Motion faults require the surrounding video.</figcaption></figure>')
+        unavailable = ''.join('<p>Image unavailable for ' + html.escape(issue['title']) + '</p>'
+                              for issue in s['issues'][:3]
+                              if issue['code'] not in sn.get('faults', {})
+                              or _img(sn['faults'][issue['code']]['path']) is None)
+        fault_gallery = ('<h3>Pictures of flagged technique</h3><div class="fault-gallery">'
+                         + ''.join(fault_photos) + '</div>') if fault_photos else ''
+        fault_gallery += unavailable
         cards.append(f"""
 <section class="card">
   <header><h2>{html.escape(r.seat)}</h2>
@@ -151,6 +177,7 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path):
   </div>
   <h3>Top things to work on</h3><ul class="issues">{issues}</ul>
   <div class="shots">{shots}</div>
+  {fault_gallery}
   <div class="charts"><img src="{chart_sequencing(r)}"><img src="{chart_trunk(r)}"></div>
 </section>""")
 
@@ -180,6 +207,9 @@ main{{max-width:1100px;margin:0 auto;padding:20px 16px;display:grid;gap:18px;gri
 .m{{background:var(--bg);border-radius:8px;padding:8px 10px}} .m span{{display:block;font-size:12px;color:var(--muted)}} .m b{{font-size:16px}}
 .issues{{margin:0;padding-left:18px}} .issues li{{margin:6px 0}} .pct{{color:var(--muted);font-size:12px;margin-left:6px}} .cue{{color:#3d4b5c;font-size:14px}} .ok{{color:#2aa876}}
 .shots{{display:flex;gap:10px;margin-top:12px}} .shots figure{{margin:0;flex:1}} .shots img{{width:100%;border-radius:8px;display:block}} figcaption{{font-size:12px;color:var(--muted);text-align:center}}
+.fault-gallery{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}}
+.fault-photo{{margin:0;border:1px solid var(--line);border-radius:8px;padding:8px}}
+.fault-photo img{{width:100%;height:auto;display:block}}
 .charts img{{width:100%;margin-top:10px}} .sync{{width:100%;max-width:720px;display:block;margin:10px auto 0}} .lede{{color:#3d4b5c;margin:6px 0 0}}
 footer{{text-align:center;color:var(--muted);font-size:12px;padding:20px}}
 </style></head><body>

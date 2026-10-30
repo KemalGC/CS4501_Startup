@@ -31,6 +31,8 @@ from .media import plausible_container
 from .evidence import validate_public_evidence_snapshot
 from .strokes import FAULTS  # fixed, deterministic candidate-fault catalogue
 from .web_style import PAGE_CSS
+from .selection import validate_selection, SelectionError
+from .selection_ui import selection_form, preview_jpeg, SELECTION_JS
 from .registry import (DEFAULT_DB, RegistryError, analysis_permission_granted,
                        list_clips, register_clip, revoke_clip)
 
@@ -183,6 +185,10 @@ def _allowed_methods(route: str) -> str | None:
     if (route in ("/", "/api/jobs", "/history.csv", "/compare", "/compare.csv") or route.startswith("/api/jobs/")
             or route.startswith("/jobs/") or route.startswith("/reports/")
             or route.startswith("/media/")):
+        return "GET"
+    if route == "/select":
+        return "GET, POST"
+    if route == "/selection.js":
         return "GET"
     if route in ("/jobs", "/upload", "/revoke"):
         return "POST"
@@ -449,6 +455,9 @@ def create_server(
                     + '</select></label><input type="hidden" name="csrf" value="'
                     + html.escape(token, quote=True)
                     + '"><button type="submit">Analyze clip</button></form>'
+                    + '<form method="get" action="/select">'
+                    + '<label>Select one boat <select name="clip">' + options
+                    + '</select></label><button type="submit">Choose eight rowers</button></form>'
                     + '<form method="post" action="/revoke">'
                     + '<label>Withdraw permission for clip <select name="clip_id">'
                     + options + '</select></label>'
@@ -602,6 +611,10 @@ def create_server(
                 '<label class="import-analyze"><input type="checkbox" '
                 'name="analyze" value="now" checked>'
                 '<span>Analyze immediately after import</span></label>'
+                '<label><input type="checkbox" name="select_crew" value="yes" checked>'
+                'Choose eight rowers from one boat before analysis</label>'
+                '<p>With crew selection checked, you will confirm the boat and its eight '
+                'rowers on a preview before processing starts. Uncheck for full-frame automatic analysis.</p>'
                 '<p>Uncheck to add this clip to the local library without '
                 'starting an analysis job.</p>'
                 '<input type="hidden" name="csrf" value="'
@@ -910,6 +923,10 @@ def create_server(
                     'error below before retrying with an eligible clip.</p></section>'
                 )
 
+            if err == 'selected_crew_lost_or_ambiguous':
+                notice += ('<p>The selected crew was lost or became ambiguous. No other '
+                           'rowers were substituted. Use a shorter unobstructed clip or '
+                           '<a href="/select?clip=' + record['clip_id'] + '">select this boat again</a>.</p>')
             retry = ""
             if status == "failed" and err in _RETRYABLE_JOB_ERRORS:
                 # Reuse the existing CSRF-protected POST /jobs; a retry is a
@@ -920,7 +937,8 @@ def create_server(
                     + html.escape(record["clip_id"], quote=True)
                     + '"><input type="hidden" name="csrf" value="'
                     + html.escape(token, quote=True)
-                    + '"><button type="submit">Retry analysis</button></form>'
+                    + '"><input type="hidden" name="retry_job" value="'
+                    + job_id + '"><button type="submit">Retry analysis</button></form>'
                 )
             media_player = ""
             if status == "succeeded":
@@ -1504,11 +1522,91 @@ def create_server(
                 return self._reject_unsupported_method
             raise AttributeError(name)
 
+        def _select_get(self):
+            try:
+                query = urlsplit(self.path).query
+                if len(query) > 80:
+                    raise ValueError('invalid_selection_query')
+                params = parse_qs(query, strict_parsing=True, max_num_fields=1)
+                clip_id = params.get('clip', [''])[0]
+                if set(params) != {'clip'} or re.fullmatch(r'[0-9a-f]{64}', clip_id) is None:
+                    raise ValueError('invalid_clip')
+                clip = next((c for c in list_clips(registry_path, show_paths=True)
+                             if c['clip_id'] == clip_id), None)
+                if clip is None:
+                    self._error(404)
+                    return
+                if clip['permission'] != 'granted':
+                    self._error(403)
+                    return
+                from .registry import _stream_sha256
+                source = Path(clip['source_path'])
+                if source.stat().st_size > _MAX_VIDEO_BYTES or _stream_sha256(source) != clip['sha256']:
+                    self._error(409)
+                    return
+                image = preview_jpeg(source)
+                if _stream_sha256(source) != clip['sha256'] or not analysis_permission_granted(clip_id, registry_path):
+                    self._error(409)
+                    return
+                self._send(200, _document('Select your boat', selection_form(clip_id, token, image)),
+                           csp=_PAGE_CSP + "; img-src data:; script-src 'self'")
+            except (ValueError, OSError):
+                self._send(422, _document('Preview unavailable',
+                    '<p>A valid, unchanged, decodable clip is needed. Use a short clip '
+                    'with all eight rowers visible at its first frame. '
+                    '<a href="/">Return to the library</a>.</p>'))
+
+        def _select_post(self):
+            content_type = self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+            if content_type != 'application/x-www-form-urlencoded':
+                self._error(415)
+                return
+            length = int(self.headers['Content-Length'])
+            if not 0 < length <= 4096:
+                self._error(413)
+                return
+            try:
+                self.connection.settimeout(5)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise ValueError('incomplete_form')
+                fields = parse_qs(raw.decode('utf-8'), keep_blank_values=True,
+                                  strict_parsing=True, max_num_fields=23)
+                required = {'csrf', 'clip_id', 'same_boat', 'left', 'top', 'right', 'bottom'}
+                required |= {f'{axis}{i}' for i in range(8) for axis in ('x', 'y')}
+                if set(fields) != required or any(len(v) != 1 for v in fields.values()):
+                    raise ValueError('invalid_form')
+                fields = {k: v[0] for k, v in fields.items()}
+                if not hmac.compare_digest(fields['csrf'].encode(), token.encode()):
+                    self._error(403)
+                    return
+                clip_id = fields['clip_id']
+                if re.fullmatch(r'[0-9a-f]{64}', clip_id) is None:
+                    raise ValueError('invalid_clip')
+                selected = validate_selection({
+                    'version': 1, 'confirmed_same_boat': fields['same_boat'] == 'yes',
+                    'roi': [float(fields[k])/100 for k in ('left', 'top', 'right', 'bottom')],
+                    'seeds': [[float(fields[f'x{i}'])/100, float(fields[f'y{i}'])/100] for i in range(8)],
+                })
+                job = jobs.submit(clip_id, selection=selected)
+            except (ValueError, UnicodeError, OSError):
+                self._send(422, _document('Check your crew selection',
+                    '<p>Choose a valid region containing eight distinct rowers and confirm '
+                    'they share one boat. Reload the selection page and try again.</p>'))
+                return
+            self._send(303, b'', location='/jobs/' + job['job_id'])
+
         def do_GET(self):
             if not self._trusted_request():
                 self._error(403)
                 return
             route = urlsplit(self.path).path
+            if route == '/select':
+                self._select_get()
+                return
+            if route == '/selection.js':
+                self._send(200, SELECTION_JS.encode(), mime='application/javascript; charset=utf-8')
+                return
             if route in ("/", "/history.csv"):
                 try:
                     camera, status, clip = _history_filters(
@@ -1613,6 +1711,10 @@ def create_server(
                     if not hmac.compare_digest(fields["csrf"], token):
                         self._error(403)
                         return
+                    select_crew = fields.get('select_crew') == 'yes'
+                    if 'select_crew' in fields and not select_crew:
+                        self._error(400)
+                        return
                     analyze_now = fields.get("analyze") == "now"
                     if "analyze" in fields and not analyze_now:
                         self._error(400)
@@ -1669,6 +1771,9 @@ def create_server(
             except Exception:
                 self._error(503)
                 return
+            if analyze_now and select_crew:
+                self._send(303, b'', location='/select?clip=' + clip['clip_id'])
+                return
             if analyze_now:
                 try:
                     job = jobs.submit(clip["clip_id"])
@@ -1684,7 +1789,7 @@ def create_server(
                 self._error(403)
                 return
             route = urlsplit(self.path).path
-            if route not in ("/jobs", "/revoke", "/upload"):
+            if route not in ("/jobs", "/revoke", "/upload", "/select"):
                 allowed = _allowed_methods(route)
                 self._error(405, allow=allowed) if allowed == "GET" else self._error(404)
                 return
@@ -1695,6 +1800,9 @@ def create_server(
                     or re.fullmatch(r"[0-9]+", lengths[0]) is None
                     or self.headers.get_all("Transfer-Encoding")):
                 self._error(400)
+                return
+            if route == "/select":
+                self._select_post()
                 return
             if route == "/upload":
                 self._upload()
@@ -1725,7 +1833,8 @@ def create_server(
                 body = raw.decode("utf-8")
                 params = parse_qs(body, keep_blank_values=True, strict_parsing=True,
                                   max_num_fields=3)
-                if set(params) != {"csrf", "clip_id"} or any(
+                allowed_fields = ({"csrf", "clip_id"}, {"csrf", "clip_id", "retry_job"}) if route == "/jobs" else ({"csrf", "clip_id"},)
+                if set(params) not in allowed_fields or any(
                     len(v) != 1 for v in params.values()
                 ):
                     self._error(400)
@@ -1741,7 +1850,15 @@ def create_server(
                     revoke_clip(clip_id, registry_path)
                     destination = "/"
                 else:
-                    record = jobs.submit(clip_id)
+                    selected = None
+                    if 'retry_job' in params:
+                        retry_id = params['retry_job'][0]
+                        previous = jobs.get(retry_id) if _JOB_ID.fullmatch(retry_id) else None
+                        if (previous is None or previous['clip_id'] != clip_id or previous['status'] != 'failed'
+                                or previous['error_code'] not in _RETRYABLE_JOB_ERRORS):
+                            raise ValueError('invalid_retry')
+                        selected = jobs.selection(retry_id)
+                    record = jobs.submit(clip_id, selection=selected) if selected is not None else jobs.submit(clip_id)
                     destination = "/jobs/" + record["job_id"]
             except TimeoutError:
                 self._error(400)
@@ -1776,7 +1893,7 @@ def main(argv=None):
         with create_server(jobs, registry_db=args.registry_db,
                            upload_dir=args.uploads, port=args.port) as server:
             print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")
-            print("Upload mode: streaming-150MiB-v2 (maximum video: 150 MiB; same-origin forms)",
+            print("Upload mode: streaming-150MiB-v3 (maximum video: 150 MiB; same-origin forms; select one crew)",
                   flush=True)
             try:
                 server.serve_forever()

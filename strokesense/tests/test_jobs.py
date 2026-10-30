@@ -102,7 +102,7 @@ class LocalJobsTests(unittest.TestCase):
             self.assertEqual(old["coaching_state"], "withheld")
             self.assertIsNone(manager.report_sha256(legacy_id))
         with sqlite3.connect(self.jobs_db) as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 7)
             self.assertIn("report_sha256", [
                 c[1] for c in conn.execute("PRAGMA table_info(jobs)")
             ])
@@ -130,7 +130,7 @@ class LocalJobsTests(unittest.TestCase):
             self.assertEqual(manager.report_sha256(legacy_id), "a" * 64)
             self.assertIsNone(manager.metrics_sha256(legacy_id))
         with sqlite3.connect(self.jobs_db) as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 7)
             self.assertIn("metrics_sha256", [
                 row[1] for row in conn.execute("PRAGMA table_info(jobs)")
             ])
@@ -160,7 +160,7 @@ class LocalJobsTests(unittest.TestCase):
             self.assertEqual(manager.metrics_sha256(legacy_id), "b" * 64)
             self.assertIsNone(manager.media_artifact(legacy_id))
         with sqlite3.connect(self.jobs_db) as conn:
-            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 7)
             columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
             self.assertTrue({"video_path", "video_sha256"}.issubset(columns))
 

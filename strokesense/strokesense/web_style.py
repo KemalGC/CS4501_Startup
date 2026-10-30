@@ -121,10 +121,10 @@ form[action="/upload"] .import-consent { display: flex; align-items: flex-start;
 .import-consent input { flex: 0 0 auto; margin-top: .15rem; }
 .import-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: .8rem; margin-top: 1rem; }
 .import-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; column-gap: 1rem; row-gap: .2rem; padding: 1.15rem .1rem .2rem; border-top: 1px solid #c6ddd7; }
-form[action="/upload"] .import-actions label { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto; font-size: .96rem; font-weight: 750; }
+form[action="/upload"] .import-actions label { grid-column: 1; grid-row: auto; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto; font-size: .96rem; font-weight: 750; }
 .import-actions label input { margin: 0; flex: 0 0 auto; }
-.import-actions p { grid-column: 1; grid-row: 2; margin: 0 0 0 1.65rem; color: #52677a; font-size: .83rem; }
-form[action="/upload"] .import-actions button { grid-column: 2; grid-row: 1 / span 2; justify-self: end; min-width: 11rem; background: var(--night); border-color: var(--night); box-shadow: 0 6px 14px rgb(16 28 47 / 13%); }
+.import-actions p { grid-column: 1; grid-row: auto; margin: 0 0 0 1.65rem; color: #52677a; font-size: .83rem; }
+form[action="/upload"] .import-actions button { grid-column: 2; grid-row: 1 / span 4; justify-self: end; min-width: 11rem; background: var(--night); border-color: var(--night); box-shadow: 0 6px 14px rgb(16 28 47 / 13%); }
 form[action="/upload"] .import-actions button:hover { background: var(--night-light); border-color: var(--night-light); }
 /* Saved evidence summary: integrity-checked counts, not model confidence. */
 .evidence-workspace {

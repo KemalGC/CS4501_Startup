@@ -18,6 +18,7 @@ import numpy as np
 
 from . import __version__ as PACKAGE_VERSION
 from . import crew, render, report
+from .selection import validate_selection, locked_tracks, SelectionError
 from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video,
                    save_detections, load_detections, result_from_detections, crew_tracks)
 
@@ -51,7 +52,7 @@ def _file_identity(path, *, hash_content=False):
     return identity
 
 
-def _cache_identity(video, start, duration, tiles, fps, model):
+def _cache_identity(video, start, duration, tiles, fps, model, selection=None):
     """Identify source bytes, request settings, and actual model bytes.
 
     Strong content fingerprints prevent same-size/same-mtime replacements from
@@ -72,6 +73,8 @@ def _cache_identity(video, start, duration, tiles, fps, model):
         },
         "model": model_id,
     }
+    if selection is not None:
+        identity["selection"] = validate_selection(selection)
     return json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
@@ -89,7 +92,11 @@ def _result_directory(video, out_dir):
 
 
 def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="auto", fps=15.0,
-                  model=None, single=False, reuse=True, log=print):
+                  model=None, single=False, reuse=True, log=print, selection=None):
+    if selection is not None:
+        selection = validate_selection(selection)
+        if single or start != 0:
+            raise SelectionError("selection_requires_first_frame_and_crew")
     video = Path(video).expanduser().resolve()
     model = Path(model).expanduser().resolve() if model is not None else None
     out = _result_directory(video, out_dir)
@@ -97,7 +104,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
     cache = out / "detections.npz"
 
     t0 = time.time()
-    identity = _cache_identity(video, start, duration, tiles, fps, model)
+    identity = _cache_identity(video, start, duration, tiles, fps, model, selection=selection)
     dets = meta = None
     if reuse and cache.exists():
         try:
@@ -113,19 +120,29 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         log(f"[1/4] Running pose estimation on {video.name} ...")
         det = PoseDetector(model) if model else PoseDetector()
         # The detector may have downloaded the model, so capture its actual identity.
-        identity = _cache_identity(video, start, duration, tiles, fps, model)
+        identity = _cache_identity(video, start, duration, tiles, fps, model, selection=selection)
 
         def prog(i, n):
             log(f"      frame {i}/{n}  ({time.time() - t0:.0f}s)")
-        dets, meta = run_video(video, det, tiles=tiles, start=start, duration=duration, target_fps=fps, progress=prog)
-        if identity == _cache_identity(video, start, duration, tiles, fps, model):
+        selected_options = {"selection": selection} if selection is not None else {}
+        dets, meta = run_video(video, det, tiles=tiles, start=start, duration=duration, target_fps=fps, progress=prog, **selected_options)
+        if identity == _cache_identity(video, start, duration, tiles, fps, model, selection=selection):
             meta = {**meta, "cache_identity": identity}
             save_detections(cache, dets, meta)
         else:
             log("[1/4] Source or model changed during pose estimation; cache was not saved.")
     log("[2/4] Finding rowers and analysing strokes ...")
     rowers = []
-    if not single:
+    if selection is not None:
+        tracks = locked_tracks(dets, meta, selection)
+        pose = PoseResult(fps=float(meta['fps']), n_frames=len(dets), width=int(meta['width']),
+                          height=int(meta['height']), tracks=tracks, start=float(meta['start']),
+                          stride=int(meta['stride']))
+        rowers = crew.rowers_from_slots(pose, 1, 8)
+        for r in rowers:
+            r.seat = f'Selected {r.tid + 1}'
+        rowers.sort(key=lambda r: r.tid)
+    elif not single:
         tracks, crew_dir, n_seats = crew_tracks(dets, meta["fps"])
         pose = PoseResult(fps=float(meta["fps"]), n_frames=len(dets), width=int(meta["width"]),
                           height=int(meta["height"]), tracks=tracks, start=float(meta["start"]),
@@ -133,7 +150,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         if n_seats >= 2 and tracks:
             log(f"      crew of {n_seats} found, {len(tracks)} seats tracked")
             rowers = crew.rowers_from_slots(pose, crew_dir, n_seats)
-    if not rowers:
+    if not rowers and selection is None:
         pose = result_from_detections(dets, meta)
         log(f"      {len(pose.tracks)} people tracked")
         rowers = crew.find_rowers(pose, max_rowers=1 if single else 9)
@@ -158,12 +175,17 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
             continue
         mid = r.strokes[len(r.strokes) // 2]
         c, f = out / f"seat_{r.seat}_catch.jpg", out / f"seat_{r.seat}_finish.jpg"
-        snaps[r.tid] = {"catch": c, "finish": f}
-        reqs += [(mid.catch, r, c), (mid.finish, r, f)]
+        faults, fault_requests = render.fault_snapshot_requests(r, pose, out)
+        snaps[r.tid] = {"catch": c, "finish": f, "faults": faults}
+        reqs += [(mid.catch, r, c), (mid.finish, r, f)] + fault_requests
     ref = max(rowers, key=lambda r: len(r.strokes))
     if ref.strokes:
         reqs.append((ref.strokes[len(ref.strokes) // 2].catch, None, out / "crew_catch.jpg"))
-    render.snapshots(video, pose, rowers, reqs)
+    written = render.snapshots(video, pose, rowers, reqs)
+    # Never embed a stale photo left by a prior CLI run after decode/write failure.
+    for sn in snaps.values():
+        sn['faults'] = {code: shot for code, shot in sn.get('faults', {}).items()
+                        if written is not None and shot['path'] in written}
     html_path = report.build_html(video.name, pose, rowers, sync, snaps, out / "report.html")
     report.build_json(
         rowers, sync, out / "metrics.json",

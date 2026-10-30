@@ -1337,3 +1337,44 @@ These are synthetic job/UI tests, not evaluation on real rowing footage.
 The responsive browser smoke test covers 320/390/1280px, but does not replace
 human visual/accessibility review or Windows-specific usability testing.
 Human team inspection of the AI-assisted tests remains pending.
+
+
+## Choose one eight-rower crew (manual follow-up, October 30)
+
+In the browser import form, leave **Choose eight rowers from one boat before
+analysis** checked. With immediate analysis enabled, importing stops at a private
+first-frame preview. Mark two opposite corners of a region containing only your
+boat, click inside eight separate rowers (not the coxswain), and confirm all eight
+belong to that boat. The **Analyze selected crew** button then queues processing.
+Previously imported videos have a **Choose eight rowers** control in the library.
+Numbered click order becomes `Selected 1` through `Selected 8`, not an inferred
+bow/stroke assignment. Numeric percentage fields provide a keyboard alternative.
+
+The selected region is fixed across this clip and is cropped before inference.
+Coordinates are restored to the original frame for rendering. All eight must be
+visible at the start and remain unambiguously associable inside the region; use a
+shorter clip when a boat leaves the region, crosses another boat, or is occluded.
+This is conservative geometric tracking, NOT automatic physical-boat recognition
+or person re-identification. User confirmation alone cannot prove membership.
+Loss/ambiguity withholds the run instead of recruiting global top-eight rowers.
+A selected job cannot silently fall back to automatic crew detection.
+
+Selection schema v1 is stored per job; job DB schema v7 adds a nullable column
+without dropping old records. Retrying a failed selected job preserves that
+selection. Source, model, settings and selection participate in cache identity.
+Unchecking crew selection preserves the legacy full-frame mode; import-only and
+the existing CLI still work. Do not downgrade this job database to old code.
+
+New reports include one representative visible context photo per flagged fault
+code and rower, with the source-video time and stroke number. Catch/finish faults
+use that phase; sequencing faults use the detector's corresponding signal sample.
+A still image is context, not proof of a dynamic fault. Unavailable images are
+labelled, not invented. The body-angle chart now has a true legend: blue circles
+for Catch and orange squares for Finish. Previously saved reports are immutable;
+re-analyze to obtain these pictures and the corrected legend.
+
+Verification: `python strokesense/quality.py`; targeted regressions
+`test_selected_crew.py`, `test_selection_web.py`, `test_selection_edges.py`,
+`test_fault_pictures.py`; optional installed Chrome + test-only Playwright:
+`python strokesense/tests/browser_crew_selection.py`. These tests use synthetic
+fixtures and a fake analyzer, not empirical rowing accuracy or coach approval.

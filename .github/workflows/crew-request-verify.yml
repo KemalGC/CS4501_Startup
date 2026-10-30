@@ -1,0 +1,98 @@
+name: Verify manual crew and report requests
+on:
+  push:
+    branches: ['dev/2026-10-30-1052-crew-selection']
+    paths: ['.github/workflows/crew-request-verify.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/dev/2026-10-30-1052-crew-selection'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/2026-10-30-1052-crew-selection
+      - name: Guard exact topic checkpoint
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing project and browser test dependencies
+        run: python -m pip install -r strokesense/requirements.txt playwright==1.58.0
+      - name: Apply checksum-verified reviewed patch
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64, gzip, hashlib, subprocess
+          chunks = [Path('.github/crew-request.part'+str(i)) for i in range(3)]
+          data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in chunks), validate=True))
+          assert hashlib.sha256(data).hexdigest() == 'db0946e10fa989bba6cf1051394409781ea27e03c75a9559a621f16f9392b218'
+          patch = Path('/tmp/crew-request.patch'); patch.write_bytes(data)
+          subprocess.run(['git','apply','--check',str(patch)],check=True)
+          subprocess.run(['git','apply',str(patch)],check=True)
+          for p in chunks: p.unlink()
+          Path('.github/workflows/crew-request-verify.yml').unlink()
+      - name: Verify targeted and full offline regression suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q strokesense/strokesense
+          python -m unittest discover -s strokesense/tests -p test_selected_crew.py -v
+          python -m unittest discover -s strokesense/tests -p test_selection_web.py -v
+          python -m unittest discover -s strokesense/tests -p test_fault_pictures.py -v
+          python -m unittest discover -s strokesense/tests -p test_selection_edges.py -v
+          python strokesense/quality.py 2>&1 | tee /tmp/crew-quality.log
+          python strokesense/quality.py --doctor
+          git diff --check
+      - name: Exercise actual native browser selection and existing workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python strokesense/tests/browser_crew_selection.py 2>&1 | tee /tmp/crew-browser.log
+          python strokesense/tests/browser_form_origin.py
+          python strokesense/tests/browser_results_workspace.py
+          python strokesense/tests/browser_evidence_overview.py
+          python strokesense/tests/browser_comparison_workspace.py
+      - name: Record factual handoff after verified checks
+        shell: python
+        run: |
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import os, re
+          quality=Path('/tmp/crew-quality.log').read_text()
+          counts=re.findall(r'Ran (\d+) tests',quality)
+          assert counts and '\nOK\n' in quality
+          now=datetime.now(ZoneInfo('America/New_York')).isoformat()
+          run='https://github.com/KemalGC/CS4501_Startup/actions/runs/'+os.environ['GITHUB_RUN_ID']
+          entry=f'''## October 30 manual retry — single-crew selection and fault pictures (#94, #95)
+
+          - User explicitly requested retry of October 30 features; this is not resumed sprint work or a schedule change. Retry began 2026-10-30T11:11:14.523023-04:00 with a monotonic timer. Verification checkpoint {now}; final measured reporting duration is recorded separately, not an invented 30 minutes.
+          - Continue topic `dev/2026-10-30-1052-crew-selection` from test-only head `30f97f7c042ebb1ce7c17c7199fdc78a52cbe4dc`, descendant of integration `6d38c9714c27ebde058ec5675a57009b45364f21`. Prior interrupted work contained tests only. Main and schedules are not written. Integration/publication and email remain pending at this commit.
+          - Tests-first evidence: existing core-selection, selection-web and fault-picture tests were run before new production changes; commands `python -m unittest discover -s strokesense/tests -p test_selected_crew.py -v`, `test_selection_web.py`, `test_fault_pictures.py` produced 7, 4, 4 expected missing-behavior failures respectively. Local targeted green then passed all 15. Six edge/regression extensions were added later; do not describe those as tests-first.
+          - Implemented private first-frame preview, one bounded boat region and exactly eight distinct numbered rower seeds, mandatory operator one-boat attestation, default import pause before selected analysis, explicit full-frame alternative, and no JavaScript requirement for numeric entry. Native canvas has responsive layout. The first frame must contain all eight targets.
+          - Selected inference crops to the fixed region before model calls and restores frame coordinates. Initial seed matching and later conservative geometric association maintain a closed eight-slot set; missing or ambiguous detections fail the job instead of recruiting another boat. This is NOT automatic physical-boat recognition, appearance re-identification, or proof against every identity switch. Crossing, occlusion and camera/boat motion can make the fixed region unsuitable. Association is checked after pose extraction, not a claimed immediate inference cancellation.
+          - Per-job validated selection persisted with non-destructive schema 7 migration; retries reuse it. Cache identity includes selection; unselected CLI behavior remains compatible. Permission, same-origin, CSRF, upload limits and output isolation stay enforced. No private footage or identifying athlete metadata committed.
+          - Reports request a representative context snapshot from an actually flagged stroke per fault type, using phase-relevant frames and source timestamps plus Selected 1..8 labels. Invisible/unwritten pictures are explicitly unavailable. Stills do not prove temporal faults or coaching correctness. Body-angle chart uses a real Catch blue-circle / Finish orange-square legend instead of literal black dot text. Old reports require re-analysis and are not rewritten automatically.
+          - Complete CI `python strokesense/quality.py` passed {counts[-1]} tests plus the four legacy synthetic functions; doctor is read-only. Native browser selection and existing browser workflows passed in {run}. Synthetic detections/AVI and fake analyzers only: no real pose model, provider calls, rowing accuracy denominators or coach approval. Local full suite was NOT green: 433 tests had two timeouts (large-upload HTTP response and synthetic-evaluation subprocess); CI above supplies completed verification. Local doctor lacked ONNX Runtime and cached model; no local inference claim.
+          - Traceability: #94 -> test_selected_crew.py, test_selection_web.py, test_selection_edges.py, browser_crew_selection.py -> selection.py/selection_ui.py/web.py/jobs.py/cli.py/pose.py. #95 -> test_fault_pictures.py -> render.py/report.py/cli.py. Existing schema-version expectations updated while preserving migration assertions. Human review/real-video/Windows testing remain pending. Prior history retained below.
+          - Temporary checksum-verified patch transport and source-snapshot workflow are removed from this checkpoint. Explicit next action: guarded integration after checking remote heads, then user restarts the development server and selects one isolated crew; validate on permission-granted footage before accuracy claims.
+
+          '''
+          p=Path('llm.md');p.write_text(entry+p.read_text())
+      - name: Publish verified topic only without rewriting history
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='dev/2026-10-30-1052-crew-selection'
+          observed=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$observed" = "$GITHUB_SHA"
+          git diff --check
+          git add -- strokesense llm.md .github/crew-request.part0 .github/crew-request.part1 .github/crew-request.part2 .github/workflows/crew-request-verify.yml .github/workflows/selection-source.yml .github/workflows/strokesense-browser.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: select one fixed crew and show flagged-stroke context photos (#94 #95)'
+          git push origin "HEAD:refs/heads/$branch"
+          git rev-parse HEAD

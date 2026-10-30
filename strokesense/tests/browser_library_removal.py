@@ -32,7 +32,8 @@ def main():
                     with sync_playwright() as pw:
                         browser = pw.chromium.launch(executable_path=executable, headless=True)
                         try:
-                            page = browser.new_page(java_script_enabled=False)
+                            page = browser.new_page(java_script_enabled=False,
+                                viewport={'width': 1280, 'height': 900}, reduced_motion='reduce')
                             page.set_default_timeout(10000)
                             def upload():
                                 assert page.goto(origin+'/').status == 200

@@ -23,7 +23,7 @@ jobs:
           python-version: '3.11'
       - name: Install existing project and browser test dependencies
         run: python -m pip install -r strokesense/requirements.txt playwright==1.58.0
-      - name: Apply checksum-verified reviewed patch
+      - name: Apply checksum-verified reviewed patch and browser-found layout fix
         shell: python
         run: |
           from pathlib import Path
@@ -34,6 +34,16 @@ jobs:
           patch = Path('/tmp/crew-request.patch'); patch.write_bytes(data)
           subprocess.run(['git','apply','--check',str(patch)],check=True)
           subprocess.run(['git','apply',str(patch)],check=True)
+          p=Path('strokesense/strokesense/web_style.py');s=p.read_text()
+          replacements={
+              'grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto;': 'grid-column: 1; grid-row: auto; display: flex; align-items: center; gap: .55rem; flex: 0 1 auto;',
+              '.import-actions p { grid-column: 1; grid-row: 2;': '.import-actions p { grid-column: 1; grid-row: auto;',
+              'grid-column: 2; grid-row: 1 / span 2; justify-self: end; min-width: 11rem;': 'grid-column: 2; grid-row: 1 / span 4; justify-self: end; min-width: 11rem;',
+          }
+          for old,new in replacements.items():
+              assert s.count(old)==1, 'unexpected stylesheet checkpoint'
+              s=s.replace(old,new,1)
+          p.write_text(s)
           for p in chunks: p.unlink()
           Path('.github/workflows/crew-request-verify.yml').unlink()
       - name: Verify targeted and full offline regression suites
@@ -78,8 +88,9 @@ jobs:
           - Selected inference crops to the fixed region before model calls and restores frame coordinates. Initial seed matching and later conservative geometric association maintain a closed eight-slot set; missing or ambiguous detections fail the job instead of recruiting another boat. This is NOT automatic physical-boat recognition, appearance re-identification, or proof against every identity switch. Crossing, occlusion and camera/boat motion can make the fixed region unsuitable. Association is checked after pose extraction, not a claimed immediate inference cancellation.
           - Per-job validated selection persisted with non-destructive schema 7 migration; retries reuse it. Cache identity includes selection; unselected CLI behavior remains compatible. Permission, same-origin, CSRF, upload limits and output isolation stay enforced. No private footage or identifying athlete metadata committed.
           - Reports request a representative context snapshot from an actually flagged stroke per fault type, using phase-relevant frames and source timestamps plus Selected 1..8 labels. Invisible/unwritten pictures are explicitly unavailable. Stills do not prove temporal faults or coaching correctness. Body-angle chart uses a real Catch blue-circle / Finish orange-square legend instead of literal black dot text. Old reports require re-analysis and are not rewritten automatically.
-          - Complete CI `python strokesense/quality.py` passed {counts[-1]} tests plus the four legacy synthetic functions; doctor is read-only. Native browser selection and existing browser workflows passed in {run}. Synthetic detections/AVI and fake analyzers only: no real pose model, provider calls, rowing accuracy denominators or coach approval. Local full suite was NOT green: 433 tests had two timeouts (large-upload HTTP response and synthetic-evaluation subprocess); CI above supplies completed verification. Local doctor lacked ONNX Runtime and cached model; no local inference claim.
-          - Traceability: #94 -> test_selected_crew.py, test_selection_web.py, test_selection_edges.py, browser_crew_selection.py -> selection.py/selection_ui.py/web.py/jobs.py/cli.py/pose.py. #95 -> test_fault_pictures.py -> render.py/report.py/cli.py. Existing schema-version expectations updated while preserving migration assertions. Human review/real-video/Windows testing remain pending. Prior history retained below.
+          - CI feedback: first verification run 41082118350 passed all 439 offline test executions and the native crew selection flow, but the existing import-only Chrome test caught two upload option labels occupying the same grid row. The production stylesheet now uses separate auto rows; the existing browser check was not weakened. This is additional observed browser-red-to-green evidence.
+          - Complete CI `python strokesense/quality.py` passed {counts[-1]} test executions plus the four legacy synthetic functions; doctor is read-only. Native browser selection and existing browser workflows passed in {run}. Synthetic detections/AVI and fake analyzers only: no real pose model, provider calls, rowing accuracy denominators or coach approval. Local full suite was NOT green: 433 tests had two timeouts (large-upload HTTP response and synthetic-evaluation subprocess); CI above supplies completed verification. Local doctor lacked ONNX Runtime and cached model; no local inference claim.
+          - Traceability: #94 -> test_selected_crew.py, test_selection_web.py, test_selection_edges.py, browser_crew_selection.py -> selection.py/selection_ui.py/web.py/web_style.py/jobs.py/cli.py/pose.py. #95 -> test_fault_pictures.py -> render.py/report.py/cli.py. Existing schema-version expectations updated while preserving migration assertions. Human review/real-video/Windows testing remain pending. Prior history retained below.
           - Temporary checksum-verified patch transport and source-snapshot workflow are removed from this checkpoint. Explicit next action: guarded integration after checking remote heads, then user restarts the development server and selects one isolated crew; validate on permission-granted footage before accuracy claims.
 
           '''

@@ -42,3 +42,5 @@ jobs:
         run: python strokesense/tests/browser_evidence_overview.py
       - name: Select one crew through native canvas and form
         run: python strokesense/tests/browser_crew_selection.py
+      - name: Recover a duplicate upload without overwriting metadata
+        run: python strokesense/tests/browser_upload_feedback.py

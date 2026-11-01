@@ -19,6 +19,13 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - name: Archive exact tracked source for reproduction
+        run: git archive --format=tar HEAD > /tmp/strokesense-source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strokesense-source
+          path: /tmp/strokesense-source.tar
+          retention-days: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

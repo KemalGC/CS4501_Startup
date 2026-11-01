@@ -111,7 +111,7 @@ def add_review(server, jobs, registry, *, scan_fn=scan_clip):
                         entry={'review':uuid4().hex,'future':executor.submit(scan,cid)};cache[cid]=entry
                 if parsed.path=='/review':
                     self._send(200,web._document('Review your boat',review_html(cid,server.csrf_token)),
-                               csp=web._PAGE_CSP+"; img-src data:; script-src 'self'");return
+                               csp=web._PAGE_CSP+"; img-src data:; script-src 'self'; connect-src 'self'");return
                 if not entry['future'].done(): payload={'state':'scanning'}
                 else:
                     payload=entry['future'].result()

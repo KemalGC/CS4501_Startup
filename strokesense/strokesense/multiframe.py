@@ -40,7 +40,16 @@ def boat_regions(boxes, points, width, height):
                 members = ids[(residual < np.maximum(2, sizes[ids, 1]*.28))
                               & (sizes[ids, 1] / sizes[i, 1] > .5)
                               & (sizes[ids, 1] / sizes[i, 1] < 2)]
-                if len(members) > len(best): best = members.tolist()
+                # Collinearity alone can merge two different boats. Split the
+                # line at gaps large relative to person size before proposing it.
+                members = members[np.argsort(centres[members, 0])]
+                if len(members):
+                    limit = max(3.5 * float(np.median(sizes[members, 0])),
+                                1.5 * float(np.median(sizes[members, 1])))
+                    cuts = np.flatnonzero(np.diff(centres[members, 0]) > limit) + 1
+                    for group in np.split(members, cuts):
+                        if len(group) > len(best):
+                            best = group.tolist()
         if len(best) < 3: break
         b = boxes[best]
         pad = float(np.median(b[:, 3]-b[:, 1])) * .5

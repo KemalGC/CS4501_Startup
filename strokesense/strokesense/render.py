@@ -1,9 +1,11 @@
 """Annotated video + key-frame snapshots."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -65,49 +67,60 @@ def draw_rower(img, rower, fi, color, thickness=2, show_angles=True):
         _txt(img, "!", (p["hip"][0] - 4, p["hip"][1] + 36), 0.6, BAD, 2)
 
 
+class RenderingUnavailable(RuntimeError):
+    """Optional annotated media failed; the report can still be produced."""
+
+
 def _open_writer(path: Path, fps, size):
-    tmp = path.with_suffix(".tmp.mp4")
-    w = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
-    if w.isOpened():
-        return w, tmp
-    webm = path.with_suffix(".webm")
-    return cv2.VideoWriter(str(webm), cv2.VideoWriter_fourcc(*"VP80"), fps, size), webm
+    tmp = path.with_name('.' + path.stem + '.' + uuid4().hex + '.tmp.mp4')
+    try:
+        writer = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    except cv2.error:
+        raise RenderingUnavailable('video_writer_unavailable') from None
+    if not writer.isOpened():
+        writer.release()
+        raise RenderingUnavailable('video_writer_unavailable')
+    return writer, tmp
+
+
+def _ffmpeg():
+    executable = shutil.which('ffmpeg')
+    if executable is None:
+        try:
+            import imageio_ffmpeg
+            executable = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            pass
+    return executable
 
 
 def _finalise(tmp: Path, out: Path) -> Path:
-    """Re-encode to browser-playable H.264 if ffmpeg is available; otherwise fall back to VP8 webm."""
-    if tmp.suffix == ".webm":
-        return tmp
-    ff = shutil.which("ffmpeg")
-    if ff is None:
+    """Publish verified H.264; never fall back to in-process VP8 or erase input on failure."""
+    executable = _ffmpeg()
+    if executable is None:
+        raise RenderingUnavailable('browser_encoder_unavailable')
+    pending = out.with_name('.' + out.stem + '.' + uuid4().hex + '.encoding.mp4')
+    try:
+        completed = subprocess.run([executable, '-nostdin', '-y', '-loglevel', 'error',
+            '-i', str(tmp), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast',
+            '-crf', '23', '-movflags', '+faststart', str(pending)], timeout=120,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if completed.returncode != 0 or not pending.is_file() or pending.stat().st_size == 0:
+            raise RenderingUnavailable('browser_encoding_failed')
+        cap = cv2.VideoCapture(str(pending))
         try:
-            import imageio_ffmpeg
-            ff = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception:
-            ff = None
-    if ff:
-        r = subprocess.run([ff, "-y", "-loglevel", "error", "-i", str(tmp), "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                            "-preset", "veryfast", "-crf", "23", "-movflags", "+faststart", str(out)])
-        if r.returncode == 0:
-            tmp.unlink(missing_ok=True)
-            return out
-    # no ffmpeg: transcode via OpenCV to VP8 webm (plays in Chrome / Firefox / Edge)
-    cap = cv2.VideoCapture(str(tmp))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    webm = out.with_suffix(".webm")
-    w = None
-    while True:
-        ok, fr = cap.read()
-        if not ok:
-            break
-        if w is None:
-            w = cv2.VideoWriter(str(webm), cv2.VideoWriter_fourcc(*"VP80"), fps, (fr.shape[1], fr.shape[0]))
-        w.write(fr)
-    cap.release()
-    if w is not None:
-        w.release()
-    tmp.unlink(missing_ok=True)
-    return webm
+            readable, frame = cap.read() if cap.isOpened() else (False, None)
+            if not readable or frame is None:
+                raise RenderingUnavailable('encoded_video_unreadable')
+        finally:
+            cap.release()
+        os.replace(pending, out)
+        tmp.unlink(missing_ok=True)
+        return out
+    except (OSError, subprocess.TimeoutExpired, cv2.error):
+        raise RenderingUnavailable('browser_encoding_failed') from None
+    finally:
+        pending.unlink(missing_ok=True)
 
 
 def iter_frames(video_path, pose):
@@ -131,39 +144,47 @@ def iter_frames(video_path, pose):
 
 def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
     out_path = Path(out_path)
+    if _ffmpeg() is None:
+        raise RenderingUnavailable('browser_encoder_unavailable')
     scale = min(1.0, max_width / pose.width)
     size = (int(pose.width * scale) // 2 * 2, int(pose.height * scale) // 2 * 2)
     writer, tmp = _open_writer(out_path, pose.fps, size)
     colors = {r.tid: PALETTE[i % len(PALETTE)] for i, r in enumerate(rowers)}
     ref = max(rowers, key=lambda r: len(r.strokes)) if rowers else None
-    for fi, fr in iter_frames(video_path, pose):
-        for r in rowers:
-            draw_rower(fr, r, fi, colors[r.tid], thickness=2 if pose.width < 1400 else 3)
-        fr = cv2.resize(fr, size, interpolation=cv2.INTER_AREA)
-        # HUD
-        if ref is not None:
-            phase, s = _phase(ref, fi)
-            n_done = sum(1 for st in ref.strokes if st.catch <= fi)
-            rate = f"{s.rate:.0f} spm" if s else "--"
-            hs = size[0] / 1280
-            _txt(fr, f"StrokeSense   stroke {n_done}   {rate}   {phase or ''}", (int(14 * hs), int(34 * hs)),
-                 0.65 * hs, thick=2 if hs > 1.2 else 1)
-            if sync and sync.get("per_seat"):
-                y = int(70 * hs)
-                for r in rowers:
-                    v = sync["per_seat"].get(r.seat)
-                    if v is None:
-                        continue
-                    col = GOOD if abs(v["mean_ms"]) <= 30 else (WARN if abs(v["mean_ms"]) <= 60 else BAD)
-                    word = "late" if v["mean_ms"] > 0 else "early"
-                    _txt(fr, f"{r.seat:>6}  catch {abs(v['mean_ms']):3.0f} ms {word}", (int(14 * hs), y),
-                         0.5 * hs, col)
-                    y += int(24 * hs)
-            if s is not None and len(rowers) == 1 and s.faults:
-                for i, f in enumerate(s.faults[:3]):
-                    _txt(fr, FAULTS[f]["title"], (14, 62 + 28 * i), 0.55, BAD)
-        writer.write(fr)
-    writer.release()
+    try:
+        for fi, fr in iter_frames(video_path, pose):
+            for r in rowers:
+                draw_rower(fr, r, fi, colors[r.tid], thickness=2 if pose.width < 1400 else 3)
+            fr = cv2.resize(fr, size, interpolation=cv2.INTER_AREA)
+            # HUD
+            if ref is not None:
+                phase, s = _phase(ref, fi)
+                n_done = sum(1 for st in ref.strokes if st.catch <= fi)
+                shared = (sync or {}).get('cadence', {}).get('rate_spm')
+                rate = (f"crew ~{shared:.0f} spm" if shared is not None else
+                        f"raw {s.rate:.0f} spm" if s and len(rowers) == 1 else "crew rate unconfirmed")
+                hs = size[0] / 1280
+                _txt(fr, f"StrokeSense   stroke {n_done}   {rate}   {phase or ''}", (int(14 * hs), int(34 * hs)),
+                     0.65 * hs, thick=2 if hs > 1.2 else 1)
+                if sync and sync.get("per_seat"):
+                    y = int(70 * hs)
+                    for r in rowers:
+                        v = sync["per_seat"].get(r.seat)
+                        if v is None:
+                            continue
+                        col = GOOD if abs(v["mean_ms"]) <= 30 else (WARN if abs(v["mean_ms"]) <= 60 else BAD)
+                        word = "late" if v["mean_ms"] > 0 else "early"
+                        _txt(fr, f"{r.seat:>6}  catch {abs(v['mean_ms']):3.0f} ms {word}", (int(14 * hs), y),
+                             0.5 * hs, col)
+                        y += int(24 * hs)
+                if s is not None and len(rowers) == 1 and s.faults:
+                    for i, f in enumerate(s.faults[:3]):
+                        _txt(fr, FAULTS[f]["title"], (14, 62 + 28 * i), 0.55, BAD)
+            writer.write(fr)
+    except (cv2.error, OSError):
+        raise RenderingUnavailable('video_render_failed') from None
+    finally:
+        writer.release()
     return _finalise(tmp, out_path)
 
 

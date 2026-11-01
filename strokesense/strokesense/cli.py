@@ -19,6 +19,7 @@ import numpy as np
 from . import __version__ as PACKAGE_VERSION
 from . import crew, render, report
 from .selection import validate_selection, locked_tracks, SelectionError
+from .dynamic_crew import EXTRACTION_VERSION, run_selected_video, rowers_from_selected
 from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video,
                    save_detections, load_detections, result_from_detections, crew_tracks)
 
@@ -75,6 +76,7 @@ def _cache_identity(video, start, duration, tiles, fps, model, selection=None):
     }
     if selection is not None:
         identity["selection"] = validate_selection(selection)
+        identity["settings"]["selected_extraction"] = EXTRACTION_VERSION
     return json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
@@ -124,8 +126,12 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
 
         def prog(i, n):
             log(f"      frame {i}/{n}  ({time.time() - t0:.0f}s)")
-        selected_options = {"selection": selection} if selection is not None else {}
-        dets, meta = run_video(video, det, tiles=tiles, start=start, duration=duration, target_fps=fps, progress=prog, **selected_options)
+        if selection is not None:
+            dets, meta = run_selected_video(video, det, selection, tiles=tiles, start=start,
+                                           duration=duration, target_fps=fps, progress=prog)
+        else:
+            dets, meta = run_video(video, det, tiles=tiles, start=start, duration=duration,
+                                   target_fps=fps, progress=prog)
         if identity == _cache_identity(video, start, duration, tiles, fps, model, selection=selection):
             meta = {**meta, "cache_identity": identity}
             save_detections(cache, dets, meta)
@@ -138,10 +144,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         pose = PoseResult(fps=float(meta['fps']), n_frames=len(dets), width=int(meta['width']),
                           height=int(meta['height']), tracks=tracks, start=float(meta['start']),
                           stride=int(meta['stride']))
-        rowers = crew.rowers_from_slots(pose, 1, 8)
-        for r in rowers:
-            r.seat = f'Selected {r.tid + 1}'
-        rowers.sort(key=lambda r: r.tid)
+        rowers = rowers_from_selected(pose)
     elif not single:
         tracks, crew_dir, n_seats = crew_tracks(dets, meta["fps"])
         pose = PoseResult(fps=float(meta["fps"]), n_frames=len(dets), width=int(meta["width"]),
@@ -243,4 +246,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-

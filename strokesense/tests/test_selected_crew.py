@@ -58,10 +58,13 @@ class SelectedCrewTests(unittest.TestCase):
         extra=a[0:1]+np.array([.1,0,.1,0])
         with self.assertRaises(m.SelectionError):m.locked_tracks([(np.vstack([a,extra]),np.vstack([k,k[:1]]))],{'width':100,'height':100},selection())
 
-    def test_tracking_loss_fails_closed_instead_of_replacing_a_selected_seat(self):
+    def test_tracking_loss_is_a_gap_instead_of_replacing_a_selected_seat(self):
         m=self.module();a,k=frame();b,bk=frame(y=82)
-        with self.assertRaises(m.SelectionError):
-            m.locked_tracks([(a,k),(np.vstack([a[:7],b]),np.vstack([k[:7],bk]))],{'width':100,'height':100},selection())
+        tracks=m.locked_tracks([(a,k),(np.vstack([a[:7],b]),np.vstack([k[:7],bk]))],{'width':100,'height':100},selection())
+        np.testing.assert_array_equal(tracks[7]['frames'],[0])
+        for i in range(7):
+            np.testing.assert_array_equal(tracks[i]['frames'],[0,1])
+            self.assertTrue(np.all(tracks[i]['boxes'][:,1]<65))
 
     def test_cache_identity_changes_with_selection_but_legacy_is_compatible(self):
         self.assertIn('selection',inspect.signature(cli._cache_identity).parameters)

@@ -122,11 +122,12 @@ class IsolatedWorkerTests(unittest.TestCase):
                         with patch.object(worker,'_command',return_value=[sys.executable,'-c','import os; os._exit(17)']):
                             item=jobs.submit(clip['clip_id']);done=jobs.wait(item['job_id'],timeout=10)
                         self.assertEqual(done['status'],'failed')
-                        self.assertEqual(done['error_code'],'analysis_process_failed')
+                        self.assertEqual(done['error_code'],'analysis_failed')
                         conn=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=3)
                         conn.request('GET','/jobs/'+item['job_id']);res=conn.getresponse();body=res.read();conn.close()
                         self.assertEqual(res.status,200)
-                        self.assertIn(b'analysis_process_failed',body)
+                        self.assertIn(b'analysis_failed',body)
+                        self.assertIn(b'Retry analysis',body)
                         self.assertNotIn(str(root).encode(),body)
                     finally:server.shutdown();thread.join(3)
 

@@ -124,6 +124,8 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path):
     rate = f"{np.median(rates):.0f}" if rates else "–"
     n_strokes = max((r.summary.get("n_strokes", 0) for r in rowers), default=0)
 
+    from .dynamic_crew import coverage_html
+    tracking_block = coverage_html(rowers)
     cards = []
     for r in rowers:
         s = r.summary
@@ -216,7 +218,7 @@ footer{{text-align:center;color:var(--muted);font-size:12px;padding:20px}}
 <div class="top"><h1>StrokeSense technique report</h1><p>{html.escape(video_name)} · generated {datetime.now():%b %d, %Y %H:%M}</p>
 <div class="kpis"><div><span>Rowers tracked</span><b>{len(rowers)}</b></div><div><span>Strokes</span><b>{n_strokes}</b></div>
 <div><span>Stroke rate</span><b>{rate} spm</b></div><div><span>Clip analysed</span><b>{pose.n_frames / pose.fps:.0f} s</b></div></div></div>
-<main>{sync_block}{''.join(cards)}</main>
+<main>{tracking_block}{sync_block}{''.join(cards)}</main>
 <footer>Angles are measured in 2D from a single camera; they are most accurate when the camera is level with and
 perpendicular to the boat. Body angle: + = leaning toward the stern (body over), − = layback.</footer>
 </body></html>"""

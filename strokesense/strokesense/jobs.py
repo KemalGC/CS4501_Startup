@@ -21,6 +21,7 @@ from uuid import uuid4
 from .registry import _stream_sha256, list_clips, analysis_permission_granted
 from .media import UndecodableMediaError, probe_decodable_video
 from .selection import validate_selection, SelectionError
+from .analysis_worker import run_isolated, AnalysisProcessError
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -129,7 +130,7 @@ class JobQueue:
         self._results_root = Path(results_root).expanduser().resolve()
         self._results_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         _prepare_db(self._job_db)
-        self._analyze_fn = analyze_fn or _default_analyze
+        self._analyze_fn = analyze_fn or run_isolated
         self._permits = BoundedSemaphore(max_pending)
         self._mutex = Lock()
         self._closed = False
@@ -261,8 +262,7 @@ class JobQueue:
             return None
         with closing(self._connection()) as conn:
             row = conn.execute(
-                "SELECT video_path, video_sha256 FROM jobs WHERE job_id = ?",
-                (job_id,),
+                "SELECT video_path, video_sha256 FROM jobs WHERE job_id = ?", (job_id,),
             ).fetchone()
         if row is None or not row["video_path"] or not row["video_sha256"]:
             return None
@@ -357,6 +357,12 @@ class JobQueue:
                 selected = self.selection(job_id)
                 opts = {'selection': selected} if selected is not None else {}
                 result = self._analyze_fn(video, out_dir=run_root, **opts)
+            except AnalysisProcessError as exc:
+                # Keep the established retryable public error contract. The local
+                # worker prints process-exit/timeout details without source paths.
+                code = exc.code if exc.code in ('invalid_media', 'selected_crew_lost_or_ambiguous') else 'analysis_failed'
+                self._write(job_id, "failed", finished_utc=_utc(), error_code=code)
+                return
             except SelectionError:
                 self._write(job_id, "failed", finished_utc=_utc(),
                             error_code="selected_crew_lost_or_ambiguous")

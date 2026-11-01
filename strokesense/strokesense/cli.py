@@ -17,7 +17,7 @@ from zipfile import BadZipFile
 import numpy as np
 
 from . import __version__ as PACKAGE_VERSION
-from . import crew, render, report
+from . import cadence, crew, render, report
 from .selection import validate_selection, locked_tracks, SelectionError
 from .dynamic_crew import EXTRACTION_VERSION, run_selected_video, rowers_from_selected
 from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video,
@@ -161,15 +161,24 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         log("      No rowing motion found. Try a clip where the rower is side-on and at least ~150 px tall.")
         return None
     sync = crew.crew_sync(rowers, pose.fps)
+    sync["cadence"] = cadence.estimate(rowers)
+    if len(rowers) > 1:
+        log("      " + cadence.description(sync["cadence"]))
     for r in rowers:
         s = r.summary
         if s.get("n_strokes"):
             iss = ", ".join(i["title"] for i in s["issues"][:2]) or "no consistent faults"
             sy = f"  catch {r.sync_ms:+.0f} ms" if r.sync_ms is not None else ""
-            log(f"      {r.seat:>6}: score {s['score']:>3}  {s['rate']:.0f} spm  {s['n_strokes']} strokes{sy}  — {iss}")
+            log(f"      {r.seat:>6}: score {s['score']:>3}  raw {s['rate']:.0f} spm ({cadence.qualification(sync['cadence'], r.seat)})  {s['n_strokes']} strokes{sy}  — {iss}")
 
     log("[3/4] Rendering annotated video ...")
-    vid = render.render_video(video, pose, rowers, out / f"{video.stem}_annotated.mp4", sync)
+    try:
+        vid = render.render_video(video, pose, rowers, out / f"{video.stem}_annotated.mp4", sync)
+    except render.RenderingUnavailable:
+        vid = None
+        log("      Annotated video unavailable; continuing with report and measurements.")
+    sync['media'] = {'state': 'available' if vid is not None else 'unavailable',
+                     'reason': None if vid is not None else 'browser_video_unavailable'}
 
     log("[4/4] Building report ...")
     snaps, reqs = {}, []

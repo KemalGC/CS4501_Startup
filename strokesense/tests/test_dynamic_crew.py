@@ -100,7 +100,7 @@ class DynamicCrewTests(unittest.TestCase):
             old = json.loads(cli._cache_identity(video, 0, None, 'auto', 15, None))
             new = json.loads(cli._cache_identity(video, 0, None, 'auto', 15, None, selection=selection()))
         self.assertNotIn('selected_extraction', old['settings'])
-        self.assertEqual(new['settings'].get('selected_extraction'), 'dynamic-full-frame-v2')
+        self.assertEqual(new['settings'].get('selected_extraction'), 'dynamic-refined-full-frame-v3')
 
     def test_selected_strokes_never_span_missing_observations(self):
         dynamic = self.dynamic(); kp, fps = make_rower()

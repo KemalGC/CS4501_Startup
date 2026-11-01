@@ -25,7 +25,7 @@ class ReviewHTTPTests(unittest.TestCase):
         self.assertTrue(writer.isOpened())
         for _ in range(45):writer.write(np.zeros((100,100,3),np.uint8))
         writer.release();self.db=root/'registry.db'
-        clip,_=register_clip(video,db=self.db,permission='granted',provenance='Synthetic test')
+        clip,_=register_clip(video,db_path=self.db,permission='granted',provenance='Synthetic test')
         self.cid=clip['clip_id'];self.seen=[]
         def analyze(path,*,out_dir,selection=None):
             self.seen.append(selection);report=out_dir/'report.html';report.write_text('Synthetic')

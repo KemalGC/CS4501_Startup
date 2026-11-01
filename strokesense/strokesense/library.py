@@ -253,7 +253,8 @@ def create_server(jobs: JobQueue, *, registry_db, host='127.0.0.1', port=0,
             self._send(303, b'', location=location)
 
     server.RequestHandlerClass = LibraryHandler
-    return server
+    from .review import add_review
+    return add_review(server, jobs, registry)
 
 
 def main(argv=None):
@@ -269,7 +270,7 @@ def main(argv=None):
         with create_server(jobs, registry_db=args.registry_db, upload_dir=args.uploads, port=args.port) as server:
             address = f'http://127.0.0.1:{server.server_address[1]}'
             print(f'Local StrokeSense: {address}/', flush=True)
-            print('Upload mode: streaming-150MiB-v4; library-removal-v1', flush=True)
+            print('Upload mode: streaming-150MiB-v4; library-removal-v1; multi-frame-review-v1', flush=True)
             print(f'Manage all saved entries: {address}/library', flush=True)
             try:
                 server.serve_forever()

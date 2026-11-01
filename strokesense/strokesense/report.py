@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
+from . import cadence
 from .kinematics import smooth  # noqa: E402
 
 INK, MUTED, GRID = "#1f2933", "#6b7785", "#e3e7ec"
@@ -121,7 +122,17 @@ def _score_color(sc):
 def build_html(video_name, pose, rowers, sync, snaps, out_path):
     crew = len(rowers) > 1
     rates = [r.summary.get("rate") for r in rowers if r.summary.get("rate")]
-    rate = f"{np.median(rates):.0f}" if rates else "–"
+    cadence_result = cadence.estimate(rowers)
+    estimate = cadence_result['rate_spm'] if crew else (rates[0] if rates else None)
+    rate = f"{estimate:.0f}" if estimate is not None else "–"
+    cadence_block = ('<section class="card wide" aria-label="Crew cadence"><h2>Crew cadence estimate</h2><p>'
+                     + html.escape(cadence.description(cadence_result))
+                     + '</p><p>Consensus of per-rower cycle medians, not proof of synchronized catches. '
+                     'Raw per-rower estimates are preserved; short samples and outliers are unconfirmed.</p></section>') if crew else ''
+    media_block = ('<section class="card wide" role="status"><h2>Annotated video unavailable</h2>'
+                   '<p>Browser video encoding was unavailable. The report and measurements are still saved. '
+                   'Install a local FFmpeg build with H.264 encoding and retry to generate browser video.</p></section>') \
+                   if sync.get('media', {}).get('state') == 'unavailable' else ''
     n_strokes = max((r.summary.get("n_strokes", 0) for r in rowers), default=0)
 
     from .dynamic_crew import coverage_html
@@ -170,7 +181,7 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path):
     <div class="score" style="border-color:{_score_color(s['score'])};color:{_score_color(s['score'])}">{s['score']}</div></header>
   <div class="metrics">
     <div class="m"><span>Strokes analysed</span><b>{s['n_strokes']}</b></div>
-    <div class="m"><span>Stroke rate</span><b>{s['rate']:.1f} spm</b></div>
+    <div class="m"><span>Raw rower rate estimate</span><b>{s['rate']:.1f} spm</b><small>{html.escape(cadence.qualification(cadence_result, r.seat))}</small></div>
     <div class="m"><span>Recovery : drive</span><b>{s['ratio']:.1f} : 1</b></div>
     <div class="m"><span>Body angle at catch</span><b>{s['trunk_catch']:+.0f}°</b></div>
     <div class="m"><span>Body angle at finish</span><b>{s['trunk_finish']:+.0f}°</b></div>
@@ -217,8 +228,8 @@ footer{{text-align:center;color:var(--muted);font-size:12px;padding:20px}}
 </style></head><body>
 <div class="top"><h1>StrokeSense technique report</h1><p>{html.escape(video_name)} · generated {datetime.now():%b %d, %Y %H:%M}</p>
 <div class="kpis"><div><span>Rowers tracked</span><b>{len(rowers)}</b></div><div><span>Strokes</span><b>{n_strokes}</b></div>
-<div><span>Stroke rate</span><b>{rate} spm</b></div><div><span>Clip analysed</span><b>{pose.n_frames / pose.fps:.0f} s</b></div></div></div>
-<main>{tracking_block}{sync_block}{''.join(cards)}</main>
+<div><span>{"Estimated crew cadence" if crew else "Stroke rate"}</span><b>{rate} spm</b></div><div><span>Clip analysed</span><b>{pose.n_frames / pose.fps:.0f} s</b></div></div></div>
+<main>{media_block}{cadence_block}{tracking_block}{sync_block}{''.join(cards)}</main>
 <footer>Angles are measured in 2D from a single camera; they are most accurate when the camera is level with and
 perpendicular to the boat. Body angle: + = leaning toward the stern (body over), − = layback.</footer>
 </body></html>"""

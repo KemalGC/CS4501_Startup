@@ -58,8 +58,10 @@ class SelectionPermissionTests(unittest.TestCase):
 class CrossingTests(unittest.TestCase):
     def test_in_region_competing_detection_is_ambiguous_not_reassigned(self):
         a,k=frame();b=a[:1].copy();b[:,[0,2]]+=.1
-        with self.assertRaises(SelectionError):
-            locked_tracks([(a,k),(np.vstack([a,b]),np.vstack([k,k[:1]]))],
-                          {'width':100,'height':100},selection())
+        tracks=locked_tracks([(a,k),(np.vstack([a,b]),np.vstack([k,k[:1]]))],
+                             {'width':100,'height':100},selection())
+        np.testing.assert_array_equal(tracks[0]['frames'],[0])
+        for i in range(1,8):
+            np.testing.assert_array_equal(tracks[i]['frames'],[0,1])
 
 if __name__=='__main__':unittest.main()

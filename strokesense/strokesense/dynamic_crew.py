@@ -7,7 +7,7 @@ import numpy as np
 from . import kinematics, strokes
 from .selection import validate_selection
 
-EXTRACTION_VERSION = 'dynamic-full-frame-v2'
+EXTRACTION_VERSION = 'dynamic-refined-full-frame-v3'
 TRACKING_VERSION = 'selected-motion-gaps-v2'
 
 
@@ -20,23 +20,9 @@ def run_selected_video(video, detector, selection, *, tiles='auto', **kwargs):
     from .pose import run_video, PoseDetector
     selected = validate_selection(selection)
     first = True
-    index = 0
-    reference = None
-    if selected['version'] == 2:
-        from .pose import cv2
-        cap = cv2.VideoCapture(str(video))
-        try:
-            source_fps = cap.get(cv2.CAP_PROP_FPS)
-            if not np.isfinite(source_fps) or source_fps <= 0:
-                raise ValueError('invalid_video_fps')
-            target = kwargs.get('target_fps', 15)
-            stride = max(1, round(source_fps / target)) if target else 1
-            reference = round(selected['reference_seconds'] * source_fps / stride)
-        finally:
-            cap.release()
 
     def detect(image, tiles=None):
-        nonlocal first, index
+        nonlocal first
         height, width = image.shape[:2]
         x0 = y0 = 0
         if first and selected['version'] == 1:
@@ -48,12 +34,11 @@ def run_selected_video(video, detector, selection, *, tiles='auto', **kwargs):
             raise ValueError('empty_selection_region')
         use_tiles = (PoseDetector.tile_grid(image.shape[1], image.shape[0])
                      if tile_mode == 'auto' else tile_mode)
-        if index == reference:
+        if selected['version'] == 2:
             from .multiframe import refined_detections
             boxes, scores, points = refined_detections(image, detector)
         else:
             boxes, scores, points = detector(image, tiles=use_tiles)
-        index += 1
         boxes, points = boxes.copy(), points.copy()
         boxes[:, [0, 2]] += x0
         boxes[:, [1, 3]] += y0

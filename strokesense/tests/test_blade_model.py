@@ -106,11 +106,11 @@ class BladeModelTests(unittest.TestCase):
 
     def test_model_mode_dispatch_does_not_run_body_peak_or_fault_rules(self):
         m = self.module()
-        from strokesense import jobs
+        from strokesense import jobs, analysis_worker
         with patch.object(jobs, 'probe_decodable_video', return_value=True), \
              patch('strokesense.blade_video.analyse_video', return_value={'report': 'model'}) as run, \
              patch('strokesense.cli.analyse_video', side_effect=AssertionError('heuristic fallback')):
-            result = jobs._default_analyze(Path('private.mp4'), out_dir=Path('results'), selection=selection())
+            result = analysis_worker.analyze_request(Path('private.mp4'), out_dir=Path('results'), selection=selection())
         self.assertEqual(result['report'], 'model')
         run.assert_called_once()
 

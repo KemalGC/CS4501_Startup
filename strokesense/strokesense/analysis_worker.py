@@ -68,6 +68,17 @@ def run_isolated(video, *, out_dir, selection=None, timeout=3600):
             raise AnalysisProcessError() from None
 
 
+def analyze_request(video, *, out_dir, selection=None):
+    """Dispatch explicitly; a model request never falls back to pose heuristics."""
+    from .selection import validate_selection
+    selected = validate_selection(selection) if selection is not None else None
+    if selected is not None and selected['version'] == 3:
+        from .blade_video import analyse_video
+        return analyse_video(video, out_dir=out_dir, selection=selected)
+    from .jobs import _default_analyze
+    return _default_analyze(video, out_dir=out_dir, selection=selected)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
@@ -75,14 +86,13 @@ def main(argv=None):
     receipt = Path(argv[0])
     result = {'state': 'failed', 'code': 'analysis_failed'}
     try:
-        from .jobs import _default_analyze
         from .media import UndecodableMediaError
         from .selection import SelectionError
         request = json.loads(sys.stdin.read(16385))
         if set(request) != {'video', 'out_dir', 'selection'}:
             raise ValueError('invalid_request')
         try:
-            analyzed = _default_analyze(Path(request['video']), out_dir=Path(request['out_dir']),
+            analyzed = analyze_request(Path(request['video']), out_dir=Path(request['out_dir']),
                                         selection=request['selection'])
             result = {'state': 'empty'} if analyzed is None else {
                 'state': 'succeeded', 'report': str(analyzed['report']),

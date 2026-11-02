@@ -16,6 +16,16 @@ def validate_selection(value):
     """Return an independent canonical copy; coordinates are fractions [0, 1]."""
     if not isinstance(value, dict):
         raise SelectionError('invalid_selection')
+    if type(value.get('version')) is int and value['version'] == 3:
+        expected = {'version', 'kind', 'reference_seconds', 'point', 'confirmed_same_boat'}
+        point, seconds = value.get('point'), value.get('reference_seconds')
+        if (set(value) != expected or value.get('kind') != 'blade_reference'
+                or value.get('confirmed_same_boat') is not True
+                or not isinstance(point, (list, tuple)) or len(point) != 2
+                or any(type(n) not in (int, float) or not math.isfinite(n) or not 0 < n < 1 for n in point)
+                or type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 <= seconds <= 600):
+            raise SelectionError('invalid_blade_selection')
+        return {**value, 'point': list(map(float, point)), 'reference_seconds': float(seconds)}
     expected = {'version', 'roi', 'seeds', 'confirmed_same_boat'}
     if value.get('version') == 2:
         expected.add('reference_seconds')
@@ -61,6 +71,8 @@ def _forward_tracks(dets, meta, selection):
     """
     import numpy as np
     selected = validate_selection(selection)
+    if selected['version'] == 3:
+        raise SelectionError('blade_selection_requires_model')
     scale = np.array([meta['width'], meta['height']], float)
     fps = float(meta.get('fps', 15.0))
     if (not np.isfinite(scale).all() or (scale <= 0).any() or not len(dets)
@@ -145,6 +157,8 @@ def locked_tracks(dets, meta, selection):
     """Track both directions from a confirmed reference; never invent observations."""
     import numpy as np
     selected = validate_selection(selection)
+    if selected['version'] == 3:
+        raise SelectionError('blade_selection_requires_model')
     if selected['version'] == 1:
         return _forward_tracks(dets, meta, selected)
     anchor = int(round(selected['reference_seconds'] * float(meta['fps'])))

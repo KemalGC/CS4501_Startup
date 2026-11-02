@@ -48,3 +48,5 @@ jobs:
         run: python strokesense/tests/browser_library_removal.py
       - name: Confirm a later-frame boat without starting work early
         run: python strokesense/tests/browser_multiframe_review.py
+      - name: Confirm one blade through model-only controls
+        run: python strokesense/tests/browser_blade_model.py

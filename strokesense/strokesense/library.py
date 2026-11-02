@@ -189,7 +189,7 @@ def create_server(jobs: JobQueue, *, registry_db, host='127.0.0.1', port=0,
                         f'<p>Imported: {html.escape(clip["created_utc"])}<br>'
                         f'Viewpoint: {html.escape(str(clip.get("camera") or "unspecified"))}</p>')
                     if clip['permission'] == 'granted':
-                        body += f'<p><a href="/select?clip={cid}">Choose rowers</a></p>'
+                        body += f'<p><a href="/select?clip={cid}">Choose rowers</a> · <a href="/blade?clip={cid}">Model-only blade rate (experimental)</a></p>'
                     else:
                         body += '<p>Preview and analysis are blocked. This entry can still be removed.</p>'
                     body += f'<p><a href="/library/remove?clip={cid}">Remove from library…</a></p></section>'
@@ -254,7 +254,8 @@ def create_server(jobs: JobQueue, *, registry_db, host='127.0.0.1', port=0,
 
     server.RequestHandlerClass = LibraryHandler
     from .review import add_review
-    return add_review(server, jobs, registry)
+    from .blade_ui import add_blade_routes
+    return add_blade_routes(add_review(server, jobs, registry), jobs, registry)
 
 
 def main(argv=None):
@@ -265,13 +266,20 @@ def main(argv=None):
     parser.add_argument('--results', default=str(root / 'jobs'))
     parser.add_argument('--uploads', default=str(root / 'uploads'))
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--blade-model', help='Already installed local Ollama vision model; enables experimental blade-only rate')
     args = parser.parse_args(argv)
+    if args.blade_model:
+        from .blade_model import LocalVision
+        LocalVision(args.blade_model)  # Validate configuration without downloading or calling the model.
+        os.environ['STROKESENSE_BLADE_MODEL'] = args.blade_model
     with JobQueue(registry_db=args.registry_db, job_db=args.jobs_db, results_root=args.results) as jobs:
         with create_server(jobs, registry_db=args.registry_db, upload_dir=args.uploads, port=args.port) as server:
             address = f'http://127.0.0.1:{server.server_address[1]}'
             print(f'Local StrokeSense: {address}/', flush=True)
             print('Upload mode: streaming-150MiB-v4; library-removal-v1; multi-frame-review-v1', flush=True)
             print(f'Manage all saved entries: {address}/library', flush=True)
+            if os.environ.get('STROKESENSE_BLADE_MODEL'):
+                print('Experimental model-only blade rate enabled; model accuracy is not validated.', flush=True)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

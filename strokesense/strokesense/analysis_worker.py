@@ -73,7 +73,7 @@ def analyze_request(video, *, out_dir, selection=None):
     from .selection import validate_selection
     selected = validate_selection(selection) if selection is not None else None
     if selected is not None and selected['version'] == 3:
-        from .blade_video import analyse_video
+        from .blade_quick import analyse_video
         return analyse_video(video, out_dir=out_dir, selection=selected)
     from .jobs import _default_analyze
     return _default_analyze(video, out_dir=out_dir, selection=selected)

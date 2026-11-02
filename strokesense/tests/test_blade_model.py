@@ -108,7 +108,7 @@ class BladeModelTests(unittest.TestCase):
         m = self.module()
         from strokesense import jobs, analysis_worker
         with patch.object(jobs, 'probe_decodable_video', return_value=True), \
-             patch('strokesense.blade_video.analyse_video', return_value={'report': 'model'}) as run, \
+             patch('strokesense.blade_quick.analyse_video', return_value={'report': 'model'}) as run, \
              patch('strokesense.cli.analyse_video', side_effect=AssertionError('heuristic fallback')):
             result = analysis_worker.analyze_request(Path('private.mp4'), out_dir=Path('results'), selection=selection())
         self.assertEqual(result['report'], 'model')

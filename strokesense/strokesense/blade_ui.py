@@ -94,7 +94,7 @@ def add_blade_routes(server, jobs, registry):
                     + (f'<p>Local model: <code>{html.escape(model)}</code>. Samples up to 20 seconds near this reference.</p>'
                        if configured else '<p role="alert">No local vision model configured. Start the library with '
                        '<code>--blade-model MODEL</code> after installing that model in Ollama. Nothing is downloaded here.</p>')
-                    + '<p>Five supported cycles are enough for a short estimate; they are not proof of accuracy. '
+                    + '<p>Two clear entries of the same blade are enough for a provisional rate. Quick mode stops after one supported interval; model accuracy remains unvalidated. '
                     'Technique grades remain withheld in this mode.</p><p><a href="/library">Back to library</a></p>'
                     '<script src="/blade.js" defer></script>')
                 self._send(200, web._document('Model-only blade rate', body),

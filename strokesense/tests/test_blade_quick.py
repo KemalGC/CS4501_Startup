@@ -88,7 +88,8 @@ class QuickBladeTests(unittest.TestCase):
         result=m.analyse_video(self.video,out_dir=self.root/'unknown',selection=selected(),provider=model,log=lambda _:None)
         saved=json.loads((result['report'].parent/'metrics.json').read_text())
         self.assertIsNone(saved['blade_rate']['spm'])
-        self.assertEqual(saved['processing']['stop_reason'],'window_exhausted')
+        self.assertEqual(saved['processing']['stop_reason'],'reference_unconfirmed')
+        self.assertEqual(model.calls,1)
         self.assertEqual(saved['rowers'],[])
     def test_source_times_positions_and_late_reference_are_preserved(self):
         m=self.module(); target=self.root/'frames';target.mkdir(); info={}
@@ -111,6 +112,17 @@ class QuickBladeTests(unittest.TestCase):
         self.assertIn('box',payload['format']['properties']['observations']['items']['required'])
         self.assertEqual(result[0]['time'],1.1)
         self.assertEqual(provider.timings[0]['total_duration'],1000000000)
+    def test_reference_box_must_match_clicked_blade_before_publishing_rate(self):
+        m=self.module()
+        class WrongBlade(ModelDouble):
+            def predict(self, reference, frames):
+                return [dict(o, box=[.7,.7,.8,.8]) for o in super().predict(reference,frames)]
+        model=WrongBlade()
+        result=m.analyse_video(self.video,out_dir=self.root/'wrong',selection=selected(),provider=model,log=lambda _:None)
+        data=json.loads((result['report'].parent/'metrics.json').read_text())
+        self.assertIsNone(data['blade_rate']['spm'])
+        self.assertEqual(data['processing']['stop_reason'],'reference_unconfirmed')
+        self.assertEqual(model.calls,1)
     def test_multiple_cycle_option_is_explicit_and_bad_target_rejected(self):
         m=self.module();model=ModelDouble()
         result=m.analyse_video(self.video,out_dir=self.root/'long',selection=selected(),provider=model,target_cycles=5,log=lambda _:None)

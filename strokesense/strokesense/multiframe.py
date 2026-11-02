@@ -11,6 +11,7 @@ import threading
 import cv2
 import numpy as np
 from .pose import PoseDetector, DEFAULT_MODEL
+from .pose_merge import merge_refined_detections
 
 _LOCK = threading.Lock()
 _detector = None
@@ -80,16 +81,14 @@ def refined_detections(frame, detector):
         if min(crop.shape[:2]) < 32: continue
         b,s,k=detector(crop, tiles=PoseDetector.tile_grid(x1-x0,y1-y0,tile=320))
         b,k=np.asarray(b,float).copy(),np.asarray(k,float).copy()
-        b[:,[0,2]]+=x0;b[:,[1,3]]+=y0;k[:,:,0]+=x0;k[:,:,1]+=y0
+        b[:,[0,2]]+=x0;b[:,[1,3]]+=y0;k[:,:,0]+=x0;k[:,:,1]+=0+y0
         all_b.append(b);all_s.append(np.asarray(s,float));all_k.append(k)
     boxes,scores,kpts=np.concatenate(all_b),np.concatenate(all_s),np.concatenate(all_k)
     if not len(boxes): return boxes,scores,kpts
     valid = (np.isfinite(boxes).all(1) & np.isfinite(scores) & np.isfinite(kpts).all((1,2))
              & (boxes[:,2:]>boxes[:,:2]).all(1))
     boxes,scores,kpts=boxes[valid],scores[valid],kpts[valid]
-    rects=np.c_[boxes[:,:2],boxes[:,2:]-boxes[:,:2]].tolist()
-    keep=np.asarray(cv2.dnn.NMSBoxes(rects,scores.tolist(),.25,.5),int).reshape(-1)
-    return boxes[keep],scores[keep],kpts[keep]
+    return merge_refined_detections(boxes, scores, kpts)
 
 
 def propose(frame):

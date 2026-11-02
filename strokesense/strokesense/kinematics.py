@@ -58,10 +58,28 @@ def _interp_gaps(arr: np.ndarray, good: np.ndarray) -> np.ndarray:
 
 
 def smooth(arr: np.ndarray, fps: float, seconds: float = 0.2) -> np.ndarray:
-    win = max(5, int(round(fps * seconds)) | 1)  # odd window
-    if len(arr) <= win:
-        return arr
-    return savgol_filter(arr, win, 2, axis=0)
+    """Smooth observed runs independently; never bridge missing measurements.
+
+    Finite inputs retain the original filter and window behavior. Each channel
+    has its own missing mask; short spans remain unchanged. NaN and infinity
+    mark unavailable observations, not zeros or interpolated measurements.
+    """
+    values = np.asarray(arr, dtype=float)
+    win = max(5, int(round(fps * seconds)) | 1)
+    if np.isfinite(values).all():
+        if len(values) <= win:
+            return values.copy()
+        return savgol_filter(values, win, 2, axis=0)
+    result = values.copy()
+    result[~np.isfinite(result)] = np.nan
+    channels = result.reshape(len(result), -1)
+    for series in channels.T:
+        valid = np.isfinite(series)
+        edges = np.diff(np.r_[False, valid, False].astype(int))
+        for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+            if stop - start > win:
+                series[start:stop] = savgol_filter(series[start:stop], win, 2)
+    return result
 
 
 def angle_at(a, b, c) -> np.ndarray:

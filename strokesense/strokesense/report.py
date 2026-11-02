@@ -119,7 +119,9 @@ def _score_color(sc):
     return "#2aa876" if sc >= 80 else ("#e0a52a" if sc >= 65 else "#d64545")
 
 
-def build_html(video_name, pose, rowers, sync, snaps, out_path):
+def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds=None):
+    if start_seconds is None:
+        start_seconds = getattr(pose, "start", 0.0)
     crew = len(rowers) > 1
     rates = [r.summary.get("rate") for r in rowers if r.summary.get("rate")]
     cadence_result = cadence.estimate(rowers)
@@ -175,22 +177,43 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path):
         fault_gallery = ('<h3>Pictures of flagged technique</h3><div class="fault-gallery">'
                          + ''.join(fault_photos) + '</div>') if fault_photos else ''
         fault_gallery += unavailable
+        count = s['n_strokes']
+        readiness = ('Short assessment ready' if count >= 5 else
+                     f'Preliminary: {count} of 5 usable strokes')
+        consistency = (f"{s['consistency']}/100" if s.get('consistency') is not None
+                       else 'Not enough cycles')
+        window_rows = ''.join(
+            f"<tr><td>{st.idx+1}</td><td>{start_seconds+st.catch/pose.fps:.2f}</td>"
+            f"<td>{start_seconds+st.finish/pose.fps:.2f}</td>"
+            f"<td>{start_seconds+st.next_catch/pose.fps:.2f}</td>"
+            f"<td>{getattr(st,'observed_frames',0)}</td><td>{getattr(st,'gap_frames',0)}</td></tr>"
+            for st in r.strokes)
+        stroke_table = ('<details><summary>Stroke-by-stroke windows</summary>'
+            '<p>Source-video seconds. Missing frames were estimated only inside short '
+            'accepted gaps; they are not observations. Each row is measured independently.</p>'
+            '<div style="overflow-x:auto"><table><thead><tr><th>Stroke</th><th>Catch (s)</th>'
+            '<th>Finish (s)</th><th>Next catch (s)</th><th>Observed frames</th>'
+            '<th>Estimated gap frames</th></tr></thead><tbody>' + window_rows
+            + '</tbody></table></div></details>')
         cards.append(f"""
 <section class="card">
   <header><h2>{html.escape(r.seat)}</h2>
     <div class="score" style="border-color:{_score_color(s['score'])};color:{_score_color(s['score'])}">{s['score']}</div></header>
+  <p role="status"><strong>{readiness}</strong> · Five usable strokes suffice for a short assessment, not coach validation.</p>
+  <p>Technique score is a provisional heuristic, not measured accuracy.</p>
   <div class="metrics">
     <div class="m"><span>Strokes analysed</span><b>{s['n_strokes']}</b></div>
     <div class="m"><span>Raw rower rate estimate</span><b>{s['rate']:.1f} spm</b><small>{html.escape(cadence.qualification(cadence_result, r.seat))}</small></div>
     <div class="m"><span>Recovery : drive</span><b>{s['ratio']:.1f} : 1</b></div>
     <div class="m"><span>Body angle at catch</span><b>{s['trunk_catch']:+.0f}°</b></div>
     <div class="m"><span>Body angle at finish</span><b>{s['trunk_finish']:+.0f}°</b></div>
-    <div class="m"><span>Consistency</span><b>{s['consistency']}/100</b></div>
+    <div class="m"><span>Consistency</span><b>{consistency}</b></div>
     {sync_line}
   </div>
   <h3>Top things to work on</h3><ul class="issues">{issues}</ul>
   <div class="shots">{shots}</div>
   {fault_gallery}
+  {stroke_table}
   <div class="charts"><img src="{chart_sequencing(r)}"><img src="{chart_trunk(r)}"></div>
 </section>""")
 
@@ -241,6 +264,9 @@ def build_json(rowers, sync, out_path, *, analysis_key=None, fps=None, start_sec
     data = {"sync": sync, "rowers": [
         {"seat": r.seat, "track": r.tid, "summary": r.summary, "sync_ms": r.sync_ms,
          "strokes": [s.to_dict() for s in r.strokes]} for r in rowers]}
+    if fps is not None:
+        from .stroke_windows import manifest
+        data['stroke_windows'] = manifest(rowers, fps, start_seconds)
     if analysis_key is not None:
         from . import evidence
         data["evidence"] = evidence.build_evidence_snapshot(

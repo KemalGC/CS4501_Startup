@@ -9,6 +9,7 @@ from .selection import validate_selection
 
 EXTRACTION_VERSION = 'dynamic-refined-full-frame-v3'
 TRACKING_VERSION = 'selected-motion-gaps-v2'
+STROKE_POLICY_VERSION = 'short-internal-gaps-v1'
 
 
 def run_selected_video(video, detector, selection, *, tiles='auto', **kwargs):
@@ -55,25 +56,38 @@ def _runs(mask):
     return zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1))
 
 
-def rowers_from_selected(pose):
-    """Analyze uninterrupted observed intervals; preserve original timestamps.
+def _analysis_blocks(visible, max_gap):
+    """Join only bounded internal holes; never extrapolate a leading/trailing gap."""
+    usable = visible.copy()
+    for start, end in _runs(~visible):
+        if start > 0 and end < len(visible) and end - start <= max_gap:
+            usable[start:end] = True
+    return list(_runs(usable))
 
-    No interpolation across absence is used for stroke scoring. The full-length
-    kinematics is for display only and is masked by observed visibility.
+
+def rowers_from_selected(pose, *, workers=4):
+    """Measure cycles with >=90% observations and only <=0.2s internal holes.
+
+    Kinematic interpolation is used only as an explicitly qualified short-gap
+    estimate. Never fill the pose history or render missing values as observed.
+    Long absence splits the analysis. Critical phase points must be observed.
     """
     from .crew import Rower
+    if type(workers) is not int or not 1 <= workers <= 4:
+        raise ValueError('workers must be an integer from 1 to 4')
     rowers = []
     for tid in sorted(pose.tracks):
         raw = pose.dense(tid)
         k = kinematics.build(raw, pose.fps)
         rower = Rower(tid=tid, seat=f'Selected {tid + 1}', k=k)
         rower.handle = np.full(pose.n_frames, np.nan)
-        for start, end in _runs(k.visible):
+        max_gap = max(0, int(np.floor(pose.fps * .2)))
+        for start, end in _analysis_blocks(k.visible, max_gap):
             # At least one whole cycle is required even at the maximum rate.
             if end - start < max(5, int(np.ceil(pose.fps * 60 / 50)) + 1):
                 continue
             segment = kinematics.build(raw[start:end], pose.fps)
-            found, handle = strokes.analyse(segment)
+            found, handle = strokes.analyse(segment, workers=workers, max_gap_frames=max_gap)
             rower.handle[start:end] = handle
             for stroke in found:
                 stroke.idx = len(rower.strokes)
@@ -93,6 +107,10 @@ def rowers_from_selected(pose):
             'missing_frames': pose.n_frames - observed,
             'usable_frames': int(k.visible.sum()),
             'state': 'partial' if observed < pose.n_frames else 'observed',
+            'stroke_policy': STROKE_POLICY_VERSION,
+            'measurement_workers': workers,
+            'max_internal_gap_seconds': .2,
+            'minimum_cycle_observed_fraction': .9,
         }
         rowers.append(rower)
     return rowers
@@ -116,7 +134,8 @@ def coverage_html(rowers):
     return ('<section class="card wide" aria-label="Tracking coverage">'
             '<h2>Tracking coverage</h2><p>Selected identities are retained when '
             'rowers leave view. Missing or ambiguous frames are not measured; '
-            'only continuous visible stroke cycles are scored. A long loss is '
+            'scored cycles require at least 90% observed frames and observed catch/finish points. '
+            'Only internal gaps up to 0.2 seconds may be estimated and are counted per stroke. A long loss is '
             'not automatically reassigned to a new person.</p><ul>' + ''.join(rows)
             + '</ul><p>This is observation coverage, not tracking accuracy or '
             'coach-verified technique.</p></section>')

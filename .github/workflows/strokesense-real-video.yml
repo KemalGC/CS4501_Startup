@@ -62,6 +62,8 @@ jobs:
         run: python strokesense/tests/real_video_compare.py --model .smoke/yolo11n-pose.onnx --video .smoke/eight.webm --profile eight --out .smoke/evidence/eight
       - name: Compare on a crowded multiple-boat clip without guessing a crew
         run: python strokesense/tests/real_video_compare.py --model .smoke/yolo11n-pose.onnx --video .smoke/amsterdam.webm --profile amsterdam --out .smoke/evidence/amsterdam
+      - name: Measure real stroke windows and serial-parallel equivalence over a longer clip
+        run: python strokesense/tests/real_video_strokes.py --model .smoke/yolo11n-pose.onnx --video .smoke/eight.webm --out .smoke/evidence/strokes
       - name: Retain evaluation evidence, never private recordings
         if: always()
         uses: actions/upload-artifact@v4

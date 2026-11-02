@@ -77,6 +77,8 @@ def _cache_identity(video, start, duration, tiles, fps, model, selection=None):
     if selection is not None:
         identity["selection"] = validate_selection(selection)
         identity["settings"]["selected_extraction"] = EXTRACTION_VERSION
+        if selection["version"] == 2:
+            identity["settings"]["refined_merge"] = "torso-landmarks-v1"
     return json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 

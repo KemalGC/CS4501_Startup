@@ -29,7 +29,7 @@ jobs:
           python -m pip install numpy==1.26.4 scipy==1.14.1 opencv-python==4.11.0.86 matplotlib==3.9.2 ultralytics==8.3.0 onnx==1.17.0 onnxruntime==1.23.2
       - name: Fetch explicitly licensed public clips and upstream model
         run: |
-          mkdir -p .smoke/evidence .smoke/runtime
+          mkdir -p .smoke/evidence
           python - <<'PY'
           import hashlib, json, urllib.request
           from pathlib import Path
@@ -49,7 +49,7 @@ jobs:
                       h.update(chunk);output.write(chunk)
               manifest.append(dict(file=name,source=source,url=url,author=author,license=license,bytes=size,sha256=h.hexdigest()))
           Path('.smoke/evidence/sources.json').write_text(json.dumps(manifest,indent=2))
-          Path('.smoke/evidence/ATTRIBUTION.txt').write_text('Video frames: Splash tv, Rowing boat racing 8-man + cox; Jan Ainali, Rowing in Amsterdam. Wikimedia Commons, CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/. Changes: sampled frames and overlaid unreviewed model detections. Annotated images remain CC BY-SA 4.0. Sources/hashes in sources.json. No endorsement implied. Model: Ultralytics YOLO11n-pose, AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html; exported with Ultralytics 8.3.0. Counts are not accuracy; no human ground-truth labels. No private user footage used.')
+          Path('.smoke/evidence/ATTRIBUTION.txt').write_text('Video frames: Splash tv, Rowing boat racing 8-man + cox; Jan Ainali, Rowing in Amsterdam. Wikimedia Commons, CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/. Changes: sampled frames and overlaid unreviewed model detections. Annotated images remain CC BY-SA 4.0. Sources/hashes in sources.json. No endorsement implied. Model: Ultralytics YOLO11n-pose, AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html; exported with Ultralytics 8.3.0. Counts are not accuracy. Eight-person reference was assistant-visually-selected, not human ground truth. No private user footage used.')
           PY
       - name: Export trusted upstream pose weights to the existing ONNX format
         run: |
@@ -58,25 +58,14 @@ jobs:
           model=YOLO('.smoke/yolo11n-pose.pt')
           model.export(format='onnx',opset=17,simplify=False,dynamic=False,imgsz=640,device='cpu')
           PY
-      - name: Inspect eight-person crew with actual model execution
-        run: python strokesense/tests/real_video_smoke.py --model .smoke/yolo11n-pose.onnx --video .smoke/eight.webm --start 3 --seconds 2 --out .smoke/evidence/eight
-      - name: Inspect separate real rowing clip with actual model execution
-        run: python strokesense/tests/real_video_smoke.py --model .smoke/yolo11n-pose.onnx --video .smoke/amsterdam.webm --start 3 --seconds 2 --out .smoke/evidence/amsterdam
+      - name: Compare on the eight-person crew using actual predictions
+        run: python strokesense/tests/real_video_compare.py --model .smoke/yolo11n-pose.onnx --video .smoke/eight.webm --profile eight --out .smoke/evidence/eight
+      - name: Compare on a crowded multiple-boat clip without guessing a crew
+        run: python strokesense/tests/real_video_compare.py --model .smoke/yolo11n-pose.onnx --video .smoke/amsterdam.webm --profile amsterdam --out .smoke/evidence/amsterdam
       - name: Retain evaluation evidence, never private recordings
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: real-video-evidence
+          name: real-video-comparison
           path: .smoke/evidence/
           retention-days: 3
-      - name: Prepare exact runtime for local reproduction
-        run: |
-          python -m pip download --only-binary=:all: --platform manylinux_2_27_x86_64 --python-version 313 --abi cp313 --implementation cp --no-deps onnxruntime==1.23.2 -d .smoke/runtime
-          python -m pip download --only-binary=:all: --no-deps flatbuffers==25.2.10 coloredlogs==15.0.1 humanfriendly==10.0 -d .smoke/runtime
-          cp .smoke/yolo11n-pose.onnx .smoke/runtime/
-          cp .smoke/evidence/ATTRIBUTION.txt .smoke/evidence/sources.json .smoke/runtime/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: real-video-runtime
-          path: .smoke/runtime/
-          retention-days: 1

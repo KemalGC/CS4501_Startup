@@ -91,9 +91,14 @@ def main(argv=None):
             result['code'] = 'invalid_media'
         except SelectionError:
             result['code'] = 'selected_crew_lost_or_ambiguous'
-    except Exception:
+    except Exception as exc:
+        # Fixed categories only: exception text/custom names can contain private data.
+        category = next((kind.__name__ for kind in
+            (ValueError, TypeError, KeyError, IndexError, OSError, RuntimeError)
+            if type(exc) is kind), 'Exception')
         # Native crashes cannot reach here; the parent observes their exit code.
-        print('StrokeSense child analysis failed; no results released.', file=sys.stderr, flush=True)
+        print(f'StrokeSense child analysis failed ({category}); no results released.',
+              file=sys.stderr, flush=True)
     receipt.write_text(json.dumps(result, allow_nan=False), encoding='utf-8')
     return 0
 

@@ -28,10 +28,10 @@ jobs:
           python -m pip install numpy==1.26.4 opencv-python-headless==4.11.0.86
       - name: Verify official pinned local runtime before execution
         run: |
-          curl --fail --silent --show-error --location --max-time 180 --max-filesize 2000000000 https://github.com/ollama/ollama/releases/download/v0.12.6/ollama-linux-amd64.tgz -o .crew-check/runtime.tgz
-          echo 'de82adce2ab79235115d511ff22fcb099ac53b67127870f12b80198c033ec0a1  .crew-check/runtime.tgz' | sha256sum --check
-          tar -xzf .crew-check/runtime.tgz -C .crew-check/runtime
-          rm .crew-check/runtime.tgz
+          curl --fail --silent --show-error --location --max-time 180 --max-filesize 1700000000 https://github.com/ollama/ollama/releases/download/v0.40.13/ollama-linux-amd64.tar.zst -o .crew-check/runtime.tar.zst
+          echo 'c9490e0f520be21271d969e6703f012268b1d39f8b70dd58854e5bfef7a75bb6  .crew-check/runtime.tar.zst' | sha256sum --check
+          tar --zstd -xf .crew-check/runtime.tar.zst -C .crew-check/runtime
+          rm .crew-check/runtime.tar.zst
           .crew-check/runtime/bin/ollama serve > .crew-check/evidence/server.log 2>&1 &
           for i in $(seq 1 20); do curl --fail --silent http://127.0.0.1:11434/api/tags && break || sleep 1; done
           timeout 180 .crew-check/runtime/bin/ollama pull qwen3-vl:4b
@@ -61,7 +61,7 @@ jobs:
           item={'type':'object','additionalProperties':False,'required':['rower_id','visible','box'],'properties':{'rower_id':{'type':'integer','minimum':1,'maximum':8},'visible':{'type':'boolean'},'box':box}}
           schema={'type':'object','additionalProperties':False,'required':['rowers'],'properties':{'rowers':{'type':'array','minItems':8,'maxItems':8,'items':item}}}
           payload={'model':'qwen3-vl:4b','stream':False,'keep_alive':'10m','messages':[{'role':'user','content':'Image 1 marks eight reference rowers R1..R8, excluding the coxswain at the left. Image 2 is the SAME unmarked source frame. For each marked ID in order return whether that rower is visible and its tight full-body bounding box [left,top,right,bottom] normalized 0..1. Do not box the entire boat or reuse one person. Return all eight IDs; unknown box=null. No names or advice. Schema: '+json.dumps(schema),'images':[encode(marked),encode(image)]}],'format':schema,'options':{'temperature':0,'num_predict':2048,'num_ctx':8192}}
-          manifest={'real_inference_attempt':True,'model':'qwen3-vl:4b','runtime':'0.12.6','source_frame':99,'reference_label_origin':'assistant visual reference seeds, not independent human labels','accuracy_claim':'none','private_user_video_used':False}
+          manifest={'real_inference_attempt':True,'model':'qwen3-vl:4b','runtime':'0.40.13','source_frame':99,'reference_label_origin':'assistant visual reference seeds, not independent human labels','accuracy_claim':'none','private_user_video_used':False}
           with urllib.request.urlopen('http://127.0.0.1:11434/api/tags') as r:manifest['installed_models']=json.load(r)
           started=time.perf_counter()
           try:

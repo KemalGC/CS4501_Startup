@@ -2,7 +2,7 @@
 import numpy as np
 
 
-def merge_refined_detections(boxes, scores, keypoints):
+def merge_refined_detections(boxes, scores, keypoints, *, conf=.25, iou=.5):
     """Merge crop duplicates using shared confident torso landmarks.
 
     Box-only NMS can keep a small torso crop and a full-body box for the same
@@ -17,7 +17,7 @@ def merge_refined_detections(boxes, scores, keypoints):
         raise ValueError('invalid_detections')
     valid = (np.isfinite(boxes).all(1) & np.isfinite(scores)
              & np.isfinite(keypoints).all((1, 2))
-             & (boxes[:, 2:] > boxes[:, :2]).all(1) & (scores > .25))
+             & (boxes[:, 2:] > boxes[:, :2]).all(1) & (scores > conf))
     boxes, scores, keypoints = boxes[valid], scores[valid], keypoints[valid]
     area = np.prod(boxes[:, 2:] - boxes[:, :2], axis=1)
     core = keypoints[:, [0, 5, 6, 11, 12]]
@@ -47,7 +47,7 @@ def merge_refined_detections(boxes, scores, keypoints):
                              and float(np.median(distances)) < tolerance
                              and float(np.quantile(distances, .8)) < tolerance*1.5)
             else:
-                duplicate = inter/(area[i]+area[j]-inter) > .5
+                duplicate = inter/(area[i]+area[j]-inter) > iou
             if duplicate:
                 break
         if not duplicate:

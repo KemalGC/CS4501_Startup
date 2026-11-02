@@ -86,7 +86,7 @@ def rowers_from_selected(pose, *, workers=4):
             # At least one whole cycle is required even at the maximum rate.
             if end - start < max(5, int(np.ceil(pose.fps * 60 / 50)) + 1):
                 continue
-            segment = kinematics.build(raw[start:end], pose.fps)
+            segment = kinematics.sliced(k, start, end)
             found, handle = strokes.analyse(segment, workers=workers, max_gap_frames=max_gap)
             rower.handle[start:end] = handle
             for stroke in found:
@@ -95,7 +95,7 @@ def rowers_from_selected(pose, *, workers=4):
                     setattr(stroke, name, getattr(stroke, name) + int(start))
                 rower.strokes.append(stroke)
         # Display gaps too; interpolated positions are not observations.
-        for values in (k.px, k.uv, k.angles):
+        for values in (k.px,):
             for series in values.values():
                 series[~k.visible] = np.nan
         rower.summary = strokes.summarise(rower.strokes)

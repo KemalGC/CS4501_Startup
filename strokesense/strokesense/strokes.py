@@ -8,6 +8,7 @@ import numpy as np
 from scipy.signal import find_peaks
 
 from .kinematics import Kinematics, smooth
+from . import measurement
 
 # --------------------------------------------------------------------------- fault catalogue
 # Thresholds are coaching heuristics for side-on 2D video; they are deliberately conservative
@@ -109,35 +110,52 @@ def periodicity(sig, fps, min_rate=12, max_rate=50):
 
 def find_strokes(k: Kinematics, min_rate=12, max_rate=50):
     """Return list of (catch, finish, next_catch) frame indices."""
-    h = smooth(k.handle, k.fps, 0.25)
-    vis = k.visible if k.visible.any() else np.ones(len(h), bool)
-
-    def z(x):
-        lo, hi = np.percentile(x[vis], [5, 95])
-        return (x - lo) / (hi - lo + 1e-9)
-
-    # Catch = hands at full reach, knees up, body forward. Each cue is weighted by how cleanly
-    # rhythmic it is in this clip, so one badly tracked joint (a hidden wrist) can't derail it.
-    cues = [z(h)]
-    if k.reliable.get("knee"):
-        cues.append(z(smooth(k.angles["thigh"], k.fps, 0.25)))
-    else:   # body angle peaks a little after the catch, so only use it when the knees are hidden
-        cues.append(z(smooth(k.angles["trunk"], k.fps, 0.25)))
-    q = np.array([max(periodicity(c, k.fps), 0.05) ** 2 for c in cues])
-    if k.reliable.get("knee"):
-        q[1] = max(q[1], 1.8 * q[0])     # knees-up is the most precise catch marker when visible
-    c_sig = sum(w * c for w, c in zip(q / q.sum(), cues))
+    # Kinematics is canonical: do not re-filter differently for scoring/plots.
+    h = k.handle.copy()
+    if not k.visible.any():
+        return [], h, {}
+    cues, weights = [], []
+    names = ['handle', 'thigh' if k.reliable.get('knee') else 'trunk']
+    for name in names:
+        values = h if name == 'handle' else k.angles[name]
+        if not measurement.supported(k, name, values):
+            continue
+        mask = measurement.observed_mask(k, name) & np.isfinite(values)
+        lo, hi = np.percentile(values[mask], [5, 95])
+        normalized = (values-lo)/(hi-lo)
+        strength = periodicity(normalized[np.isfinite(normalized)], k.fps)
+        if strength < .15:
+            continue
+        cues.append(normalized)
+        weights.append(strength ** 2)
+    if not cues:
+        return [], h, {}
+    # Quality-weighted motion evidence; no unconditional preference for knees.
+    values = np.asarray(cues)
+    valid = np.isfinite(values)
+    weights = np.asarray(weights)[:, None] * valid
+    denom = weights.sum(axis=0)
+    c_sig = np.divide((np.where(valid, values, 0) * weights).sum(axis=0), denom,
+                      out=np.full(len(h), np.nan), where=denom > 0)
     min_dist = int(k.fps * 60 / max_rate * 0.8)
-    catches, _ = find_peaks(c_sig, prominence=0.3, distance=max(1, min_dist))
+    finite = np.isfinite(c_sig)
+    edges = np.diff(np.r_[False, finite, False].astype(int))
+    candidates = []
+    for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+        peaks, _ = find_peaks(c_sig[start:stop], prominence=.3, distance=max(1, min_dist))
+        candidates.extend((peaks+start).tolist())
+    catches = np.asarray(candidates, dtype=int)
     out = []
     for c0, c1 in zip(catches[:-1], catches[1:]):
         period_s = (c1 - c0) / k.fps
         if not (60 / max_rate <= period_s <= 60 / min_rate):
             continue
-        if k.visible[c0:c1 + 1].mean() < 0.7:
+        if (k.visible[c0:c1 + 1].mean() < .9
+                or not np.isfinite(c_sig[c0:c1+1]).all()
+                or not np.isfinite(h[c0:c1+1]).all()):
             continue
         f = c0 + int(np.argmin(c_sig[c0:c1 + 1]))
-        if f in (c0, c1):
+        if f in (c0, c1) or not k.visible[[c0, f, c1]].all():
             continue
         # the drive is ~25-60% of the stroke cycle; outside that the segmentation is unreliable
         if not (0.2 <= (f - c0) / (c1 - c0) <= 0.65):
@@ -186,7 +204,7 @@ def analyse(k: Kinematics, *, workers: int = 1, max_gap_frames: int | None = Non
             lengths = np.flatnonzero(edges == -1) - np.flatnonzero(edges == 1)
             return visible.mean() >= min_observed_fraction and (not len(lengths) or lengths.max() <= max_gap_frames)
         segs = [segment for segment in segs if acceptable(segment)]
-    A = {name: smooth(v, k.fps, 0.2) for name, v in k.angles.items()}
+    A = k.angles
     # Only judge a body part we can actually see well
     if segs:
         travel = np.median([h[c] - h[f] for c, f, _ in segs])
@@ -204,12 +222,18 @@ def analyse(k: Kinematics, *, workers: int = 1, max_gap_frames: int | None = Non
             rate=60.0 / ((n - c) / k.fps), drive_s=drive, recovery_s=rec, ratio=rec / max(drive, 1e-6),
             length=float(h[c] - h[f]),
             trunk_catch=float(A["trunk"][c]), trunk_finish=float(A["trunk"][f]),
-            thigh_catch=float(A["thigh"][c]), elbow_catch=float(A["elbow"][c]),
-            shin_catch=float(A["shin"][c]) if shins_ok else None,
+            thigh_catch=float(A["thigh"][c]) if np.isfinite(A["thigh"][c]) else None,
+            elbow_catch=float(A["elbow"][c]) if np.isfinite(A["elbow"][c]) else None,
+            shin_catch=(float(A["shin"][c]) if shins_ok
+                        and measurement.observed_mask(k, 'shin')[c]
+                        and np.isfinite(A['shin'][c]) else None),
             next_catch_t=refined.get(n, float(n)),
             observed_frames=int(k.visible[c:n+1].sum()),
             gap_frames=int((~k.visible[c:n+1]).sum()),
         )
+        legs_valid = legs_ok and measurement.segment_supported(k, 'thigh', c, n+1)
+        body_valid = measurement.segment_supported(k, 'trunk', c, n+1)
+        arms_valid = arms_ok and measurement.segment_supported(k, 'elbow', c, n+1)
         # ---- drive sequencing (catch -> finish)
         legs = _progress(A["thigh"], c, f)          # 0 at catch, 1 when thigh flat
         body = _progress(A["trunk"], c, f)          # 0 at catch, 1 at layback
@@ -224,6 +248,10 @@ def analyse(k: Kinematics, *, workers: int = 1, max_gap_frames: int | None = Non
         j30 = _first_at(knees_up, 0.3)
         s.body_set_at_knees = float(body_over[j30])
 
+        if not legs_valid or not body_valid:
+            s.shoot_deg = s.body_open_at_legs = s.body_set_at_knees = None
+        if not legs_valid or not arms_valid:
+            s.arm_bend_at_legs = None
         # ---- faults
         fl = s.faults
         if s.trunk_catch < 12:                         fl.append("short_catch")
@@ -231,11 +259,11 @@ def analyse(k: Kinematics, *, workers: int = 1, max_gap_frames: int | None = Non
         if s.shin_catch is not None and s.shin_catch > 12: fl.append("over_compression")
         if s.trunk_finish < -32:                       fl.append("excess_layback")
         if s.trunk_finish > -3:                        fl.append("no_layback")
-        if legs_ok and s.shoot_deg > 5:                fl.append("shooting_slide")
-        if arms_ok and legs_ok and s.arm_bend_at_legs > 25: fl.append("early_arms")
-        if legs_ok and s.body_open_at_legs > 0.5:      fl.append("early_body")
+        if legs_valid and body_valid and s.shoot_deg is not None and s.shoot_deg > 5:                fl.append("shooting_slide")
+        if arms_valid and legs_valid and s.arm_bend_at_legs is not None and s.arm_bend_at_legs > 25: fl.append("early_arms")
+        if legs_valid and body_valid and s.body_open_at_legs > 0.5:      fl.append("early_body")
         if s.rate < 30 and s.ratio < 1.25:             fl.append("rushed_recovery")
-        if legs_ok and s.body_set_at_knees < 0.5:      fl.append("late_body_prep")
+        if legs_valid and body_valid and s.body_set_at_knees < 0.5:      fl.append("late_body_prep")
         return s
     if workers == 1 or len(segs) < 2:
         measured = [measure(item) for item in enumerate(segs)]

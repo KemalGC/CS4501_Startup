@@ -108,27 +108,8 @@ class PoseDetector:
         boxes, scores, kpts = np.concatenate(all_b), np.concatenate(all_s), np.concatenate(all_k)
         if len(boxes) == 0:
             return boxes, scores, kpts
-        idx = cv2.dnn.NMSBoxes([[float(x0), float(y0), float(x1 - x0), float(y1 - y0)] for x0, y0, x1, y1 in boxes],
-                               scores.astype(float).tolist(), self.conf, self.iou)
-        idx = np.array(idx).reshape(-1)
-        idx = idx[np.argsort(-scores[idx])]
-        # drop fragments cut off at tile edges: boxes mostly contained inside a stronger box
-        keep = []
-        for i in idx:
-            bi = boxes[i]
-            ai = (bi[2] - bi[0]) * (bi[3] - bi[1]) + 1e-9
-            frag = False
-            for j in keep:
-                bj = boxes[j]
-                iw = max(0, min(bi[2], bj[2]) - max(bi[0], bj[0]))
-                ih = max(0, min(bi[3], bj[3]) - max(bi[1], bj[1]))
-                if iw * ih / ai > 0.6:
-                    frag = True
-                    break
-            if not frag:
-                keep.append(i)
-        keep = np.array(keep, int)
-        return boxes[keep], scores[keep], kpts[keep]
+        from .pose_merge import merge_refined_detections
+        return merge_refined_detections(boxes, scores, kpts, conf=self.conf, iou=self.iou)
 
 
 # ----------------------------------------------------------------------------- tracking

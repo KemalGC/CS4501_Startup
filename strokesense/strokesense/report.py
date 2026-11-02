@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from . import cadence
+from . import cadence, measurement
 from .kinematics import smooth  # noqa: E402
 
 INK, MUTED, GRID = "#1f2933", "#6b7785", "#e3e7ec"
@@ -36,59 +36,80 @@ def _img(path) -> str | None:
     return "data:image/jpeg;base64," + base64.b64encode(Path(path).read_bytes()).decode()
 
 
-def sequencing_curves(rower, n=50):
-    """Average 0->1 progress of legs, body and arms across the drive (catch -> finish)."""
+def sequencing_summary(rower, n=50):
+    """Supported per-stroke curves with robust centre/spread and explicit counts."""
     k = rower.k
-    A = {name: smooth(v, k.fps, 0.2) for name, v in k.angles.items()}
-    out = {"legs": [], "body": [], "arms": []}
-    for s in rower.strokes:
-        c, f = s.catch, s.finish
-        if f - c < 3:
-            continue
-        x = np.linspace(0, 1, f - c + 1)
-        xi = np.linspace(0, 1, n)
-        for key, sig in (("legs", A["thigh"]), ("body", A["trunk"]), ("arms", A["elbow"])):
-            seg = sig[c:f + 1]
-            d = seg[-1] - seg[0]
-            prog = (seg - seg[0]) / d if abs(d) > 1e-6 else np.zeros_like(seg)
-            out[key].append(np.interp(xi, x, np.clip(prog, -0.3, 1.3)))
-    return {k_: np.mean(v, 0) if v else None for k_, v in out.items()}
+    result = {}
+    for key, signal in (('legs', 'thigh'), ('body', 'trunk'), ('arms', 'elbow')):
+        curves = []
+        for stroke in rower.strokes:
+            c, f = stroke.catch, stroke.finish
+            if f-c < 3 or not measurement.segment_supported(k, signal, c, f+1):
+                continue
+            segment = k.angles[signal][c:f+1]
+            delta = float(segment[-1]-segment[0])
+            if abs(delta) < measurement.AMPLITUDE[signal]:
+                continue
+            # Do not clip excursions into an idealized 0..100% template.
+            curves.append(np.interp(np.linspace(0, 1, n), np.linspace(0, 1, len(segment)),
+                                    (segment-segment[0])/delta))
+        result[key] = {'count': len(curves), 'curves': curves,
+                       'median': np.median(curves, axis=0) if curves else None,
+                       'lower': np.percentile(curves, 25, axis=0) if curves else None,
+                       'upper': np.percentile(curves, 75, axis=0) if curves else None}
+    return result
+
+
+def sequencing_curves(rower, n=50):
+    return {key: value['median'] for key, value in sequencing_summary(rower, n).items()}
 
 
 def chart_sequencing(rower):
-    cur = sequencing_curves(rower)
+    summary = sequencing_summary(rower)
     fig, ax = plt.subplots(figsize=(5.2, 2.8))
     x = np.linspace(0, 100, 50)
-    for key, col, lab in (("legs", C_LEGS, "Legs"), ("body", C_BODY, "Body swing"), ("arms", C_ARMS, "Arms")):
-        if cur[key] is not None:
-            ax.plot(x, cur[key] * 100, color=col, lw=2.4, label=lab)
-    ax.set_xlabel("% of drive (catch → finish)")
-    ax.set_ylabel("% complete")
-    ax.set_ylim(-15, 115); ax.set_xlim(0, 100)
-    ax.grid(axis="y", color=GRID, lw=0.8)
-    ax.legend(frameon=False, loc="lower right", fontsize=9)
-    ax.set_title("Drive sequencing — ideal order is legs, then body, then arms", fontsize=10, color=INK, loc="left")
+    for key, col, label in (('legs', C_LEGS, 'Legs'), ('body', C_BODY, 'Body swing'), ('arms', C_ARMS, 'Arms')):
+        item = summary[key]
+        if item['count']:
+            for curve in item['curves']:
+                ax.plot(x, curve*100, color=col, alpha=.12, lw=.7)
+            ax.fill_between(x, item['lower']*100, item['upper']*100, color=col, alpha=.15)
+            ax.plot(x, item['median']*100, color=col, lw=2,
+                    label=f"{label}: {item['count']} cycles")
+    missing = [key for key, item in summary.items() if not item['count']]
+    if missing:
+        ax.text(.02, .98, 'Unavailable: '+', '.join(missing), transform=ax.transAxes,
+                va='top', fontsize=8, color=MUTED)
+    ax.set_xlabel('% of drive (catch → finish)')
+    ax.set_ylabel('Measured progress (%)')
+    ax.set_xlim(0, 100)
+    ax.grid(axis='y', color=GRID, lw=.8)
+    if any(item['count'] for item in summary.values()):
+        ax.legend(frameon=False, loc='lower right', fontsize=8)
+    ax.set_title('Supported drives: median and middle 50%', fontsize=10, color=INK, loc='left')
     return _png(fig)
 
 
-def chart_trunk(rower):
+def chart_trunk(rower, start_seconds=0.0):
     k = rower.k
-    t = np.arange(k.n) / k.fps
-    tr = smooth(k.angles["trunk"], k.fps, 0.2)
+    t = start_seconds + np.arange(k.n)/k.fps
+    tr = k.angles['trunk']
+    observed = measurement.observed_mask(k, 'trunk') & np.isfinite(tr)
     fig, ax = plt.subplots(figsize=(5.2, 2.6))
-    ax.axhspan(15, 35, color=C_LEGS, alpha=0.07, lw=0)
-    ax.axhspan(-30, -10, color=C_BODY, alpha=0.07, lw=0)
-    ax.plot(t, np.where(k.visible, tr, np.nan), color=INK, lw=1.6)
-    for i, s in enumerate(rower.strokes):
-        ax.plot(s.catch / k.fps, tr[s.catch], "o", color=C_LEGS, ms=5,
-                label="Catch" if i == 0 else "_nolegend_")
-        ax.plot(s.finish / k.fps, tr[s.finish], "s", color=C_BODY, ms=5,
-                label="Finish" if i == 0 else "_nolegend_")
-    if rower.strokes:
-        ax.legend(frameon=False, loc='upper right', ncol=2, fontsize=9)
+    ax.plot(t, np.where(observed, tr, np.nan), color=INK, lw=1.3, label='Observed chain')
+    estimated = ~observed & np.isfinite(tr)
+    if estimated.any():
+        ax.scatter(t[estimated], tr[estimated], color=MUTED, marker='x', s=14,
+                   label='Short-gap estimate')
+    for i, stroke in enumerate(rower.strokes):
+        ax.plot(start_seconds+stroke.catch/k.fps, tr[stroke.catch], 'o', color=C_LEGS, ms=5,
+                label='Catch' if i == 0 else '_nolegend_')
+        ax.plot(start_seconds+stroke.finish/k.fps, tr[stroke.finish], 's', color=C_BODY, ms=5,
+                label='Finish' if i == 0 else '_nolegend_')
+    ax.legend(frameon=False, loc='upper right', fontsize=8)
     ax.axhline(0, color=GRID, lw=1)
-    ax.set_xlabel("time (s)"); ax.set_ylabel("body angle (°)")
-    ax.set_title("Body angle (shaded = target zones)", fontsize=10, color=INK, loc="left")
+    ax.set_xlabel('Source video time (s)'); ax.set_ylabel('Projected body angle (°)')
+    ax.set_title('Canonical 2D angle — no assumed camera detrending', fontsize=9, color=INK, loc='left')
     return _png(fig)
 
 
@@ -129,8 +150,21 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds
     rate = f"{estimate:.0f}" if estimate is not None else "–"
     cadence_block = ('<section class="card wide" aria-label="Crew cadence"><h2>Crew cadence estimate</h2><p>'
                      + html.escape(cadence.description(cadence_result))
-                     + '</p><p>Consensus of per-rower cycle medians, not proof of synchronized catches. '
+                     + '</p><p>Shared catch intervals use simultaneous evidence from distinct rowers. Five complete cycles require six catches. This is not proof of synchronized blade entry. '
                      'Raw per-rower estimates are preserved; short samples and outliers are unconfirmed.</p></section>') if crew else ''
+    shared = cadence_result.get('shared_cycles', [])
+    if shared:
+        rows = ''.join(
+            f"<tr><td>{i+1}</td><td>{start_seconds+c['catch_seconds']:.2f}</td>"
+            f"<td>{start_seconds+c['next_catch_seconds']:.2f}</td>"
+            f"<td>{c['rate_spm']:.1f}</td><td>{len(c['rowers'])}</td></tr>"
+            for i, c in enumerate(shared))
+        cadence_block += ('<section class="card wide"><details><summary>Shared boat strokes</summary>'
+            '<p>Body-motion catch proxies in source-video seconds; not verified blade entry. '
+            'No peaks or missing cycles were inserted to force agreement.</p>'
+            '<div style="overflow-x:auto"><table><thead><tr><th>Cycle</th><th>Catch (s)</th>'
+            '<th>Next catch (s)</th><th>SPM</th><th>Supporting rowers</th></tr></thead>'
+            '<tbody>'+rows+'</tbody></table></div></details></section>')
     media_block = ('<section class="card wide" role="status"><h2>Annotated video unavailable</h2>'
                    '<p>Browser video encoding was unavailable. The report and measurements are still saved. '
                    'Install a local FFmpeg build with H.264 encoding and retry to generate browser video.</p></section>') \
@@ -214,7 +248,7 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds
   <div class="shots">{shots}</div>
   {fault_gallery}
   {stroke_table}
-  <div class="charts"><img src="{chart_sequencing(r)}"><img src="{chart_trunk(r)}"></div>
+  <div class="charts"><img src="{chart_sequencing(r)}"><img src="{chart_trunk(r, start_seconds)}"></div>
 </section>""")
 
     sync_block = ""
@@ -261,9 +295,26 @@ perpendicular to the boat. Body angle: + = leaning toward the stern (body over),
 
 
 def build_json(rowers, sync, out_path, *, analysis_key=None, fps=None, start_seconds=0.0):
-    data = {"sync": sync, "rowers": [
+    data = {"measurement_policy": {
+        "version": measurement.VERSION, "confidence_threshold": .35,
+        "max_internal_gap_seconds": .2, "minimum_cycle_observed_fraction": .9,
+        "absolute_motion_floors": measurement.AMPLITUDE,
+        "coordinates": "hip-relative displacement and projected 2D angles; not boat-relative travel",
+        "camera_detrending": False, "thresholds_coach_validated": False,
+    }, "crew_cadence": cadence.estimate(rowers), "sync": sync, "rowers": [
         {"seat": r.seat, "track": r.tid, "summary": r.summary, "sync_ms": r.sync_ms,
          "strokes": [s.to_dict() for s in r.strokes]} for r in rowers]}
+    for item, rower in zip(data['rowers'], rowers):
+        k = getattr(rower, 'k', None)
+        if k is not None and getattr(k, 'observed', None):
+            item['joint_observation_counts'] = {
+                joint: {'observed': int(mask.sum()), 'estimated': int(k.estimated[joint].sum()),
+                        'unavailable': int(len(mask)-mask.sum()-k.estimated[joint].sum())}
+                for joint, mask in k.observed.items()}
+            item['sequencing'] = {
+                name: {key: value.tolist() if isinstance(value, np.ndarray) else value
+                       for key, value in stats.items() if key != 'curves'}
+                for name, stats in sequencing_summary(rower).items()}
     if fps is not None:
         from .stroke_windows import manifest
         data['stroke_windows'] = manifest(rowers, fps, start_seconds)
@@ -272,5 +323,5 @@ def build_json(rowers, sync, out_path, *, analysis_key=None, fps=None, start_sec
         data["evidence"] = evidence.build_evidence_snapshot(
             data, analysis_key=analysis_key, fps=fps, start_seconds=start_seconds
         )
-    Path(out_path).write_text(json.dumps(data, indent=2, default=float))
+    Path(out_path).write_text(json.dumps(data, indent=2, default=float, allow_nan=False))
     return out_path

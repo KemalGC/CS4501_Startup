@@ -41,8 +41,14 @@ def draw_rower(img, rower, fi, color, thickness=2, show_angles=True):
     k = rower.k
     if not k.visible[fi]:
         return
-    p = {j: tuple(int(v) for v in k.px[j][fi]) for j in k.px}
+    p = {j: tuple(int(v) for v in k.px[j][fi]) for j in k.px
+         if np.isfinite(k.px[j][fi]).all()
+         and (not getattr(k, 'observed', {}) or k.observed[j][fi])}
+    if not all(j in p for j in ('shoulder', 'hip', 'wrist')):
+        return
     for a, b in SEG:
+        if a not in p or b not in p:
+            continue
         if (a == "ankle" or b == "ankle") and not k.reliable["ankle"]:
             continue
         if (a == "knee" or b == "knee") and not k.reliable["knee"]:
@@ -191,6 +197,9 @@ def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
 def _crop_rower(fr, r, fi, pad=1.0, min_h=360):
     k = r.k
     pts = np.array([k.px[j][fi] for j in ("shoulder", "wrist", "hip", "knee", "elbow")])
+    pts = pts[np.isfinite(pts).all(axis=1)]
+    if not len(pts):
+        return fr[:0, :0]
     x0, y0 = pts.min(0); x1, y1 = pts.max(0)
     y0 -= 0.8 * k.scale_px                                # include the head
     s = max(x1 - x0, y1 - y0) * (1 + pad)
@@ -243,7 +252,7 @@ def fault_snapshot_requests(rower, pose, out_dir):
     from .kinematics import smooth
     from .strokes import _progress, _first_at
     k = rower.k
-    angles = {name: smooth(v, k.fps, .2) for name, v in k.angles.items()}
+    angles = k.angles
     shots, requests = {}, []
     for stroke in rower.strokes:
         c, f, n = stroke.catch, stroke.finish, stroke.next_catch

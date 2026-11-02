@@ -71,6 +71,7 @@ def _cache_identity(video, start, duration, tiles, fps, model, selection=None):
             "start": float(start), "duration": None if duration is None else float(duration),
             "tiles": tiles if isinstance(tiles, (str, type(None))) else np.asarray(tiles).tolist(),
             "target_fps": None if fps is None else float(fps),
+            "detector_postprocess": "base-torso-landmarks-v2",
         },
         "model": model_id,
     }

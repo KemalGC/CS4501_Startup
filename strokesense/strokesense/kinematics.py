@@ -37,6 +37,9 @@ class Kinematics:
     visible: np.ndarray | None = None             # (N,) frame has a usable upper body
     angles: dict = field(default_factory=dict)    # name -> (N,) degrees
 
+    observed: dict = field(default_factory=dict)   # directly detected at the chosen confidence
+    estimated: dict = field(default_factory=dict)  # bounded internal interpolation, never observations
+
     @property
     def n(self) -> int:
         return len(self.visible)
@@ -47,13 +50,15 @@ class Kinematics:
         return self.uv["wrist"][:, 0]
 
 
-def _interp_gaps(arr: np.ndarray, good: np.ndarray) -> np.ndarray:
-    out = arr.copy()
-    idx = np.arange(len(arr))
-    if good.sum() < 2:
-        return out
-    for d in range(arr.shape[1]):
-        out[~good, d] = np.interp(idx[~good], idx[good], arr[good, d])
+def _interp_gaps(arr: np.ndarray, good: np.ndarray, max_gap: int = 0) -> np.ndarray:
+    """Estimate only enclosed short gaps; retain NaN at long gaps and edges."""
+    out = np.asarray(arr, float).copy()
+    out[~good] = np.nan
+    edges = np.diff(np.r_[False, ~good, False].astype(int))
+    for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+        if start > 0 and stop < len(out) and stop - start <= max_gap:
+            for d in range(out.shape[1]):
+                out[start:stop, d] = np.linspace(out[start-1, d], out[stop, d], stop-start+2)[1:-1]
     return out
 
 
@@ -99,33 +104,36 @@ def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinemati
     """keypoints: (N, 17, 3) array of x, y, confidence in pixels (conf 0 = not detected)."""
     kp = np.asarray(keypoints, dtype=float)
 
-    # 1) Which side of the body faces the camera? Use the side the model is more sure of.
-    lc = kp[:, list(LEFT.values()), 2].mean()
-    rc = kp[:, list(RIGHT.values()), 2].mean()
-    near, far, side = (LEFT, RIGHT, "left") if lc >= rc else (RIGHT, LEFT, "right")
-
-    px, conf, reliable = {}, {}, {}
+    if kp.ndim != 3 or kp.shape[1:] != (17, 3) or not len(kp):
+        raise ValueError('keypoints must have shape (N, 17, 3)')
+    if not np.isfinite(fps) or fps <= 0 or not 0 < min_conf <= 1:
+        raise ValueError('invalid kinematic settings')
+    # Select one anatomical chain for this track. Never splice opposite-side
+    # joints into it on individual frames; missing near-side data remains missing.
+    confidence = np.where(np.isfinite(kp[:, :, 2]), kp[:, :, 2], 0.)
+    lc = confidence[:, list(LEFT.values())].mean()
+    rc = confidence[:, list(RIGHT.values())].mean()
+    near, side = (LEFT, 'left') if lc >= rc else (RIGHT, 'right')
+    px, conf, reliable, observed, estimated = {}, {}, {}, {}, {}
     for j in JOINTS:
-        a, b = kp[:, near[j]], kp[:, far[j]]
-        use_far = (a[:, 2] < min_conf) & (b[:, 2] > a[:, 2])       # occluded near side -> use far side
-        xy = np.where(use_far[:, None], b[:, :2], a[:, :2])
-        c = np.where(use_far, b[:, 2], a[:, 2])
-        good = c >= min_conf
-        reliable[j] = bool(good.mean() >= 0.5)
-        px[j] = smooth(_interp_gaps(xy, good), fps, 0.15)
+        a = kp[:, near[j]]
+        c = confidence[:, near[j]].copy()
+        good = (c >= min_conf) & np.isfinite(a[:, :2]).all(axis=1)
+        xy = _interp_gaps(a[:, :2], good, int(np.floor(fps * .2)))
+        observed[j] = good
+        estimated[j] = ~good & np.isfinite(xy).all(axis=1)
+        reliable[j] = bool(good.mean() >= .5)
+        px[j] = smooth(xy, fps, .15)
         conf[j] = c
-
-    core = ["shoulder", "hip", "wrist"]
-    visible = np.all([conf[j] >= min_conf * 0.6 for j in core], axis=0)
-
-    # 2) Body scale: median torso length in pixels
-    torso = np.linalg.norm(px["shoulder"] - px["hip"], axis=1)
-    scale = float(np.median(torso[visible])) if visible.any() else float(np.median(torso))
-    scale = scale or 1.0
-
-    # 3) Facing direction: seated rowers always have knees forward of hips (toward the stern)
-    ref = "knee" if reliable["knee"] else "wrist"
-    facing = 1 if np.median(px[ref][:, 0] - px["hip"][:, 0]) >= 0 else -1
+    core = ['shoulder', 'hip', 'wrist']
+    visible = np.all([observed[j] for j in core], axis=0)
+    torso = np.linalg.norm(px['shoulder'] - px['hip'], axis=1)
+    valid_scale = torso[np.isfinite(torso) & (torso > 1e-6)]
+    scale = float(np.median(valid_scale)) if len(valid_scale) else 1.0
+    ref = 'knee' if reliable['knee'] else 'wrist'
+    facing_values = px[ref][:, 0] - px['hip'][:, 0]
+    facing_values = facing_values[np.isfinite(facing_values)]
+    facing = 1 if not len(facing_values) or np.median(facing_values) >= 0 else -1
 
     # 4) Rower-centric coordinates, origin at the hip each frame
     uv = {}
@@ -134,14 +142,8 @@ def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinemati
         uv[j] = np.stack([d[:, 0] * facing, -d[:, 1]], axis=1) / scale
 
     trunk = tilt_from_vertical(uv["hip"], uv["shoulder"])
-    # Remove slow drift (the launch changing its viewing angle, the boat pitching): technique
-    # lives within a stroke, so anything slower than ~3 strokes is treated as camera, not rower.
-    win = int(fps * 5)
-    if len(trunk) > 2 * win and visible.sum() > win:
-        from scipy.ndimage import median_filter
-        filled = np.where(visible, trunk, np.median(trunk[visible]))
-        trend = median_filter(filled, size=win, mode="nearest")
-        trunk = trunk - trend + np.median(trend[visible])
+    # Physical projected angles are not detrended: camera motion and real posture
+    # cannot be distinguished from a low-frequency angle trend alone.
     angles = {
         "trunk": trunk,                                              # + body over, - layback
         "elbow": angle_at(uv["shoulder"], uv["elbow"], uv["wrist"]),  # 180 = arms straight
@@ -153,4 +155,13 @@ def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinemati
         angles["shin"] = tilt_from_vertical(uv["ankle"], uv["knee"])   # + knees past the feet
 
     return Kinematics(fps=fps, side=side, facing=facing, scale_px=scale, px=px, uv=uv,
-                      conf=conf, reliable=reliable, visible=visible, angles=angles)
+                      conf=conf, reliable=reliable, visible=visible, angles=angles,
+                      observed=observed, estimated=estimated)
+
+
+def sliced(k: Kinematics, start: int, stop: int) -> Kinematics:
+    """Slice canonical signals without selecting a new body side or filtering twice."""
+    from dataclasses import replace
+    mappings = {name: {joint: values[start:stop].copy() for joint, values in getattr(k, name).items()}
+                for name in ('px', 'uv', 'conf', 'angles', 'observed', 'estimated')}
+    return replace(k, visible=k.visible[start:stop].copy(), reliable=k.reliable.copy(), **mappings)

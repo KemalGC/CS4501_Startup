@@ -72,6 +72,9 @@ def analyze_request(video, *, out_dir, selection=None):
     """Dispatch explicitly; a model request never falls back to pose heuristics."""
     from .selection import validate_selection
     selected = validate_selection(selection) if selection is not None else None
+    if selected is not None and selected['version'] == 4:
+        from .crew_model import analyse_video
+        return analyse_video(video, out_dir=out_dir, selection=selected)
     if selected is not None and selected['version'] == 3:
         from .blade_quick import analyse_video
         return analyse_video(video, out_dir=out_dir, selection=selected)

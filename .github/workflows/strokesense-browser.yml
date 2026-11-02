@@ -50,3 +50,5 @@ jobs:
         run: python strokesense/tests/browser_multiframe_review.py
       - name: Confirm one blade through model-only controls
         run: python strokesense/tests/browser_blade_model.py
+      - name: Choose independent tasks for all eight selected rowers
+        run: python strokesense/tests/browser_crew_options.py

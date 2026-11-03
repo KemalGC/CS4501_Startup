@@ -11,3 +11,6 @@
 #reports-library .section-heading{flex-wrap:wrap;align-items:flex-start}#reports-library .section-heading p{max-width:710px}
 @media(max-width:1050px){.report-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.report-grid{grid-template-columns:1fr;gap:16px}.reports-tools{flex-direction:column;align-items:stretch;gap:12px}.reports-tools label{flex:auto}.report-card-body{padding:19px}.top-actions{gap:8px}.top-actions .privacy-dot{display:none}.library-nav{font-size:11px;padding:7px 9px}}
+
+/* Stack navigation instead of overflowing narrow phones after session start. */
+@media(max-width:380px){.topbar{height:auto;min-height:66px;flex-wrap:wrap;padding:12px 20px;gap:9px}.top-actions{width:100%;justify-content:space-between}.top-actions .quiet{white-space:nowrap}.brand{flex-shrink:0}}

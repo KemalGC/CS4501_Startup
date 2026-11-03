@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'dev/**'
+      - 'dev-consolidated'
     paths:
       - 'strokesense/**'
       - 'llm.md'

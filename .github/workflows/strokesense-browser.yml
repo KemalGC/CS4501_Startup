@@ -52,3 +52,5 @@ jobs:
         run: python strokesense/tests/browser_blade_model.py
       - name: Choose independent tasks for all eight selected rowers
         run: python strokesense/tests/browser_crew_options.py
+      - name: Review usefulness and accuracy with consent and private export
+        run: python strokesense/tests/browser_feedback.py

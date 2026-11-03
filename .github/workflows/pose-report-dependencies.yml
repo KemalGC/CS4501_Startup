@@ -1,0 +1,28 @@
+name: Prepare local pose evaluation runtime (no private footage)
+on:
+  push:
+    branches: ['dev/2026-11-03-pose-report-dependencies']
+    paths: ['.github/workflows/pose-report-dependencies.yml']
+permissions:
+  contents: read
+jobs:
+  dependency-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Acquire official pinned pose model and CPU runtime wheel
+        run: |
+          mkdir -p pose-deps
+          curl --fail --show-error --silent --location --retry 2 --max-time 160 "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose.onnx" -o pose-deps/yolo11n-pose.onnx
+          echo '93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408  pose-deps/yolo11n-pose.onnx' | sha256sum -c
+          python -m pip download --only-binary=:all: --no-deps --dest pose-deps onnxruntime==1.23.2
+          ls -lh pose-deps
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-pose-dependencies-py313
+          path: pose-deps/
+          retention-days: 1

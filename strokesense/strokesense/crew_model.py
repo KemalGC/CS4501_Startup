@@ -184,6 +184,12 @@ def summarize_crew(observations,tasks):
 
 class CrewVision(LocalVision):
     def predict_crew(self,reference,frames,seeds,tasks):
+        from .vision_speed import fast_crew
+        if os.environ.get("STROKESENSE_VISION_SPEED", "1") != "0":
+            return fast_crew(self,reference,frames,seeds,tasks)
+        return self.predict_crew_legacy(reference,frames,seeds,tasks)
+
+    def predict_crew_legacy(self,reference,frames,seeds,tasks):
         if self.digest is None:raise BladeModelError('model_preflight_required')
         if not 1<=len(frames)<=BATCH:raise BladeModelError('invalid_crew_window')
         schema=response_schema(tasks)
@@ -237,6 +243,7 @@ def analyse_video(video,*,out_dir,selection,provider=None,log=print):
         if not name:raise BladeModelError('model_not_configured')
         provider=CrewVision(name)
     provenance=provider.check();source=Path(video).resolve();source_hash=_stream_sha256(source)
+    if isinstance(provider,LocalVision):provider.cache_dir=Path(out_dir).resolve().parent / ".vision-cache"
     out=Path(out_dir)/('crew-'+uuid4().hex);out.mkdir(parents=True,exist_ok=False,mode=0o700)
     ref,actual=reference_frame(source,chosen['reference_seconds'])
     reference=mark_frame({'image':base64.b64encode(ref).decode()},seeds=chosen['seeds'])
@@ -246,7 +253,6 @@ def analyse_video(video,*,out_dir,selection,provider=None,log=print):
     try:
         while calls<24:
             if not temporal:
-                # Three genuine source samples at roughly 0, 0.5, 1.0 seconds; one shared request.
                 new=[];last=-1e9
                 for f in stream:
                     if f['time']-last>=.49:new.append(f);last=f['time']
@@ -277,6 +283,11 @@ def analyse_video(video,*,out_dir,selection,provider=None,log=print):
     if _stream_sha256(source)!=source_hash:raise BladeModelError('source_changed')
     result=summarize_crew(observations,tasks)
     stats.update(model_requests=calls,model_images=images,stop_reason=reason,processing_seconds=time.perf_counter()-start)
+    if hasattr(provider,"speed_stats"):
+        stats["vision"]=deepcopy(provider.speed_stats)
+        stats["model_batches"]=calls
+        stats["model_requests"]=provider.speed_stats["network_requests"]
+        stats["cache_hits"]=provider.speed_stats["cache_hits"]
     metrics={'schema_version':1,'analysis_mode':'crew_model_selected','policy':VERSION,'selection':chosen,
        'source_sha256':source_hash,'model':provenance,'reference_seconds':actual,'requested_analyses':tasks,
        'crew_review':result,'observations':observations,'processing':stats,'coaching_state':'withheld',
@@ -320,6 +331,6 @@ def report_html(metrics,frames):
         '<h1>Your selected eight — model review</h1><p><strong>Experimental: model vision has not been independently validated.</strong> '
         'All eight identities remain listed, including unavailable ones. No heuristic grades or fabricated curves.</p>'
         f'<p>Requested: {html.escape(", ".join(tasks))}. {stats["model_requests"]} shared model requests; {stats["model_images"]} submitted images; '
-        f'{stats["processing_seconds"]:.2f}s processing. Stop: {stats["stop_reason"]}.</p>'
+        f'{stats["processing_seconds"]:.2f}s processing; {stats.get("cache_hits",0)} reused request(s). Stop: {stats["stop_reason"]}.</p>'
         f'<p>{result["observed_rower_frames"]}/{result["possible_rower_frames"]} rower-frame assignments. This is model coverage, not accuracy.</p>'
         +pictures+cards+'</main></html>')

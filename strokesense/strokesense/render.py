@@ -63,7 +63,7 @@ def draw_rower(img, rower, fi, color, thickness=2, show_angles=True):
     sc = max(0.9, k.scale_px / 45)           # text scales with the rower's size in frame
     top = min(p["shoulder"][1], p["wrist"][1]) - int(40 * sc)
     phase, s = _phase(rower, fi)
-    _txt(img, rower.seat, (p["shoulder"][0] - int(15 * sc), top), 0.55 * sc, color, 2)
+    _txt(img, rower.seat + (" " + phase if phase else ""), (p["shoulder"][0] - int(15 * sc), top), 0.55 * sc, color, 2)
     if show_angles:
         tr = k.angles["trunk"][fi]
         _txt(img, f"{tr:+.0f}\u00b0".replace("\u00b0", ""), (p["hip"][0] + 6, p["hip"][1] + int(28 * sc)), 0.5 * sc,
@@ -186,6 +186,22 @@ def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
                 if s is not None and len(rowers) == 1 and s.faults:
                     for i, f in enumerate(s.faults[:3]):
                         _txt(fr, FAULTS[f]["title"], (14, 62 + 28 * i), 0.55, BAD)
+            if sync and sync.get('crew_selection'):
+                hs = fr.shape[1] / 1280
+                actual = []
+                for rower in rowers:
+                    track = pose.tracks[rower.tid]
+                    hits = np.flatnonzero(track['frames'] == fi)
+                    if len(hits): actual.append(track['boxes'][hits[0]])
+                if actual:
+                    b = np.asarray(actual) * scale
+                    x0, y0 = np.floor(b[:, :2].min(0)).astype(int)
+                    x1, y1 = np.ceil(b[:, 2:].max(0)).astype(int)
+                    cv2.rectangle(fr, (x0-8, y0-8), (x1+8, y1+8), (110, 230, 180), 2)
+                _txt(fr, f'ANALYZED CREW | {len(actual)}/{len(rowers)} observed | source {pose.start + fi/pose.fps:.2f}s',
+                     (int(14*hs), fr.shape[0]-int(48*hs)), .55*hs, (110,230,180))
+                _txt(fr, 'Pose-model estimates | body-motion phases, not verified blade entries | other crews excluded',
+                     (int(14*hs), fr.shape[0]-int(18*hs)), .42*hs)
             writer.write(fr)
     except (cv2.error, OSError):
         raise RenderingUnavailable('video_render_failed') from None

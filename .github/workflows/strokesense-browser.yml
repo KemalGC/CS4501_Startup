@@ -54,3 +54,5 @@ jobs:
         run: python strokesense/tests/browser_crew_options.py
       - name: Review usefulness and accuracy with consent and private export
         run: python strokesense/tests/browser_feedback.py
+      - name: Navigate the report library and preserve private feedback
+        run: python strokesense/tests/browser_feedback_library.py

@@ -236,15 +236,17 @@ def create_server(pack, *, port=8767, db_path=None):
             if not self.trusted(): self.error(403,'same_origin_required'); return
             parsed = urlsplit(self.path); route = parsed.path
             try:
-                if route in ('/','/app.js','/style.css'):
-                    name = 'index.html' if route=='/' else route[1:]
-                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8'}[name]
+                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css'):
+                    name = 'index.html' if route in ('/', '/library') else route[1:]
+                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8'}[name]
                     self.send(200,(ASSETS/name).read_bytes(),mime);return
                 if route=='/api/bootstrap':
                     public=[]
                     for c in clips.values():
                         item={k:c[k] for k in ('id','title','group_id','duration','analysis') if k in c}
-                        item['assets']=[k for k in ('video','poster','report','annotated') if c.get(k)]
+                        item['assets']=[k for k in ('video','poster','report','annotated')
+                                        if c.get(k) and _path(root, c[k]).is_file()]
+                        item['report_state'] = ('analysis' if c['analysis'].get('status') == 'provisional' else 'diagnostic') if 'report' in item['assets'] else 'unavailable'
                         public.append(item)
                     self.send(200,{'schema_version':1,'csrf':csrf,'session':self.session(),'clips':public,
                                   'aspects':[{'id':k,'title':v[0],'question':v[1]} for k,v in ASPECTS.items()]});return
@@ -274,7 +276,9 @@ def create_server(pack, *, port=8767, db_path=None):
                     cid,kind=parts[1:]
                     if cid not in clips or kind not in ('video','poster','report','annotated') or not clips[cid].get(kind):
                         self.error(404,'asset_not_found');return
-                    path=_path(root,clips[cid][kind]);self.media(path, kind);return
+                    path=_path(root,clips[cid][kind])
+                    if not path.is_file(): self.error(404,'asset_not_found'); return
+                    self.media(path, kind);return
                 self.error(404,'not_found')
             except (ValueError,KeyError,TypeError):self.error(400,'invalid_request')
             except (BrokenPipeError,ConnectionResetError): pass

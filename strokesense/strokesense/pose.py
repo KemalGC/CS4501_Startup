@@ -35,13 +35,15 @@ def ensure_model(path: Path = DEFAULT_MODEL) -> Path:
 # ----------------------------------------------------------------------------- detector
 
 class PoseDetector:
-    def __init__(self, model_path: Path | str = DEFAULT_MODEL, conf: float = 0.25, iou: float = 0.5):
+    def __init__(self, model_path: Path | str = DEFAULT_MODEL, conf: float = 0.25, iou: float = 0.5, *, threads: int | None = None):
         import onnxruntime as ort
         model_path = ensure_model(Path(model_path))
         providers = [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider")
                      if p in ort.get_available_providers()] + ["CPUExecutionProvider"]
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = max(1, (os.cpu_count() or 2))
+        if threads is not None and (type(threads) is not int or not 1 <= threads <= 64):
+            raise ValueError('threads must be an integer from 1 to 64')
+        opts.intra_op_num_threads = threads if threads is not None else max(1, (os.cpu_count() or 2))
         self.sess = ort.InferenceSession(str(model_path), opts, providers=providers)
         self.inp = self.sess.get_inputs()[0].name
         self.size = 640
@@ -570,4 +572,3 @@ def crew_tracks(dets, fps, min_frac=0.3):
         if len(t["frames"]) >= min_frac * n_frames:
             tracks[si] = {kk: np.array(v) for kk, v in t.items()}
     return tracks, int(crew_dir), n_seats
-

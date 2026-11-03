@@ -53,7 +53,7 @@ def _file_identity(path, *, hash_content=False):
     return identity
 
 
-def _cache_identity(video, start, duration, tiles, fps, model, selection=None):
+def _cache_identity(video, start, duration, tiles, fps, model, selection=None, dominant=False):
     """Identify source bytes, request settings, and actual model bytes.
 
     Strong content fingerprints prevent same-size/same-mtime replacements from
@@ -75,6 +75,9 @@ def _cache_identity(video, start, duration, tiles, fps, model, selection=None):
         },
         "model": model_id,
     }
+    if dominant:
+        from .dominant import VERSION
+        identity['settings']['dominant_crew'] = VERSION
     if selection is not None:
         identity["selection"] = validate_selection(selection)
         identity["settings"]["selected_extraction"] = EXTRACTION_VERSION
@@ -97,7 +100,9 @@ def _result_directory(video, out_dir):
 
 
 def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="auto", fps=15.0,
-                  model=None, single=False, reuse=True, log=print, selection=None):
+                  model=None, single=False, reuse=True, log=print, selection=None, dominant=False, threads=None):
+    if dominant and (selection is not None or single):
+        raise ValueError('dominant mode cannot be combined with explicit selection or single')
     if selection is not None:
         selection = validate_selection(selection)
         if single or start != 0:
@@ -109,11 +114,16 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
     cache = out / "detections.npz"
 
     t0 = time.time()
-    identity = _cache_identity(video, start, duration, tiles, fps, model, selection=selection)
+    identity = _cache_identity(video, start, duration, tiles, fps, model, selection=selection, dominant=dominant)
     dets = meta = None
+    dominant_audit = None
     if reuse and cache.exists():
         try:
             cached_dets, cached_meta = load_detections(cache)
+            if dominant and not (out / 'dominant.json').is_file():
+                raise ValueError('dominant_audit_missing')
+            if dominant:
+                dominant_audit = json.loads((out / 'dominant.json').read_text())
             if cached_meta.get("cache_identity") == identity:
                 dets, meta = cached_dets, cached_meta
                 log(f"[1/4] Loaded cached pose ({len(dets)} frames)")
@@ -123,19 +133,25 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
             log(f"[1/4] Could not read pose cache ({type(exc).__name__}); recomputing.")
     if dets is None:
         log(f"[1/4] Running pose estimation on {video.name} ...")
-        det = PoseDetector(model) if model else PoseDetector()
+        detector_kwargs = {'threads': threads} if threads is not None else {}
+        det = PoseDetector(model, **detector_kwargs) if model else PoseDetector(**detector_kwargs)
         # The detector may have downloaded the model, so capture its actual identity.
-        identity = _cache_identity(video, start, duration, tiles, fps, model, selection=selection)
+        identity = _cache_identity(video, start, duration, tiles, fps, model, selection=selection, dominant=dominant)
 
         def prog(i, n):
             log(f"      frame {i}/{n}  ({time.time() - t0:.0f}s)")
-        if selection is not None:
+        if dominant:
+            from .dominant import run_video as run_dominant_video
+            dets, meta, dominant_audit = run_dominant_video(video, det, start=start,
+                duration=duration, target_fps=fps, progress=prog)
+            (out / 'dominant.json').write_text(json.dumps(dominant_audit, indent=2))
+        elif selection is not None:
             dets, meta = run_selected_video(video, det, selection, tiles=tiles, start=start,
                                            duration=duration, target_fps=fps, progress=prog)
         else:
             dets, meta = run_video(video, det, tiles=tiles, start=start, duration=duration,
                                    target_fps=fps, progress=prog)
-        if identity == _cache_identity(video, start, duration, tiles, fps, model, selection=selection):
+        if identity == _cache_identity(video, start, duration, tiles, fps, model, selection=selection, dominant=dominant):
             meta = {**meta, "cache_identity": identity}
             save_detections(cache, dets, meta)
         else:
@@ -149,14 +165,21 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
                           stride=int(meta['stride']))
         rowers = rowers_from_selected(pose)
     elif not single:
-        tracks, crew_dir, n_seats = crew_tracks(dets, meta["fps"])
+        if dominant:
+            from .dominant import track_visible_window
+            tracks, crew_dir, n_seats = track_visible_window(dets, meta['fps'])
+        else:
+            tracks, crew_dir, n_seats = crew_tracks(dets, meta["fps"])
         pose = PoseResult(fps=float(meta["fps"]), n_frames=len(dets), width=int(meta["width"]),
                           height=int(meta["height"]), tracks=tracks, start=float(meta["start"]),
                           stride=int(meta["stride"]))
         if n_seats >= 2 and tracks:
             log(f"      crew of {n_seats} found, {len(tracks)} seats tracked")
-            rowers = crew.rowers_from_slots(pose, crew_dir, n_seats)
-    if not rowers and selection is None:
+            rowers = rowers_from_selected(pose) if dominant else crew.rowers_from_slots(pose, crew_dir, n_seats)
+            if dominant:
+                for rower in rowers:
+                    rower.seat = f'R{rower.tid + 1}'
+    if not rowers and selection is None and not dominant:
         pose = result_from_detections(dets, meta)
         log(f"      {len(pose.tracks)} people tracked")
         rowers = crew.find_rowers(pose, max_rowers=1 if single else 9)
@@ -165,6 +188,8 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         return None
     sync = crew.crew_sync(rowers, pose.fps)
     sync["cadence"] = cadence.estimate(rowers)
+    if dominant:
+        sync['crew_selection'] = dominant_audit
     if len(rowers) > 1:
         log("      " + cadence.description(sync["cadence"]))
     for r in rowers:
@@ -207,6 +232,12 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         analysis_key=identity + f"|single={single}|app={PACKAGE_VERSION}",
         fps=pose.fps, start_seconds=pose.start,
     )
+    if dominant:
+        from .dominant import validate_metrics, decorate_report
+        metrics = json.loads((out / 'metrics.json').read_text())
+        validation = validate_metrics(metrics, n_frames=pose.n_frames)
+        (out / 'validation.json').write_text(json.dumps(validation, indent=2))
+        decorate_report(html_path, metrics, validation)
     log(f"Done in {time.time() - t0:.0f}s → {out}")
     return {"dir": out, "video": vid, "report": html_path, "rowers": rowers, "sync": sync, "pose": pose}
 
@@ -249,10 +280,12 @@ def main(argv=None):
                     help="'auto' (find the boat and tile it at full resolution) or 'none'")
     ap.add_argument("--fps", type=_fps_arg, default=15.0, help="analysis frame rate")
     ap.add_argument("--single", action="store_true", help="analyse only the clearest rower (erg / single scull)")
+    ap.add_argument('--dominant-crew', action='store_true', help='isolate the largest clear crew; gaps never recruit a different boat')
+    ap.add_argument('--threads', type=int, default=None, help='ONNX CPU threads, 1–64')
     ap.add_argument("--fresh", action="store_true", help="ignore cached pose results")
     a = ap.parse_args(argv)
     tiles = "auto" if a.tiles == "auto" else None
-    res = analyse_video(a.video, a.out, a.start, a.duration, tiles, a.fps, single=a.single, reuse=not a.fresh)
+    res = analyse_video(a.video, a.out, a.start, a.duration, tiles, a.fps, single=a.single, reuse=not a.fresh, dominant=a.dominant_crew, threads=a.threads)
     return 0 if res else 1
 
 

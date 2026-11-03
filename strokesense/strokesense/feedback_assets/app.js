@@ -50,11 +50,11 @@
   form.elements.timestamp.max=c.duration;state.dirty=false;
  }
  async function chooseClip(i){
-  state.clip=i;state.aspect=0;state.saved={};state.dirty=false;state.mode='video';const seq=++state.load;const c=clip();
+  state.clip=i;state.aspect=0;state.saved={};state.dirty=false;const seq=++state.load;const c=clip();state.mode=c.assets.includes('annotated')?'annotated':'video';
   $('clip-title').textContent=c.title;$('analysis-badge').textContent=c.analysis.status==='provisional'?'Provisional model analysis':'Insufficient model evidence';$('analysis-badge').className='badge'+(c.analysis.status==='provisional'?'':' warning');
-  $('annotated-mode').hidden=!c.assets.includes('annotated');$('report-toggle').hidden=!c.assets.includes('report');$('report-panel').hidden=true;$('report-frame').removeAttribute('src');
+  $('annotated-mode').hidden=!c.assets.includes('annotated');$('report-toggle').hidden=!c.assets.includes('report');$('report-panel').hidden=true;$('report-frame').removeAttribute('src');$('report-direct').href=asset('report');
   const w=c.analysis.window;$('method').textContent=(c.analysis.method||'')+(w?' · Analyzed source window: '+w.start.toFixed(1)+'–'+w.end.toFixed(1)+' s. ':' ')+(c.analysis.note||'')+' Study preview is silent; evaluate the visible evidence, not audio.';
-  $('video').poster=c.assets.includes('poster')?asset('poster'):'';$('video').src=asset('video');$('video').load();setModeButtons();renderLibrary();renderAspect();
+  $('video').poster=c.assets.includes('poster')?asset('poster'):'';$('video').src=asset(state.mode);$('video').load();setModeButtons();renderLibrary();renderAspect();
   try{const got=await api('/api/responses?clip='+encodeURIComponent(c.id));if(seq!==state.load)return;state.saved=Object.fromEntries(got.responses.filter(r=>r.analysis_version===c.analysis.version).map(r=>[r.aspect_id,r]));renderAspect();}catch(e){toast(e.message,true);}
  }
  function sourceTime(){return $('video').currentTime+(state.mode==='annotated'?(clip().analysis.window?.start||0):0);}
@@ -63,7 +63,8 @@
  function capture(){const t=Math.min(clip().duration,sourceTime());$('rating-form').elements.timestamp.value=t.toFixed(2);state.dirty=true;toast('Source timestamp '+t.toFixed(2)+' s attached to this aspect.');}
  async function bootstrap(){
   try{state.data=await api('/api/bootstrap');$('welcome').hidden=!!state.data.session;$('workspace').hidden=!state.data.session;$('next-reviewer').hidden=!state.data.session;
-   if(state.data.session&&state.data.clips.length)await chooseClip(Math.min(state.clip,state.data.clips.length-1));
+   if(state.data.session&&state.data.clips.length&&(location.pathname!=='/library'||new URLSearchParams(location.search).has('clip'))){const wanted=new URLSearchParams(location.search).get('clip');const requested=state.data.clips.findIndex(c=>c.id===wanted);await chooseClip(requested>=0?requested:Math.min(state.clip,state.data.clips.length-1));if(wanted&&requested<0)toast('That recording is no longer in the study. Choose one from the library.',true);}
+   window.dispatchEvent(new CustomEvent('ss:ready',{detail:state.data}));
    if(state.owner){$('owner').hidden=false;await loadOwner();}
   }catch(e){toast('Could not load the study: '+e.message,true);}
  }
@@ -91,6 +92,7 @@
  $('capture-time').onclick=capture;$('clear-time').onclick=()=>{$('rating-form').elements.timestamp.value='';state.dirty=true;};
  $('video').addEventListener('timeupdate',()=>{$('video-time').textContent='Source time '+sourceTime().toFixed(2)+' s'+(state.mode==='annotated'?' · model overlay':'');});
  $('source-mode').onclick=()=>changeMode('video');$('annotated-mode').onclick=()=>changeMode('annotated');
+ window.addEventListener('ss:open-report',()=>{if(state.data?.session&&clip()?.assets.includes('report')){$('report-panel').hidden=false;$('report-frame').src=asset('report');$('report-direct').href=asset('report');}});
  $('report-toggle').onclick=()=>{const panel=$('report-panel');panel.hidden=!panel.hidden;if(!panel.hidden){$('report-frame').src=asset('report');panel.scrollIntoView({block:'start',behavior:'smooth'});}};
  $('next-clip').onclick=()=>{if(!hasUnsaved())chooseClip((state.clip+1)%state.data.clips.length);};
  $('withdraw').onclick=async()=>{if(!confirm('Permanently delete all feedback from your current reviewer session?'))return;try{await api('/api/withdraw',{method:'POST',body:{}});state.saved={};state.dirty=false;await bootstrap();toast('Your saved feedback has been withdrawn.');}catch(e){toast(e.message,true);}};

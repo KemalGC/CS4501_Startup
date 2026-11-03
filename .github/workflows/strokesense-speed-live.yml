@@ -8,7 +8,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 7
     env:
       OLLAMA_HOST: '127.0.0.1:11434'
       OLLAMA_NO_CLOUD: '1'
@@ -21,11 +21,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install existing scientific dependencies
+      - name: Install dependencies
         run: |
           mkdir -p .speed/evidence .speed/runtime
           python -m pip install -r strokesense/requirements.txt
-      - name: Verify and start pinned official local model runtime
+      - name: Verify and start pinned official runtime
         run: |
           curl --fail --silent --show-error --location --max-time 120 --max-filesize 1700000000 https://github.com/ollama/ollama/releases/download/v0.40.13/ollama-linux-amd64.tar.zst -o .speed/runtime.tar.zst
           echo 'c9490e0f520be21271d969e6703f012268b1d39f8b70dd58854e5bfef7a75bb6  .speed/runtime.tar.zst' | sha256sum --check
@@ -34,7 +34,7 @@ jobs:
           .speed/runtime/bin/ollama serve > .speed/evidence/server.log 2>&1 &
           for i in $(seq 1 20); do curl --fail --silent http://127.0.0.1:11434/api/tags && break || sleep 1; done
           timeout 150 .speed/runtime/bin/ollama pull qwen3-vl:4b
-      - name: Measure actual model requests, returned outputs and repeat reuse
+      - name: Actual corrected reference-request test
         run: |
           python -u - <<'PY'
           import base64,hashlib,json,sys,time,urllib.request
@@ -42,58 +42,39 @@ jobs:
           import cv2
           sys.path.insert(0,'strokesense')
           from strokesense.crew_model import CrewVision,mark_frame
-          from strokesense.vision_speed import fast_crew,prepare_inputs
+          from strokesense.vision_speed import fast_crew
           from strokesense.blade_video import _jpeg
           root=Path('.speed');out=root/'evidence'
-          source='https://upload.wikimedia.org/wikipedia/commons/5/52/Rowing_boat_racing_8-man_%2B_cox.webm'
-          with urllib.request.urlopen(urllib.request.Request(source,headers={'User-Agent':'StrokeSense research benchmark/1.0'}),timeout=45) as r:data=r.read(60000001)
-          assert len(data)<=60000000 and hashlib.sha256(data).hexdigest()=='971dbbea9b924565428849377c408eeb568f7fd99d89c4ad71319be0b9d283ac'
-          path=root/'eight.webm';path.write_bytes(data)
+          url='https://upload.wikimedia.org/wikipedia/commons/5/52/Rowing_boat_racing_8-man_%2B_cox.webm'
+          with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'StrokeSense research benchmark/1.0'}),timeout=45) as r:data=r.read(60000001)
+          assert hashlib.sha256(data).hexdigest()=='971dbbea9b924565428849377c408eeb568f7fd99d89c4ad71319be0b9d283ac'
+          video=root/'eight.webm';video.write_bytes(data)
+          cap=cv2.VideoCapture(str(video));cap.set(cv2.CAP_PROP_POS_FRAMES,99);ok,im=cap.read();assert ok
+          frame={'frame_id':99,'time':cap.get(cv2.CAP_PROP_POS_MSEC)/1000,'image':base64.b64encode(_jpeg(im)).decode()};cap.release()
           seeds=[[.21390,.57444],[.31175,.58168],[.41178,.58208],[.50529,.59015],[.60043,.58659],[.69740,.60443],[.80052,.60922],[.90383,.61611]]
-          cap=cv2.VideoCapture(str(path));fps=cap.get(cv2.CAP_PROP_FPS);frames=[]
-          for i in [99,111]:
-              cap.set(cv2.CAP_PROP_POS_FRAMES,i);ok,im=cap.read();assert ok
-              frames.append({'frame_id':i,'time':cap.get(cv2.CAP_PROP_POS_MSEC)/1000,'image':base64.b64encode(_jpeg(im)).decode()})
-          cap.release();ref=mark_frame(frames[0],seeds=seeds)
-          results={'kind':'actual_local_qwen_public_video_requests','model':'qwen3-vl:4b','runtime':'0.40.13','source_fps':fps,'private_media':False,'runs':[],
-                   'limits':'Two source-frame samples, not full-video rate/technique validation. Reference points are assistant labels, not independent ground truth.'}
-          def save(): (out/'results.json').write_text(json.dumps(results,indent=2,allow_nan=False))
-          p=CrewVision('qwen3-vl:4b',timeout=90);p.cache_dir=root/'cache';results['model_info']=p.check();save()
-          original=p._request;serial=[0]
+          ref=mark_frame(frame,seeds=seeds);p=CrewVision('qwen3-vl:4b',timeout=120);p.cache_dir=root/'cache'
+          result={'kind':'actual_Qwen_corrected_reference_request','runtime':'0.40.13','source_frame':99,'private_media':False,'model':p.check(),'runs':[],'limits':'Same-frame model predictions, not full-video SPM or independent accuracy.'}
+          original=p._request
           def record(route,payload=None):
-              response=original(route,payload)
-              if route=='/api/chat':
-                  serial[0]+=1;(out/f'response-{serial[0]}.json').write_text(json.dumps(response,indent=2))
-              return response
+              data=original(route,payload)
+              if route=='/api/chat':(out/'actual-response.json').write_text(json.dumps(data,indent=2))
+              return data
           p._request=record
-          started=time.perf_counter()
-          def run(label,frame,fast=True):
-              item={'label':label,'source_frame':frame['frame_id'],'source_seconds':frame['time'],'live_request':True}
-              t=time.perf_counter()
+          for label in ['cold','exact_repeat']:
+              start=time.perf_counter();run={'label':label}
               try:
-                  obs=fast_crew(p,ref,[frame],seeds,['position']) if fast else p.predict_crew(ref,[frame],seeds,['position'])
-                  item.update(completed=True,observations=obs,visible_rowers=sum(r['same_rower'] for r in obs[0]['rowers']))
-                  if frame['frame_id']==99:
-                      matched=[r['same_rower'] and r['box'] and r['box'][0]<=x<=r['box'][2] and r['box'][1]<=y<=r['box'][3] for r,(x,y) in zip(obs[0]['rowers'],seeds)]
-                      item['reference_points_inside_predicted_boxes']=sum(bool(x) for x in matched)
-              except Exception as exc:item.update(completed=False,reason=type(exc).__name__,detail=str(exc)[:160])
-              item['seconds']=time.perf_counter()-t;item['speed_stats']=getattr(p,'speed_stats',{}).copy()
-              results['runs'].append(item);save();print(json.dumps(item),flush=True)
-          prepared=prepare_inputs(ref,[frames[0]],seeds,['position'])
-          results['optimized_input_pixels']=prepared['input_pixels'];results['optimized_roi']=prepared['roi']
-          run('optimized_frame_99_cold',frames[0])
-          if results['runs'][-1]['completed']:run('optimized_frame_99_exact_repeat',frames[0])
-          if time.perf_counter()-started<260:run('optimized_frame_111',frames[1])
-          if time.perf_counter()-started<350:
-              # On this benchmark commit CrewVision is still the original baseline implementation.
-              run('original_full_frame_99_warm',frames[0],False)
-          results['total_seconds']=time.perf_counter()-started;save()
-          (out/'ATTRIBUTION.txt').write_text('Splash tv, Rowing boat racing 8-man + cox, CC BY-SA 4.0. https://commons.wikimedia.org/wiki/File:Rowing_boat_racing_8-man_%2B_cox.webm . Development video; source frames99/111, marked reference. No private footage and no independent accuracy claim.')
+                  obs=fast_crew(p,ref,[frame],seeds,['position']);run.update(completed=True,observations=obs)
+                  run['visible_rowers']=sum(r['same_rower'] for r in obs[0]['rowers'])
+                  run['reference_points_in_boxes']=sum(bool(r['same_rower'] and r['box'] and r['box'][0]<=x<=r['box'][2] and r['box'][1]<=y<=r['box'][3]) for r,(x,y) in zip(obs[0]['rowers'],seeds))
+              except Exception as exc:run.update(completed=False,reason=type(exc).__name__,detail=str(exc)[:160])
+              run['seconds']=time.perf_counter()-start;run['speed_stats']=p.speed_stats.copy();result['runs'].append(run)
+              (out/'results.json').write_text(json.dumps(result,indent=2));print(json.dumps(run),flush=True)
+              if not run['completed']:break
+          (out/'ATTRIBUTION.txt').write_text('Splash tv, Rowing boat racing 8-man + cox, CC BY-SA4.0. https://commons.wikimedia.org/wiki/File:Rowing_boat_racing_8-man_%2B_cox.webm . One video source frame, assistant reference points, not independent ground truth. No private footage.')
           PY
-      - name: Preserve observations and negative results
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: strokesense-live-speed
+          name: strokesense-live-speed-v2
           path: .speed/evidence/
           retention-days: 3

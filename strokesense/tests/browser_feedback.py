@@ -9,7 +9,7 @@ from test_feedback import FeedbackTests
 
 
 def main():
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
     exe=shutil.which('chromium') or shutil.which('google-chrome')
     if not exe: raise RuntimeError('Chrome/Chromium required')
     case=FeedbackTests();case.setUp()
@@ -34,8 +34,8 @@ def main():
                 with page.expect_response(lambda r:r.url.endswith('/api/reviews') and r.request.method=='POST') as response:
                     page.get_by_role('button',name='Save & next aspect',exact=False).click()
                 assert response.value.status==200
-                page.wait_for_function("document.querySelector('#progress').textContent==='1 / 6 saved'")
-                page.reload();page.wait_for_function("document.querySelector('#progress').textContent==='1 / 6 saved'")
+                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                 assert len(case.server.store.rows())==1
                 page.goto(case.origin+'/#owner='+case.server.owner_key)
                 page.wait_for_selector('#owner:not([hidden])');page.wait_for_selector('.stat-card')

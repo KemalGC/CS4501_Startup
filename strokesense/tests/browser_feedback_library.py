@@ -9,7 +9,7 @@ from test_feedback_library import ReportLibraryTests
 
 
 def main():
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
     executable = shutil.which('chromium') or shutil.which('google-chrome')
     if not executable: raise RuntimeError('Chrome/Chromium required')
     case = ReportLibraryTests(); case.setUp()
@@ -49,16 +49,15 @@ def main():
                 page.reload(); page.wait_for_selector('#report-panel:not([hidden])')
                 assert page.locator('#report-frame').get_attribute('src') == '/asset/clip-two/report'
                 assert case.server.store.rows() == []
-                # Normal review remains saveable after opening a saved report.
                 page.get_by_label('usefulness 4 — Very useful', exact=True).check()
                 page.locator('[name=accuracy][value=not_applicable]').check()
                 with page.expect_response(lambda r: r.url.endswith('/api/reviews') and r.request.method == 'POST') as save:
                     page.get_by_role('button', name='Save & next aspect', exact=False).click()
                 assert save.value.status == 200
-                page.wait_for_function("document.querySelector('#progress').textContent === '1 / 6 saved'")
+                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                 page.locator('#reports-nav').click(); page.wait_for_selector('#reports-library:not([hidden])')
                 page.locator('[data-clip="clip-two"]').get_by_role('link', name='Review video').click()
-                page.wait_for_function("document.querySelector('#progress').textContent === '1 / 6 saved'")
+                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                 assert len(case.server.store.rows()) == 1
                 page.on('dialog', lambda d: d.accept())
                 page.get_by_role('button', name='Finish session', exact=True).click()

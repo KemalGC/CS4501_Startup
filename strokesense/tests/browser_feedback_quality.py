@@ -7,7 +7,7 @@ from strokesense.feedback_quality import QualityStore
 
 
 def main():
- from playwright.sync_api import sync_playwright
+ from playwright.sync_api import sync_playwright, expect
  exe=shutil.which('chromium') or shutil.which('google-chrome')
  if not exe:raise RuntimeError('Chrome required')
  case=FeedbackTests();case.setUp()
@@ -20,7 +20,7 @@ def main():
     page.goto(case.origin+'/');page.get_by_label('I agree to provide feedback',exact=False).check()
     page.get_by_role('button',name='Begin review',exact=False).click()
     page.wait_for_selector('#quality-panel:not([hidden])')
-    page.wait_for_function("document.querySelector('#quality-state').textContent === 'No quality assessment saved yet'")
+    expect(page.locator('#quality-state')).to_have_text('No quality assessment saved yet')
     assert page.locator('#quality-form select').count()==5
     assert all(v=='' for v in page.locator('#quality-form select').evaluate_all('(els)=>els.map(x=>x.value)'))
     for width in (320,390,768,1440):
@@ -33,9 +33,9 @@ def main():
     with page.expect_response(lambda r:r.url.endswith('/api/quality') and r.request.method=='POST') as saved:
      page.get_by_role('button',name='Save quality assessment').click()
     assert saved.value.status==200
-    page.wait_for_function("document.querySelector('#quality-state').textContent === 'All five quality answers saved'")
+    expect(page.locator('#quality-state')).to_have_text('All five quality answers saved')
     assert len(QualityStore(case.server.store).rows())==5
-    page.reload();page.wait_for_function("document.querySelector('#quality-state').textContent.startsWith('Saved')")
+    page.reload();expect(page.locator('#quality-state')).to_have_text('Saved · edits replace this assessment')
     assert page.locator('#quality-form [name=clarity]').input_value()=='4'
     assert page.locator('#quality-form [name=evidence_support]').input_value()=='cannot_judge'
     assert case.server.store.rows()==[]

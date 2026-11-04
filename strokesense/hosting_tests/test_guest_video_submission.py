@@ -95,6 +95,17 @@ class GuestVideoSubmissionTests(unittest.TestCase):
         self.assertEqual(submitted.status_code,200)
         self.assertEqual(submitted.json()['saved'],{'aspect_count':0,'quality_count':0,'technical_count':1})
 
+    def test_review_script_only_references_existing_dom_ids(self):
+        # Protect first review and reload: a misspelled submit-status ID
+        # previously aborted hydration of otherwise-persisted feedback.
+        import re
+        from strokesense.feedback import ASSETS
+        markup = (ASSETS / 'index.html').read_text(encoding='utf-8')
+        script = (ASSETS / 'app.js').read_text(encoding='utf-8')
+        defined = set(re.findall(r'id="([^"\\s]+)"', markup))
+        referenced = set(re.findall(r"\\$\\('([a-z0-9-]+)'\\)", script))
+        self.assertFalse(referenced - defined, f'Unknown review element IDs: {referenced - defined}')
+
     def test_legacy_sessions_migrate_without_erasing_old_responses(self):
         import sqlite3
         from strokesense.feedback import ReviewStore

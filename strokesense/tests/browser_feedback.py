@@ -27,9 +27,7 @@ def main():
                 page.wait_for_selector('#workspace:not([hidden])');page.wait_for_selector('#rating-form')
                 for width in (390,768,1440):
                     page.set_viewport_size({'width':width,'height':1000})
-                    actual=page.evaluate('''()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,offenders:[...document.querySelectorAll('*')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,8).map(e=>({tag:e.tagName,id:e.id,className:e.className,right:e.getBoundingClientRect().right,text:e.textContent?.trim().slice(0,40)}))})''')
-                    print('FEEDBACK WIDTH',json.dumps(actual),flush=True)
-                    assert actual['scroll'] <= actual['width']+1
+                    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
                 page.get_by_label('usefulness 4 — Very useful',exact=True).check()
                 page.get_by_label('accuracy 3 — Mixed',exact=True).check()
                 page.locator('#rating-form textarea[name=comment]').fill('Synthetic browser feedback; never a participant result.')
@@ -37,9 +35,7 @@ def main():
                     page.get_by_role('button',name='Save & next aspect',exact=False).click()
                 assert response.value.status==200
                 expect(page.locator('#progress')).to_have_text('1 / 6 saved')
-                page.reload()
-                print('NATIVE RELOAD DIAGNOSTIC',json.dumps({'url':page.url,'rows':len(case.server.store.rows()),'toast':page.locator('#toast').inner_text(),'progress':page.locator('#progress').inner_text(),'errors':errors}),flush=True)
-                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                 assert len(case.server.store.rows())==1
                 page.goto(case.origin+'/#owner='+case.server.owner_key)
                 page.wait_for_selector('#owner:not([hidden])');page.wait_for_selector('.stat-card')

@@ -18,7 +18,7 @@
   const data=await response.json();if(!response.ok)throw Error((data.error||'Request failed').replaceAll('_',' '));return data;
  }
  const clip=()=>state.data.clips[state.clip];
- function updateVideoSubmit(){if(!state.data?.session||!state.data.clips.length)return;const c=clip();$('video-submit-status').textContent=state.submitted[c.id]===c.analysis.version?'Submitted · you may submit again after edits':'Not submitted yet';$('video-submit-progress').textContent=Object.keys(state.saved).length+' of 6 aspect responses saved; quality and technical sections are separate and optional.';}
+ function updateVideoSubmit(){if(!state.data?.session||!state.data.clips.length)return;const c=clip();$('submit-video-status').textContent=state.submitted[c.id]===c.analysis.version?'Submitted · you may submit again after edits':'Not submitted yet';$('video-submit-progress').textContent=Object.keys(state.saved).length+' of 6 aspect responses saved; quality and technical sections are separate and optional.';}
  const aspect=()=>state.data.aspects[state.aspect];
  const asset=(kind)=>'/asset/'+encodeURIComponent(clip().id)+'/'+kind;
  function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
@@ -56,7 +56,7 @@
  async function chooseClip(i){
   state.clip=i;state.aspect=0;state.saved={};state.dirty=false;const seq=++state.load;const c=clip();state.mode=c.assets.includes('annotated')?'annotated':'video';
   $('video-submit-panel').hidden=false;$('video-submit-success').hidden=true;
-  $('video-submit-status').textContent='';$('video-submit-progress').textContent='';
+  $('submit-video-status').textContent='';$('video-submit-progress').textContent='';
   $('clip-title').textContent=c.title;$('analysis-badge').textContent=c.analysis.status==='provisional'?'Provisional model analysis':'Insufficient model evidence';$('analysis-badge').className='badge'+(c.analysis.status==='provisional'?'':' warning');
   $('annotated-mode').hidden=!c.assets.includes('annotated');$('report-toggle').hidden=!c.assets.includes('report');$('report-panel').hidden=true;$('report-frame').removeAttribute('src');$('report-direct').href=asset('report');
   const w=c.analysis.window;$('method').textContent=(c.analysis.method||'')+(w?' · Analyzed source window: '+w.start.toFixed(1)+'–'+w.end.toFixed(1)+' s. ':' ')+(c.analysis.note||'')+' Study preview is silent; evaluate the visible evidence, not audio.';

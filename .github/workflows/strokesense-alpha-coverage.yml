@@ -21,7 +21,7 @@ jobs:
         run: |
           python -m pip install -r strokesense/requirements.txt
           python -m pip install coverage==7.10.7
-      - name: Run unit suite with coverage (scope: Python strokesense package)
+      - name: 'Run unit suite with coverage - Python package scope'
         working-directory: strokesense
         shell: bash
         run: |

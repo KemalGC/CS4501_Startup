@@ -49,6 +49,8 @@ def main():
                     page.get_by_role('button',name='Open the review study').click()
                     page.get_by_label('I agree to provide feedback',exact=False).check()
                     page.get_by_role('button',name='Begin review',exact=False).click()
+                    page.wait_for_selector('#reports-library:not([hidden])')
+                    page.get_by_role('link',name='Review video',exact=True).click()
                     page.wait_for_selector('#workspace:not([hidden])')
                     page.get_by_label('usefulness 4 — Very useful',exact=True).check()
                     page.get_by_label('accuracy 3 — Mixed',exact=True).check()

@@ -71,7 +71,7 @@
   try{
    const response=await fetch('/api/evaluation',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':current.csrf},body:JSON.stringify(payload)}),data=await response.json();
    if(!response.ok)throw Error((data.error||'Technical assessment was not saved.').replaceAll('_',' '));
-   if(request===sequence){dirty(false);status.textContent='All ten technical judgments saved'+(data.stroke_measurement?' · manual estimate '+data.stroke_measurement.rate_spm.toFixed(1)+' strokes/min':'');}
+   if(request===sequence){dirty(false);status.textContent='All technical judgments saved'+(data.stroke_measurement?' · manual estimate '+data.stroke_measurement.rate_spm.toFixed(1)+' strokes/min':'');}
   }catch(e){if(request===sequence)status.textContent=e.message;}finally{saving=false;if(request===sequence)setBusy(loading);}
  };
 })();

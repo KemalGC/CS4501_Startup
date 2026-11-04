@@ -1,4 +1,4 @@
-"""Native five-question review/save/reload/export/withdraw, synthetic only."""
+"""Native four-question review/save/reload/export/withdraw, synthetic only."""
 import json,shutil,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -21,7 +21,7 @@ def main():
     page.get_by_role('button',name='Begin review',exact=False).click()
     page.wait_for_selector('#quality-panel:not([hidden])')
     expect(page.locator('#quality-state')).to_have_text('No quality assessment saved yet')
-    assert page.locator('#quality-form select').count()==5
+    assert page.locator('#quality-form select').count()==4
     assert all(v=='' for v in page.locator('#quality-form select').evaluate_all('(els)=>els.map(x=>x.value)'))
     for width in (320,390,768,1440):
      page.set_viewport_size({'width':width,'height':1000})
@@ -34,18 +34,18 @@ def main():
         minWidth: style.minWidth, display: style.display, whiteSpace: style.whiteSpace};
       }).filter(item => item.width > 0 && (item.right > innerWidth + 1 || item.left < -1)).slice(0, 12)
      })"""))
-    for key in ('clarity','specificity','completeness','evidence_support','actionability'):
+    for key in ('clarity','specificity','completeness','actionability'):
      page.locator('#quality-form [name='+key+']').select_option('4')
-    page.locator('#quality-form [name=evidence_support]').select_option('cannot_judge')
-    page.locator('#quality-form [name=comment]').fill('Synthetic five-question test, not a participant.')
+    page.locator('#quality-form [name=completeness]').select_option('cannot_judge')
+    page.locator('#quality-form [name=comment]').fill('Synthetic four-question test, not a participant.')
     with page.expect_response(lambda r:r.url.endswith('/api/quality') and r.request.method=='POST') as saved:
      page.get_by_role('button',name='Save quality assessment').click()
     assert saved.value.status==200
-    expect(page.locator('#quality-state')).to_have_text('All five quality answers saved')
-    assert len(QualityStore(case.server.store).rows())==5
+    expect(page.locator('#quality-state')).to_have_text('All quality answers saved')
+    assert len(QualityStore(case.server.store).rows())==4
     page.reload();expect(page.locator('#quality-state')).to_have_text('Saved · edits replace this assessment')
     assert page.locator('#quality-form [name=clarity]').input_value()=='4'
-    assert page.locator('#quality-form [name=evidence_support]').input_value()=='cannot_judge'
+    assert page.locator('#quality-form [name=completeness]').input_value()=='cannot_judge'
     assert case.server.store.rows()==[]
     page.goto(case.origin+'/#owner='+case.server.owner_key)
     page.wait_for_selector('#owner:not([hidden])')
@@ -58,7 +58,7 @@ def main():
     assert QualityStore(case.server.store).rows()==[]
     assert page.locator('#quality-panel').is_hidden()
     assert not errors,errors
-    print(json.dumps({'browser':browser.version,'quality_questions':5,'viewports':[320,390,768,1440],'save_resume_export_withdraw':'passed','synthetic_feedback_only':True}))
+    print(json.dumps({'browser':browser.version,'quality_questions':4,'viewports':[320,390,768,1440],'save_resume_export_withdraw':'passed','synthetic_feedback_only':True}))
    finally:browser.close()
  finally:case.doCleanups()
 

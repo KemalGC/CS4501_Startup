@@ -4,12 +4,11 @@ from datetime import datetime, timezone
 import csv
 import io
 
-VERSION = 'quality-v1'
+VERSION = 'quality-v2'
 QUESTIONS = {
  'clarity': ('Clarity', 'How clear and easy to understand is this report?'),
  'specificity': ('Specificity', 'How specific is the feedback to this crew, rather than generic rowing advice?'),
  'completeness': ('Completeness', 'How well does the report cover the rowers and movements visible in this clip?'),
- 'evidence_support': ('Evidence support', 'How well do the annotations and examples support the report\'s claims?'),
  'actionability': ('Actionability', 'How useful is this report for deciding what to review or work on next?'),
 }
 FIELDS = ['reviewer_id','role','experience','clip_id','analysis_version','questionnaire_version',
@@ -30,7 +29,7 @@ def validate_quality(data, clip):
         raise ValueError('quality_version_changed_reload')
     answers=data['answers']
     if not isinstance(answers,dict) or set(answers)!=set(QUESTIONS):
-        raise ValueError('all_five_quality_answers_required')
+        raise ValueError('all_quality_answers_required')
     if not isinstance(data['comment'],str) or len(data['comment'])>2000 or '\x00' in data['comment']:
         raise ValueError('comment_too_long_or_invalid')
     rows=[]

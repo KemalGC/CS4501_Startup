@@ -2,7 +2,7 @@
 (() => {
  const $ = id => document.getElementById(id);
  const state = {data:null, clip:0, aspect:0, saved:{}, dirty:false, mode:'video', load:0, owner:''};
- const shortNames = {tracking:'Tracking',rate:'Stroke rate',position:'Body position',sequencing:'Sequencing',timing:'Crew timing',evidence:'Evidence'};
+ const shortNames = {tracking:'Tracking',rate:'Boat rate',position:'Body position',sequencing:'Sequencing',timing:'Crew timing',evidence:'Evidence'};
  const useLabels=['Not useful','Slightly useful','Moderately useful','Very useful','Extremely useful'];
  const accLabels=['Clearly wrong','Mostly wrong','Mixed','Mostly right','Clearly right'];
  let toastTimer;
@@ -59,7 +59,7 @@
   const w=c.analysis.window;$('method').textContent=(c.analysis.method||'')+(w?' · Analyzed source window: '+w.start.toFixed(1)+'–'+w.end.toFixed(1)+' s. ':' ')+(c.analysis.note||'')+' Study preview is silent; evaluate the visible evidence, not audio.';
   $('video').poster=c.assets.includes('poster')?asset('poster'):'';$('video').src=asset(state.mode);$('video').load();setModeButtons();renderLibrary();renderAspect();
   window.dispatchEvent(new CustomEvent('ss:clip',{detail:{clip:c,csrf:state.data.csrf,questions:state.data.quality_questions,version:state.data.quality_version,evaluation_questions:state.data.evaluation_questions,evaluation_version:state.data.evaluation_version}}));
-  try{const got=await api('/api/responses?clip='+encodeURIComponent(c.id));if(seq!==state.load)return;state.saved=Object.fromEntries(got.responses.filter(r=>r.analysis_version===c.analysis.version).map(r=>[r.aspect_id,r]));renderAspect();}catch(e){toast(e.message,true);}
+  try{const got=await api('/api/responses?clip='+encodeURIComponent(c.id));if(seq!==state.load)return;const reviewable=new Set(state.data.aspects.map(a=>a.id));state.saved=Object.fromEntries(got.responses.filter(r=>r.analysis_version===c.analysis.version&&reviewable.has(r.aspect_id)).map(r=>[r.aspect_id,r]));renderAspect();}catch(e){toast(e.message,true);}
  }
  function sourceTime(){return $('video').currentTime+(state.mode==='annotated'?(clip().analysis.window?.start||0):0);}
  window.addEventListener('ss:source-time',event=>{if(state.data?.session&&state.data.clips.length)event.detail.seconds=sourceTime();});
@@ -92,7 +92,7 @@
   if(!u||!a){toast('Choose both a usefulness rating and an accuracy response.',true);return;}
   const current=aspect().id;const payload={clip_id:clip().id,analysis_version:clip().analysis.version,aspect_id:current,usefulness:u==='na'?null:Number(u),accuracy:/^\d$/.test(a)?Number(a):null,accuracy_reason:/^\d$/.test(a)?'rated':a,comment:form.elements.comment.value,timestamp_seconds:form.elements.timestamp.value===''?null:Number(form.elements.timestamp.value)};
   $('save-button').disabled=true;
-  try{await api('/api/reviews',{method:'POST',body:payload});state.saved[current]=payload;state.dirty=false;const next=state.data.aspects.findIndex((x,i)=>i>state.aspect&&!state.saved[x.id]);if(next>=0)state.aspect=next;renderAspect();toast(Object.keys(state.saved).length===6?'Six aspects saved. Continue with the technical checklist and five quality questions below.':'Feedback saved.');if(state.owner)loadOwner();}catch(e){toast(e.message,true);}finally{$('save-button').disabled=false;}
+  try{await api('/api/reviews',{method:'POST',body:payload});state.saved[current]=payload;state.dirty=false;const next=state.data.aspects.findIndex((x,i)=>i>state.aspect&&!state.saved[x.id]);if(next>=0)state.aspect=next;renderAspect();toast(Object.keys(state.saved).length===state.data.aspects.length?'All aspects saved. Continue with the technical checklist and report quality questions below.':'Feedback saved.');if(state.owner)loadOwner();}catch(e){toast(e.message,true);}finally{$('save-button').disabled=false;}
  };
  $('capture-time').onclick=capture;$('clear-time').onclick=()=>{$('rating-form').elements.timestamp.value='';state.dirty=true;};
  $('video').addEventListener('timeupdate',()=>{$('video-time').textContent='Source time '+sourceTime().toFixed(2)+' s'+(state.mode==='annotated'?' · model overlay':'');});

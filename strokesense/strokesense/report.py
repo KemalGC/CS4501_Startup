@@ -5,8 +5,10 @@ import base64
 import html
 import io
 import json
+import math
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import matplotlib
 matplotlib.use("Agg")
@@ -140,6 +142,49 @@ def _score_color(sc):
     return "#2aa876" if sc >= 80 else ("#e0a52a" if sc >= 65 else "#d64545")
 
 
+def _rate_text(value):
+    return f"{value:.1f} spm" if type(value) in (int, float) and math.isfinite(value) and value > 0 else "Unavailable"
+
+
+def _boat_cadence_html(result, rowers, start_seconds):
+    """One boat result, with raw track estimates kept as inspectable diagnostics."""
+    block = ('<section class="card wide" aria-label="Crew cadence"><h2>One stroke rate for the boat</h2><p>'
+             + html.escape(cadence.description(result))
+             + '</p><p>Every rower card uses this shared boat estimate. Catch timing is assessed separately: '
+             'a rower can be early or late while following the same rhythm.</p>')
+    trend = result.get('trend', [])
+    rate_range = result.get('rate_range_spm')
+    if result.get('rate_spm') is not None and trend:
+        if rate_range:
+            block += (f"<p>Supported rhythm range: {rate_range[0]:.1f}–{rate_range[1]:.1f} spm "
+                      f"over {result.get('support_duration_seconds', 0.):.1f} seconds of overlapping evidence. "
+                      'The main number summarizes that trend.</p>')
+        rows = ''.join(
+            f"<tr><td>{start_seconds+t['start_seconds']:.2f}–{start_seconds+t['end_seconds']:.2f}</td>"
+            f"<td>{t['rate_spm']:.1f}</td><td>{len(t['rowers'])}</td></tr>" for t in trend)
+        block += ('<details><summary>Boat rhythm over the analyzed window</summary>'
+                  '<p>Source-video seconds. These windows combine overlapping detected stroke periods; '
+                  'their boundaries are not additional catch events.</p>'
+                  '<div style="overflow-x:auto"><table><thead><tr><th>Window (s)</th>'
+                  '<th>Shared SPM</th><th>Supporting rowers</th></tr></thead><tbody>'
+                  + rows + '</tbody></table></div></details>')
+    diagnostics = []
+    for rower in rowers:
+        raw = result.get('per_rower', {}).get(rower.seat, {})
+        note = cadence.qualification(result, rower.seat) if raw else 'No usable rate evidence'
+        diagnostics.append(
+            f"<tr><td>{html.escape(rower.seat)}</td><td>{_rate_text(raw.get('raw_spm'))}</td>"
+            f"<td>{raw.get('cycles', 0)}</td><td>{html.escape(note)}</td></tr>")
+    block += ('<details class="rate-diagnostics"><summary>Raw motion-rate diagnostics</summary>'
+              '<p>These intermediate body-motion detections explain support for the shared estimate. '
+              'Missed or extra detections can produce outliers; the values below are not separate rowing rates '
+              'assigned to individual crew members.</p>'
+              '<div style="overflow-x:auto"><table><thead><tr><th>Track</th><th>Raw interval estimate</th>'
+              '<th>Detected intervals</th><th>Contribution</th></tr></thead><tbody>'
+              + ''.join(diagnostics) + '</tbody></table></div></details></section>')
+    return block
+
+
 def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds=None):
     if start_seconds is None:
         start_seconds = getattr(pose, "start", 0.0)
@@ -147,11 +192,9 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds
     rates = [r.summary.get("rate") for r in rowers if r.summary.get("rate")]
     cadence_result = cadence.estimate(rowers)
     estimate = cadence_result['rate_spm'] if crew else (rates[0] if rates else None)
-    rate = f"{estimate:.0f}" if estimate is not None else "–"
-    cadence_block = ('<section class="card wide" aria-label="Crew cadence"><h2>Crew cadence estimate</h2><p>'
-                     + html.escape(cadence.description(cadence_result))
-                     + '</p><p>Shared catch intervals use simultaneous evidence from distinct rowers. Five complete cycles require six catches. This is not proof of synchronized blade entry. '
-                     'Raw per-rower estimates are preserved; short samples and outliers are unconfirmed.</p></section>') if crew else ''
+    rate = _rate_text(estimate)
+    rate_label = 'Shared boat stroke rate' if crew else 'Stroke rate'
+    cadence_block = _boat_cadence_html(cadence_result, rowers, start_seconds) if crew else ''
     shared = cadence_result.get('shared_cycles', [])
     if shared:
         rows = ''.join(
@@ -159,8 +202,9 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds
             f"<td>{start_seconds+c['next_catch_seconds']:.2f}</td>"
             f"<td>{c['rate_spm']:.1f}</td><td>{len(c['rowers'])}</td></tr>"
             for i, c in enumerate(shared))
-        cadence_block += ('<section class="card wide"><details><summary>Shared boat strokes</summary>'
+        cadence_block += ('<section class="card wide"><details><summary>Aligned catch-event evidence</summary>'
             '<p>Body-motion catch proxies in source-video seconds; not verified blade entry. '
+            'This stricter timing evidence is separate from the boat rhythm estimate. '
             'No peaks or missing cycles were inserted to force agreement.</p>'
             '<div style="overflow-x:auto"><table><thead><tr><th>Cycle</th><th>Catch (s)</th>'
             '<th>Next catch (s)</th><th>SPM</th><th>Supporting rowers</th></tr></thead>'
@@ -237,7 +281,7 @@ def build_html(video_name, pose, rowers, sync, snaps, out_path, *, start_seconds
   <p>Technique score is a provisional heuristic, not measured accuracy.</p>
   <div class="metrics">
     <div class="m"><span>Strokes analysed</span><b>{s['n_strokes']}</b></div>
-    <div class="m"><span>Raw rower rate estimate</span><b>{s['rate']:.1f} spm</b><small>{html.escape(cadence.qualification(cadence_result, r.seat))}</small></div>
+    <div class="m"><span>{rate_label}</span><b>{rate}</b></div>
     <div class="m"><span>Recovery : drive</span><b>{s['ratio']:.1f} : 1</b></div>
     <div class="m"><span>Body angle at catch</span><b>{s['trunk_catch']:+.0f}°</b></div>
     <div class="m"><span>Body angle at finish</span><b>{s['trunk_finish']:+.0f}°</b></div>
@@ -280,12 +324,13 @@ main{{max-width:1100px;margin:0 auto;padding:20px 16px;display:grid;gap:18px;gri
 .fault-gallery{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}}
 .fault-photo{{margin:0;border:1px solid var(--line);border-radius:8px;padding:8px}}
 .fault-photo img{{width:100%;height:auto;display:block}}
+.rate-diagnostics{{margin-top:16px}} .card details summary{{cursor:pointer;font-weight:600}} .card table{{border-collapse:collapse;width:100%;font-size:14px}} .card th,.card td{{padding:8px;text-align:left;border-bottom:1px solid var(--line)}}
 .charts img{{width:100%;margin-top:10px}} .sync{{width:100%;max-width:720px;display:block;margin:10px auto 0}} .lede{{color:#3d4b5c;margin:6px 0 0}}
 footer{{text-align:center;color:var(--muted);font-size:12px;padding:20px}}
 </style></head><body>
-<div class="top"><h1>StrokeSense technique report</h1><p>{html.escape(video_name)} · generated {datetime.now():%b %d, %Y %H:%M}</p>
+<div class="top"><h1>StrokeSense technique report</h1><p>{html.escape(video_name)} · generated {datetime.now(ZoneInfo('America/New_York')):%b %d, %Y %H:%M %Z}</p>
 <div class="kpis"><div><span>Rowers tracked</span><b>{len(rowers)}</b></div><div><span>Strokes</span><b>{n_strokes}</b></div>
-<div><span>{"Estimated crew cadence" if crew else "Stroke rate"}</span><b>{rate} spm</b></div><div><span>Clip analysed</span><b>{pose.n_frames / pose.fps:.0f} s</b></div></div></div>
+<div><span>{rate_label}</span><b>{rate}</b></div><div><span>Clip analysed</span><b>{pose.n_frames / pose.fps:.0f} s</b></div></div></div>
 <main>{media_block}{cadence_block}{tracking_block}{sync_block}{''.join(cards)}</main>
 <footer>Angles are measured in 2D from a single camera; they are most accurate when the camera is level with and
 perpendicular to the boat. Body angle: + = leaning toward the stern (body over), − = layback.</footer>

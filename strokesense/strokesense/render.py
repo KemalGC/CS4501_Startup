@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from .strokes import FAULTS
+from . import cadence
 
 SEG = [("shoulder", "elbow"), ("elbow", "wrist"), ("shoulder", "hip"), ("hip", "knee"), ("knee", "ankle")]
 PALETTE = [(80, 200, 255), (120, 230, 120), (255, 170, 90), (230, 120, 230), (90, 220, 220),
@@ -154,9 +155,12 @@ def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
         raise RenderingUnavailable('browser_encoder_unavailable')
     scale = min(1.0, max_width / pose.width)
     size = (int(pose.width * scale) // 2 * 2, int(pose.height * scale) // 2 * 2)
-    writer, tmp = _open_writer(out_path, pose.fps, size)
     colors = {r.tid: PALETTE[i % len(PALETTE)] for i, r in enumerate(rowers)}
     ref = max(rowers, key=lambda r: len(r.strokes)) if rowers else None
+    # Use the same current estimator as the report. Cached sync diagnostics may
+    # belong to an earlier analysis revision; they must not select the HUD rate.
+    shared = cadence.estimate(rowers)['rate_spm'] if len(rowers) > 1 else None
+    writer, tmp = _open_writer(out_path, pose.fps, size)
     try:
         for fi, fr in iter_frames(video_path, pose):
             for r in rowers:
@@ -166,11 +170,14 @@ def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
             if ref is not None:
                 phase, s = _phase(ref, fi)
                 n_done = sum(1 for st in ref.strokes if st.catch <= fi)
-                shared = (sync or {}).get('cadence', {}).get('rate_spm')
-                rate = (f"crew ~{shared:.0f} spm" if shared is not None else
-                        f"raw {s.rate:.0f} spm" if s and len(rowers) == 1 else "crew rate unconfirmed")
+                if len(rowers) > 1:
+                    rate = f"shared boat ~{shared:.1f} spm" if shared is not None else "boat rate unavailable"
+                    label = f"StrokeSense   {rate}"
+                else:
+                    rate = f"rate ~{s.rate:.1f} spm" if s else "rate unavailable"
+                    label = f"StrokeSense   stroke {n_done}   {rate}   {phase or ''}"
                 hs = size[0] / 1280
-                _txt(fr, f"StrokeSense   stroke {n_done}   {rate}   {phase or ''}", (int(14 * hs), int(34 * hs)),
+                _txt(fr, label, (int(14 * hs), int(34 * hs)),
                      0.65 * hs, thick=2 if hs > 1.2 else 1)
                 if sync and sync.get("per_seat"):
                     y = int(70 * hs)

@@ -2,11 +2,13 @@
 import copy
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from strokesense import cli, render, report, cadence, kinematics, strokes
@@ -43,21 +45,67 @@ class ResultPipelineTests(unittest.TestCase):
         k=kinematics.build(kp,fps); found,handle=strokes.analyse(k)
         self.assertGreaterEqual(len(found),2)
         rowers=[]
-        for i in range(4):
+        for i in range(8):
             r=Rower(i,seat=f'Selected {i+1}',k=k,strokes=copy.deepcopy(found),handle=handle)
-            if i==3:
+            if i==7:
                 r.strokes=r.strokes[:1];r.strokes[0].rate=45
             r.summary=strokes.summarise(r.strokes);rowers.append(r)
+        before=[copy.deepcopy(r.summary) for r in rowers]
         with tempfile.TemporaryDirectory() as tmp:
             out=Path(tmp)/'report.html'
             with patch.object(report,'chart_sequencing',return_value=''),patch.object(report,'chart_trunk',return_value=''):
                 report.build_html('Synthetic',PoseResult(fps,len(kp),640,480,{}),rowers,{}, {},out)
             body=out.read_text()
-        self.assertIn('Estimated crew cadence',body)
+            report.build_json(rowers,{},Path(tmp)/'metrics.json')
+            metrics=json.loads((Path(tmp)/'metrics.json').read_text())
+        shared=cadence.estimate(rowers)
+        primary=re.findall(r'<span>Shared boat stroke rate</span><b>([^<]+)</b>',body)
+        self.assertEqual(primary,[f"{shared['rate_spm']:.1f} spm"]*9)
         self.assertIn('45.0 spm',body)
-        self.assertIn('Unconfirmed: fewer than 2 cycles',body)
-        self.assertEqual(rowers[3].strokes[0].rate,45)
-        self.assertEqual(cadence.estimate(rowers)['supporting_rowers'],3)
+        diagnostics=body.split('<details class="rate-diagnostics">',1)[1].split('</details>',1)[0]
+        self.assertIn('45.0 spm',diagnostics)
+        self.assertNotIn('45.0 spm',body.replace(diagnostics,''))
+        self.assertEqual(rowers[7].strokes[0].rate,45)
+        self.assertEqual([r.summary for r in rowers],before)
+        self.assertEqual(metrics['rowers'][7]['summary']['rate'],45)
+        self.assertEqual(shared['supporting_rowers'],7)
+
+    def test_report_withholds_same_primary_rate_for_every_rower_without_boat_support(self):
+        kp,fps=make_rower(rate=34,n_strokes=5)
+        k=kinematics.build(kp,fps);found,handle=strokes.analyse(k)
+        rowers=[]
+        for i in range(8):
+            r=Rower(i,seat=f'Selected {i+1}',k=k,strokes=copy.deepcopy(found[:1]),handle=handle)
+            r.summary=strokes.summarise(r.strokes);rowers.append(r)
+        self.assertIsNone(cadence.estimate(rowers)['rate_spm'])
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)/'report.html'
+            with patch.object(report,'chart_sequencing',return_value=''),patch.object(report,'chart_trunk',return_value=''):
+                report.build_html('Synthetic',PoseResult(fps,len(kp),640,480,{}),rowers,{}, {},out)
+            primary=re.findall(r'<span>Shared boat stroke rate</span><b>([^<]+)</b>',out.read_text())
+        self.assertEqual(primary,['Unavailable']*9)
+
+    def test_overlay_uses_current_shared_rate_or_unavailable_and_retains_timing(self):
+        rowers=[SimpleNamespace(tid=i,seat=f'Selected {i+1}',strokes=[
+            SimpleNamespace(catch=0,finish=2,next_catch=4,rate=45+i,faults=[])]) for i in range(8)]
+        pose=PoseResult(15,1,640,480,{})
+        for estimate,label in ((34.2,'shared boat ~34.2 spm'),(None,'boat rate unavailable')):
+            with self.subTest(estimate=estimate),tempfile.TemporaryDirectory() as tmp:
+                out=Path(tmp)/'overlay.mp4';writer=Mock()
+                with patch.object(render,'_ffmpeg',return_value='ffmpeg'), \
+                     patch.object(render,'_open_writer',return_value=(writer,out)), \
+                     patch.object(render,'_finalise',return_value=out), \
+                     patch.object(render,'iter_frames',return_value=iter([(0,np.zeros((480,640,3),dtype=np.uint8))])), \
+                     patch.object(render,'draw_rower'),patch.object(render,'_txt') as labels, \
+                     patch.object(render.cadence,'estimate',return_value={'rate_spm':estimate}):
+                    render.render_video('synthetic.mp4',pose,rowers,out,
+                        sync={'cadence':{'rate_spm':99.},'per_seat':{'Selected 1':{'mean_ms':15.}}})
+                captions=[call.args[1] for call in labels.call_args_list]
+                self.assertEqual(captions[0],'StrokeSense   '+label)
+                self.assertIn('catch  15 ms late',captions[1])
+                self.assertNotIn('99.0 spm',' '.join(captions))
+                self.assertNotIn('45.0 spm',' '.join(captions))
+                writer.write.assert_called_once();writer.release.assert_called_once()
 
     def test_real_child_receipt_keeps_only_artifact_paths(self):
         with tempfile.TemporaryDirectory() as tmp:

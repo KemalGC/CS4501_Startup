@@ -14,6 +14,35 @@ def _number(value, digits=1):
     return f'{value:.{digits}f}' if type(value) in (int,float) and math.isfinite(value) else 'Unavailable'
 
 
+def _rate_aspect(metrics, rowers):
+    """The reviewable claim is the shared boat rate, not noisy track rates."""
+    result = metrics.get('crew_cadence', {})
+    rate = result.get('rate_spm')
+    available = type(rate) in (int, float) and math.isfinite(rate) and rate > 0
+    if not available:
+        return {'status': 'unavailable',
+                'summary': 'The software withheld a shared boat stroke rate because the observations did not establish a consistent crew rhythm.',
+                'details': [{'label': 'Rate diagnostics',
+                             'value': 'Raw per-track detections are diagnostic evidence, not separate rowing-rate claims.'}]}
+    details = [{'label': 'Shared boat stroke rate', 'value': _number(rate)+' SPM'},
+               {'label': 'Applies to', 'value': 'The whole selected boat; catch timing is assessed separately.'}]
+    supporters = result.get('supporting_rowers')
+    total = result.get('total_rowers', len(rowers))
+    if type(supporters) is int and type(total) is int:
+        details.append({'label': 'Supporting rower tracks', 'value': f'{supporters} of {total}'})
+    span = result.get('support_duration_seconds')
+    if type(span) in (int, float) and math.isfinite(span) and span > 0:
+        details.append({'label': 'Overlapping rhythm evidence', 'value': _number(span)+' seconds'})
+    rate_range = result.get('rate_range_spm')
+    if isinstance(rate_range, (list, tuple)) and len(rate_range) == 2 and all(
+            type(value) in (int, float) and math.isfinite(value) and value > 0 for value in rate_range):
+        details.append({'label': 'Boat rhythm across supported windows',
+                        'value': f'{rate_range[0]:.1f}–{rate_range[1]:.1f} SPM'})
+    return {'status': 'available',
+            'summary': f'Shared boat stroke rate: {_number(rate)} SPM. This summarizes the crew’s overall rhythm; early or late catches are timing differences.',
+            'details': details}
+
+
 def summarize_metrics(metrics, *, start=0., end=0., note='', method='YOLO11n pose estimation + deterministic StrokeSense analysis'):
     """Preserve raw findings and unavailable states; never infer absent values."""
     aspects={k:{'status':'unavailable','summary':'No model output was produced for this aspect.','details':[]} for k in ASPECTS}
@@ -25,9 +54,7 @@ def summarize_metrics(metrics, *, start=0., end=0., note='', method='YOLO11n pos
         rowers=metrics.get('rowers',[]);valid=[r for r in rowers if r.get('summary',{}).get('n_strokes',0)>0]
         counts=[int(r.get('summary',{}).get('n_strokes',0)) for r in rowers]
         aspects['tracking']={'status':'available','summary':f'The software produced {len(rowers)} rower tracks; {len(valid)} have at least one analyzed cycle. Seat names are automatic labels, not confirmed identities.','details':[{'label':'Reported rower tracks','value':str(len(rowers))},{'label':'Cycles across rower tracks','value':str(sum(counts))}]}
-        rates=[{'label':f"Model seat {r.get('seat','?')}",'value':f"{_number(r['summary'].get('rate'))} SPM · {r['summary']['n_strokes']} cycles"} for r in valid]
-        cadence=metrics.get('crew_cadence',{});common=cadence.get('rate_spm')
-        aspects['rate']={'status':'available' if rates else 'unavailable','summary':('Supported crew estimate: '+_number(common)+' SPM.' if common is not None else 'The software withheld a crew-wide cadence. These are raw per-rower estimates, not independently checked blade-entry rates.'),'details':rates}
+        aspects['rate']=_rate_aspect(metrics, rowers)
         positions=[{'label':f"Model seat {r.get('seat','?')}",'value':f"Catch {_number(r['summary'].get('trunk_catch'))}° / finish {_number(r['summary'].get('trunk_finish'))}°"} for r in valid]
         aspects['position']={'status':'available' if positions else 'unavailable','summary':'Projected 2D body angles from detected joints. Compare with the original viewpoint; these are not calibrated 3D measurements.','details':positions}
         issues=[]

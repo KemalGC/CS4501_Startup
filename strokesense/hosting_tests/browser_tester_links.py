@@ -99,8 +99,8 @@ def main():
                                 }""")
                                 page.locator('#video').evaluate("v => new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Seek failed')),10000);v.addEventListener('seeked',()=>{clearTimeout(timer);resolve(true);},{once:true});v.currentTime=1;})")
                                 assert abs(page.locator('#video').evaluate('v => v.currentTime') - 1) < .15
-                        expect(page.locator('#progress')).to_have_text('0 / 6 saved')
-                        expect(page.locator('#evaluation-questions select')).to_have_count(10)
+                        expect(page.locator('#progress')).to_have_text('0 / 5 saved')
+                        expect(page.locator('#evaluation-questions select')).to_have_count(9)
                         for choice in page.locator('#evaluation-questions select').all():
                             choice.select_option('correct')
                         page.locator('[name=manual_enabled]').check()
@@ -109,17 +109,17 @@ def main():
                         page.locator('[name=last_catch_seconds]').fill('1.8')
                         page.locator('[name=rower_reference]').fill('Synthetic reference rower')
                         page.locator('#evaluation-save').click()
-                        expect(page.locator('#evaluation-state')).to_contain_text('All ten technical judgments saved')
-                        for title in ('Clarity','Specificity','Completeness','Evidence support','Actionability'):
+                        expect(page.locator('#evaluation-state')).to_contain_text('All technical judgments saved')
+                        for title in ('Clarity','Specificity','Completeness','Actionability'):
                             expect(page.get_by_label(title+' quality',exact=True)).to_have_value('')
                             page.get_by_label(title+' quality',exact=True).select_option(str(i))
                         page.locator('#quality-save').click()
-                        expect(page.locator('#quality-state')).to_have_text('All five quality answers saved')
+                        expect(page.locator('#quality-state')).to_have_text('All quality answers saved')
                         page.get_by_label('usefulness 4 — Very useful',exact=True).check()
                         page.get_by_label('accuracy 3 — Mixed',exact=True).check()
                         page.get_by_role('button',name='Save & next aspect',exact=False).click()
-                        expect(page.locator('#progress')).to_have_text('1 / 6 saved')
-                        page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                        expect(page.locator('#progress')).to_have_text('1 / 5 saved')
+                        page.reload();expect(page.locator('#progress')).to_have_text('1 / 5 saved')
                         expect(page.get_by_label('Clarity quality',exact=True)).to_have_value(str(i))
                         expect(page.locator('#evaluation-questions select').first).to_have_value('correct')
                         expect(page.locator('[name=catch_count]')).to_have_value('2')
@@ -134,15 +134,15 @@ def main():
                     owner.get_by_role('button',name='Open the review study').click()
                     owner.wait_for_selector('#welcome:not([hidden])')
                     rows=owner_context.request.get(origin+'/api/owner/quality.json',headers={'Authorization':'Bearer '+OWNER}).json()['responses']
-                    assert len(rows)==25
+                    assert len(rows)==20
                     technical=owner_context.request.get(origin+'/api/owner/evaluation.json',headers={'Authorization':'Bearer '+OWNER}).json()['responses']
-                    assert len(technical)==5 and all(len(row['answers'])==10 for row in technical)
+                    assert len(technical)==5 and all(len(row['answers'])==9 for row in technical)
                     assert all(abs(row['stroke_measurement']['rate_spm']-37.5)<.001 for row in technical)
                     summary=owner_context.request.get(origin+'/api/owner/summary',headers={'Authorization':'Bearer '+OWNER}).json()
                     assert summary['reviewer_count']==5 and summary['response_count']==5
                     print(json.dumps({'https_invitation_library_report_mapping':'passed','correct_report_links':10,
-                      'original_and_annotated_mp4_seek':'passed','isolated_test_reviewers':5,'quality_answers':25,
-                      'aspect_answers':5,'technical_judgments':50,'manual_cadence_roundtrips':5,
+                      'original_and_annotated_mp4_seek':'passed','isolated_test_reviewers':5,'quality_answers':20,
+                      'aspect_answers':5,'technical_judgments':45,'manual_cadence_roundtrips':5,
                       'browser':browser.version,'synthetic_only':True,'render_live':False}))
                 finally:
                     for ctx in contexts:ctx.close()

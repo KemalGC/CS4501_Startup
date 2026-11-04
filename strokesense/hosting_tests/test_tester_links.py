@@ -100,12 +100,12 @@ class TesterLinkTests(unittest.TestCase):
             self.assertEqual(self.c.get('/api/responses?clip=clip-1').json()['responses'],[])
             data=dict(self.base.review(),clip_id='clip-1',usefulness=i,timestamp_seconds=1.)
             self.assertEqual(self.c.post('/api/reviews',json=data,headers=h).status_code,200)
-            q={'clip_id':'clip-1','analysis_version':'r1','questionnaire_version':'quality-v1',
-               'answers':{k:i for k in ('clarity','specificity','completeness','evidence_support','actionability')},'comment':'Synthetic'}
+            q={'clip_id':'clip-1','analysis_version':'r1','questionnaire_version':'quality-v2',
+               'answers':{k:i for k in ('clarity','specificity','completeness','actionability')},'comment':'Synthetic'}
             self.assertEqual(self.c.post('/api/quality',json=q,headers=h).status_code,200)
         self.assertEqual(len(set(ids)),5)
         r=self.c.get('/api/owner/quality.json',headers={'Authorization':'Bearer '+fixtures.OWNER})
-        self.assertEqual(len(r.json()['responses']),25)
+        self.assertEqual(len(r.json()['responses']),20)
     def test_fragment_is_removed_before_network_calls_and_no_open_redirect(self):
         r=self.c.get('/sharing.js');self.assertEqual(r.status_code,200)
         self.assertLess(r.text.index('history.replaceState'),r.text.index("fetch('/api/hosting'"))

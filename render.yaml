@@ -25,4 +25,4 @@ services:
       - key: STROKESENSE_REVIEW_CODE
         generateValue: true
       - key: STROKESENSE_EXPECTED_CLIPS
-        value: "10"
+        value: "7"

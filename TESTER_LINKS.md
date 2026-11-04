@@ -10,10 +10,11 @@ GitHub workflow is not a Render deployment. See RENDER_DEPLOY.md for setup.
    the existing approved small-service/2GB configuration; avoid duplicate services.
 2. On the service's real HTTPS address, open `/setup`, authenticate with the
    private `STROKESENSE_OWNER_KEY` from Render Environment, and upload the FULL
-   ten-video study package. Do not publish videos or credentials to GitHub.
+   seven-video **eights-only** study package. Do not publish videos or credentials to GitHub.
 3. Open `/owner`, enter the owner key privately, and choose **Generate tester
-   link**. The app requires ten recordings, ten saved reports/diagnostics,
-   original and annotated playback assets, and posters before issuing a link.
+   link**. The current configuration requires seven recordings, seven saved reports/diagnostics,
+   original playback assets, declared model overlays, and posters before issuing a link.
+   A diagnostic explicitly stating that no analysis was produced may omit an overlay.
    Missing files or a changed catalog block it. This is file readiness, not
    independent model accuracy or assurance that arbitrary reports describe
    the correct recording.
@@ -27,8 +28,10 @@ for a secure cookie. Testers then consent and receive separate reviewer sessions
 The site requires no Python, Ollama, installation, model download or new inference.
 Each card offers **Open report** (or diagnostic) and **Review video** for that
 specific recording. Reviewers can switch source/annotated playback, inspect the
-saved report, complete six aspect assessments and the five report-quality
-questions, and reload without losing saved answers. Owner exports remain private.
+saved report, complete six aspect assessments, ten technical judgments and five
+report-quality questions, and reload without losing saved answers. Optional
+manual cadence uses consecutive catches of the same visible rower. Owner
+exports remain private; technical results have their own CSV and JSON exports.
 
 The hosted `/` now redirects to `/library`; old `/?clip=...` links retain their
 clip selection. Local-only review launchers remain unchanged. The main library
@@ -44,8 +47,8 @@ without deleting saved feedback. Keep backups before changing live configuration
 ## Actual release checks still required
 
 After setup, test the real public domain from another device/network. Verify all
-ten actual original videos, annotations and reports; save an aspect and all five
-quality answers, restart the Render service, then confirm restored responses and
+seven actual eights videos, annotations and reports; save an aspect, all five
+quality answers, all ten technical judgments and a manual count, restart the Render service, then confirm restored responses and
 owner exports. Withdraw synthetic test responses before collecting real data.
 The source preparation and test fixtures do NOT complete this live acceptance.
 
@@ -53,8 +56,9 @@ The user has conditionally authorized promotion to main if everything is good.
 Until real hosted assets/access/persistence are verified, keep the tested code
 on dev-consolidated and leave main unchanged. Do not resume any old automation.
 A Git update does not contain the private media and cannot make an empty hosted
-study complete. Use the user's saved full ten-video package; an old eight-video
-pack or updater alone will not satisfy the expected-count gate.
+study complete. Use the current `StrokeSense-Eights-Review.zip` and set
+`STROKESENSE_EXPECTED_CLIPS` to its actual seven clips. Existing older studies
+can retain their explicitly configured count and their participant responses.
 
 ## Reproducible software checks
 

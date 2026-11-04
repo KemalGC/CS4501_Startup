@@ -23,6 +23,8 @@ import secrets
 import sqlite3
 from urllib.parse import parse_qs, urlsplit
 from .feedback_quality import VERSION as QUALITY_VERSION, public_questions, validate_quality, QualityStore
+from .feedback_evaluation import (VERSION as EVALUATION_VERSION, METHOD as EVALUATION_METHOD,
+                                  public_questions as evaluation_questions, validate_evaluation, EvaluationStore)
 
 ASPECTS = {
     'tracking': ('Rower detection & tracking', 'Does the system follow the right people without swapping or losing them?'),
@@ -69,7 +71,7 @@ def load_catalog(path):
         seen.add(c['id'])
         if not _finite(c['duration']) or not 0 < c['duration'] <= 3600:
             raise ValueError('invalid_duration')
-        for key in ('video', 'poster', 'report', 'annotated'):
+        for key in ('video', 'poster', 'report', 'annotated', 'metrics'):
             if c.get(key):
                 _path(path.parent, c[key])
         analysis = c.get('analysis', {})
@@ -202,6 +204,7 @@ def create_server(pack, *, port=8767, db_path=None):
     owner = keyfile.read_text().strip()
     store = ReviewStore(db_path or private/'reviews.sqlite3'); csrf = secrets.token_urlsafe(32)
     quality = QualityStore(store)
+    evaluation = EvaluationStore(store)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = 'StrokeSenseReview/1'
@@ -238,9 +241,9 @@ def create_server(pack, *, port=8767, db_path=None):
             if not self.trusted(): self.error(403,'same_origin_required'); return
             parsed = urlsplit(self.path); route = parsed.path
             try:
-                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css', '/quality.js', '/quality.css'):
+                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css', '/quality.js', '/quality.css', '/evaluation.js', '/evaluation.css'):
                     name = 'index.html' if route in ('/', '/library') else route[1:]
-                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8', 'quality.js':'application/javascript; charset=utf-8', 'quality.css':'text/css; charset=utf-8'}[name]
+                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8', 'quality.js':'application/javascript; charset=utf-8', 'quality.css':'text/css; charset=utf-8', 'evaluation.js':'application/javascript; charset=utf-8', 'evaluation.css':'text/css; charset=utf-8'}[name]
                     self.send(200,(ASSETS/name).read_bytes(),mime);return
                 if route=='/api/bootstrap':
                     public=[]
@@ -252,10 +255,19 @@ def create_server(pack, *, port=8767, db_path=None):
                         public.append(item)
                     self.send(200,{'schema_version':1,'csrf':csrf,'session':self.session(),'clips':public,
                                   'quality_version':QUALITY_VERSION,'quality_questions':public_questions(),
+                                  'evaluation_version':EVALUATION_VERSION,'evaluation_questions':evaluation_questions(),
                                   'aspects':[{'id':k,'title':v[0],'question':v[1]} for k,v in ASPECTS.items()]});return
                 if route.startswith('/api/owner/'):
                     if not self.owner():self.error(403,'owner_key_required');return
-                    if route=='/api/owner/summary':self.send(200,store.summary());return
+                    if route=='/api/owner/summary':self.send(200,{**store.summary(),'technical_evaluation':evaluation.summary()});return
+                    if route=='/api/owner/evaluation.json':
+                        self.send(200,{'schema_version':1,'questionnaire_version':EVALUATION_VERSION,
+                            'method':EVALUATION_METHOD,'questions':evaluation_questions(),
+                            'summary':evaluation.summary(),'responses':evaluation.rows()},
+                            headers={'Content-Disposition':'attachment; filename="strokesense-technical-evaluation.json"'});return
+                    if route=='/api/owner/evaluation.csv':
+                        self.send(200,evaluation.export_csv(),'text/csv; charset=utf-8',
+                            {'Content-Disposition':'attachment; filename="strokesense-technical-evaluation.csv"'});return
                     if route=='/api/owner/quality.json':
                         self.send(200,{'schema_version':1,'questionnaire_version':QUALITY_VERSION,
                             'questions':public_questions(),'responses':quality.rows()},
@@ -276,6 +288,12 @@ def create_server(pack, *, port=8767, db_path=None):
                     self.error(404,'not_found');return
                 session = self.session()
                 if not session:self.error(401,'begin_review_first');return
+                if route=='/api/evaluation':
+                    q=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
+                    if set(q)!={'clip'} or len(q['clip'])!=1:raise ValueError('invalid_query')
+                    cid=q['clip'][0]
+                    if cid not in clips:self.error(404,'clip_not_found');return
+                    self.send(200,{'responses':evaluation.responses(session['reviewer_id'],cid)});return
                 if route=='/api/quality':
                     q=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
                     if set(q)!={'clip'} or len(q['clip'])!=1:raise ValueError('invalid_query')
@@ -345,6 +363,12 @@ def create_server(pack, *, port=8767, db_path=None):
                     self.send(201,store.session(token),headers={'Set-Cookie':f'ss_review={token}; HttpOnly; SameSite=Strict; Path=/'});return
                 s=self.session()
                 if not s:self.error(401,'begin_review_first');return
+                if route=='/api/evaluation':
+                    cid=data.get('clip_id') if isinstance(data,dict) else None
+                    if not isinstance(cid,str) or cid not in clips:self.error(404,'clip_not_found');return
+                    result=validate_evaluation(data,clips[cid]);evaluation.save(s['reviewer_id'],result)
+                    self.send(200,{'saved':True,'criterion_count':len(result['answers']),
+                                   'stroke_measurement':result['stroke_measurement']});return
                 if route=='/api/quality':
                     cid=data.get('clip_id') if isinstance(data,dict) else None
                     if cid not in clips:raise ValueError('invalid_clip')

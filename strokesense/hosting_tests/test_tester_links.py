@@ -29,7 +29,7 @@ def ten_package(video=b'0123456789', poster=b'fixture', count=10):
 
 class TesterLinkTests(unittest.TestCase):
     def setUp(self):
-        self.base=fixtures.HostedTests();self.base.setUp();self.addCleanup(self.base.doCleanups)
+        self.base=fixtures.HostedTests();self.base.expected_clips=10;self.base.setUp();self.addCleanup(self.base.doCleanups)
         self.c=self.base.client
     def provision(self):
         self.assertEqual(self.base.upload(ten_package()).status_code,201)

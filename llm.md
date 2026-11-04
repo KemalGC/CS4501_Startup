@@ -2,7 +2,79 @@
 
 Previous root is preserved byte-for-byte in [llm-history-2026-11-04-render-preparation.md](llm-history-2026-11-04-render-preparation.md), original blob7c139d1985d292629eb5309196af383c93ce4553. Earlier histories remain linked. Expired October schedules are not resumed.
 
-## 2026-11-04-1029-manual — tester links, report library and conditional release (#115)
+## Current: 2026-11-04 — seven-eights evaluation and normal-library analyses (#115)
+
+The user's current scope explicitly limits the selection to eights. It supersedes
+the older ten-clip study count in the historical checkpoint below. Keep the
+existing tester-link/authentication work and the live-deployment gate on main.
+Work is isolated on `dev/2026-11-04-video-evaluation-study`, based on the other
+model's `169fb1825443dfadbc7b58f468c396a944ddb262`. Ownership was split among
+evaluation forms, normal-library import and video curation; the integration
+agent owns packaging/hosting. Coordination is recorded in issue115. Do not edit
+the teammate's `rowing-technique-analyzer` project or publish private footage.
+
+### Implemented in this checkpoint
+
+- Ten revision-bound technical judgments: identity/coxswain exclusion, stroke
+  rate, catch and finish angles, drive and recovery sequence, crew timing,
+  evidence alignment, usable advice, and uncertainty. Each allows an explicit
+  cannot-judge/no-output answer, correction and timestamp. Optional consecutive
+  catch counting computes 60*(N-1)/(last-first) on the server. It is a reviewer
+  observation, never adjudicated ground truth. Existing six aspect ratings and
+  five quality answers are retained, with private CSV/JSON exports and withdrawal.
+- Normal `strokesense.library` imports actual saved reports, metrics, overlays
+  and clips with hashes and provenance into its own managed storage. This does
+  not rerun inference or invent successful job records. Existing regular job
+  results are also linked from recording cards. Unchanged imports are idempotent;
+  changed outputs create revisions; removal/revocation invalidates result access.
+- A new private pack builder enforces 5–7 selections with rowers=8, explicit
+  target boats, valid source windows and preview hashes. Completed runs must
+  match the selected inference-input SHA-256. Missing results remain diagnostics.
+- Hosted readiness now checks the configured count and actual required assets;
+  the default/Blueprint require seven clips. Existing ten-clip installations can
+  still explicitly configure ten. Declared metrics survive ZIP provisioning.
+- The HTTPS browser harness requests real muted playback before checking frame
+  advancement and seeking. Its synthetic ten-report compatibility fixture adds
+  fifty technical judgments and five manual cadence save/reload checks. The old
+  failure waited for decoded frames while only requesting metadata preload.
+
+### Actual private footage and verification
+
+All five supplied archives and 23 recordings were inventoried and visually
+sampled. Seven distinct recordings containing eights were selected (143 seconds,
+two dates), with camera transitions trimmed. The selection does not establish
+seven independent crews. All seven higher-resolution cuts were actually analyzed
+with YOLO11n pose ONNX and deterministic StrokeSense at 10 requested analysis FPS;
+all seven reports/overlays exist. Five crew rates were reported and two withheld.
+The original recordings, media, reports, manifests and provisional visual notes
+remain outside public Git. No participant responses were generated.
+
+Sparse visual inspection (two overlay frames per clip) found tracking dropouts
+and a global/per-rower phase-label disagreement. Eight track records do not prove
+continuous tracking or correct identities. Body angles are projected 2D estimates,
+not calibrated biomechanics. Assistant visual cadence estimates are private
+reference notes, not coach labels or participant answers. Preserve these limits.
+
+Before the final inference-binding guard, the full offline suite passed 688 test
+executions in57.101s. The guard's focused suite passed8tests; the prior hosting
+suite passed23tests. Final exact-commit CI, actual seven-pack normal-library
+import and deployment status will be recorded in issue115 after completion.
+
+### Deployment status and next action
+
+Render discovery reports the account integration is not connected. No Render
+service, public hostname, live upload or charge was created in this checkpoint.
+Finish available code/pack verification and save the clean seven-eights study;
+then connect Render, inspect for an existing service, deploy the verified
+development branch, provision the private pack and verify public playback,
+feedback save/reload, service restart and owner exports. Only successful live
+acceptance permits the user's conditional main promotion. Keep114/115 open.
+
+See `EIGHTS_STUDY.md`, `RENDER_DEPLOY.md`, `TESTER_LINKS.md`, and
+`strokesense/LIBRARY.md` for entry points. An unconnected account is not a passing
+deployment, and green synthetic tests are not real-video model-accuracy evidence.
+
+## Historical: 2026-11-04-1029-manual — tester links, report library and conditional release (#115)
 
 User requests a sendable tester link, video reports in the main website library, and promotion to main IF everything is good. This is new conditional main authorization, not the older permanent no-main instruction. Public deployment/media/persistence are not yet verified, so do NOT call the release ready or promote main from software tests alone. No main edit has occurred in this checkpoint.
 

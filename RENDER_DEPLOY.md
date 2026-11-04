@@ -4,6 +4,11 @@ Status: code/configuration prepared. A connected Render account, actual service
 creation, private study transfer and post-restart live verification are still
 required. A GitHub commit or green test is not a live public website.
 
+The current requested study is **seven clips of eights only**. The Blueprint
+sets `STROKESENSE_EXPECTED_CLIPS=7`. Older ten-clip studies remain supported by
+explicitly configuring `10`; do not replace an existing participant database.
+See `EIGHTS_STUDY.md` for the curated package and normal-library import.
+
 ## Create the service with the Blueprint
 
 In Render choose New > Blueprint, connect KemalGC/CS4501_Startup, select branch
@@ -29,7 +34,7 @@ this file or running the tests.
 
 When the service is reachable, open `/setup` on its assigned HTTPS address.
 In the service Environment page, copy `STROKESENSE_OWNER_KEY` into the owner-key
-field. Select the COMPLETE `StrokeSense-10-Video-Review.zip`, not an old updater
+field. Select the COMPLETE `StrokeSense-Eights-Review.zip`, not an old updater
 ZIP. Upload and wait for the page's explicit installed-clip count. This action
 shares the selected footage with invited study participants; verify you have
 permission to do so. Do not put media or private feedback in the public repo.
@@ -70,18 +75,22 @@ invitation barrier, not individual identity verification. Session cookies are
 Secure, HttpOnly and SameSite=Strict. The signed access cookie expires after
 seven days. Changing the reviewer code invalidates existing access cookies.
 
-The original six aspect assessments and five overall-quality questions are
-unchanged. Reports remain sandboxed. Video range requests allow seeking.
+The original six aspect assessments and five overall-quality questions remain.
+Ten technical judgments add crew identity, cadence, catch/finish angles,
+drive/recovery sequence, timing, evidence, useful advice and uncertainty.
+Reviewers can attach timestamps and an optional manual consecutive-catch count.
+Reports remain sandboxed. Video range requests allow seeking.
 Private owner exports remain separately authenticated. Database, owner key and
 assets live under the persistent disk. Existing LOCAL responses remain on the
 old computer: initialization does not migrate them or count them as new users.
 
 ## Pre-invitation acceptance checklist
 
-1. `/healthz` reports ready and the correct ten clips are visible after consent.
+1. `/healthz` reports ready, `clip_count:7`, and the seven selected eights are visible after consent.
 2. Test original/annotated playback, seek, and the correct report on a phone
    using cellular data, not just the deployment machine.
-3. Save one aspect and all five quality answers, then restart the Render service.
+3. Save one aspect, five quality answers, ten technical judgments and a manual
+   cadence observation, then restart the Render service.
 4. Reopen the same browser session; verify saved answers and owner CSV/JSON.
 5. Confirm an unauthenticated browser cannot fetch video or owner exports.
 6. Withdraw the synthetic test session so it is not counted as a real rower.

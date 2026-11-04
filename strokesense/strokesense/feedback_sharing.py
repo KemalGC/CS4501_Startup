@@ -48,7 +48,12 @@ def study_readiness(root, expected, catalog_digest=None):
         result['clip_count'] = len(catalog['clips'])
         for clip in catalog['clips']:
             missing = []
-            for kind in ('video', 'annotated', 'poster', 'report'):
+            required = ['video', 'poster', 'report']
+            # An honest diagnostic has no generated overlay. A declared overlay
+            # or a provisional analysis must still provide its actual media.
+            if clip.get('annotated') or clip['analysis'].get('status') not in ('unavailable', 'failed', 'not_run'):
+                required.append('annotated')
+            for kind in required:
                 name = clip.get(kind)
                 asset = _path(root, name) if name else None
                 if asset is None or not asset.is_file() or asset.stat().st_size == 0:

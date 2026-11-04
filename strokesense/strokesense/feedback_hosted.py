@@ -49,7 +49,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
         raise ValueError('an_exact_https_public_origin_is_required')
     if not 32 <= len(owner) <= 256 or not 16 <= len(invite) <= 256 or owner == invite:
         raise ValueError('distinct_owner_and_reviewer_secrets_required')
-    expected = int(os.environ.get('STROKESENSE_EXPECTED_CLIPS', '10')) if expected_clips is None else expected_clips
+    expected = int(os.environ.get('STROKESENSE_EXPECTED_CLIPS', '7')) if expected_clips is None else expected_clips
     if type(expected) is not int or not 1 <= expected <= 100:
         raise ValueError('invalid_expected_study_count')
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -122,7 +122,9 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
             return err(405, 'method_not_allowed')
         if path == '/healthz' and request.method in ('GET', 'HEAD'):
             # Liveness must work for Render's internal health probes as well.
-            return JSONResponse({'ok': True, 'study_ready': state['server'] is not None})
+            readiness = study_readiness(root / 'study', expected, state['catalog_digest'])
+            return JSONResponse({'ok': True, 'study_ready': state['server'] is not None and readiness['ready'],
+                                 'clip_count': readiness['clip_count'], 'expected_clips': expected})
         hosts = request.headers.getlist('host')
         origins = request.headers.getlist('origin')
         if (hosts != [u.netloc] or len(request.url.query) > 512 or len(path) > 512

@@ -79,9 +79,24 @@ def main():
                         if i==1:
                             for mode in ('#annotated-mode','#source-mode'):
                                 page.locator(mode).click()
-                                page.locator('#video').evaluate("v => new Promise((resolve,reject)=>{if(v.readyState>=2){resolve(true);return;}v.addEventListener('loadeddata',()=>resolve(true),{once:true});setTimeout(()=>reject(Error('Video failed to load')),10000);})")
-                                page.locator('#video').evaluate("v => new Promise((resolve,reject)=>{v.addEventListener('seeked',()=>resolve(true),{once:true});v.currentTime=1;setTimeout(()=>reject(Error('Seek failed')),10000);})")
+                                # preload=metadata is allowed to stop before loadeddata.
+                                # Actually request playback, then prove decoded frames advance.
+                                page.locator('#video').evaluate("async v => { v.muted=true; v.currentTime=0; await v.play(); }")
+                                page.wait_for_function("document.querySelector('#video').currentTime > 0.2 && document.querySelector('#video').readyState >= 2", timeout=10000)
+                                page.locator('#video').evaluate("v => v.pause()")
+                                page.locator('#video').evaluate("v => new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Seek failed')),10000);v.addEventListener('seeked',()=>{clearTimeout(timer);resolve(true);},{once:true});v.currentTime=1;})")
+                                assert abs(page.locator('#video').evaluate('v => v.currentTime') - 1) < .15
                         expect(page.locator('#progress')).to_have_text('0 / 6 saved')
+                        expect(page.locator('#evaluation-questions select')).to_have_count(10)
+                        for choice in page.locator('#evaluation-questions select').all():
+                            choice.select_option('correct')
+                        page.locator('[name=manual_enabled]').check()
+                        page.locator('[name=catch_count]').fill('2')
+                        page.locator('[name=first_catch_seconds]').fill('0.2')
+                        page.locator('[name=last_catch_seconds]').fill('1.8')
+                        page.locator('[name=rower_reference]').fill('Synthetic reference rower')
+                        page.locator('#evaluation-save').click()
+                        expect(page.locator('#evaluation-state')).to_contain_text('All ten technical judgments saved')
                         for title in ('Clarity','Specificity','Completeness','Evidence support','Actionability'):
                             expect(page.get_by_label(title+' quality',exact=True)).to_have_value('')
                             page.get_by_label(title+' quality',exact=True).select_option(str(i))
@@ -93,8 +108,12 @@ def main():
                         expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                         page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                         expect(page.get_by_label('Clarity quality',exact=True)).to_have_value(str(i))
+                        expect(page.locator('#evaluation-questions select').first).to_have_value('correct')
+                        expect(page.locator('[name=catch_count]')).to_have_value('2')
+                        expect(page.locator('#evaluation-rate-preview')).to_contain_text('37.5')
                         data=ctx.request.get(origin+'/api/bootstrap').json();reviewer_ids.append(data['session']['reviewer_id'])
                         assert ctx.request.get(origin+'/api/owner/export.json').status==403
+                        assert ctx.request.get(origin+'/api/owner/evaluation.json').status==403
                     assert len(set(reviewer_ids))==5
                     assert all(token not in url for url in urls)
                     # Owner authentication is independent of the reviewer invitation.
@@ -103,11 +122,15 @@ def main():
                     owner.wait_for_selector('#welcome:not([hidden])')
                     rows=owner_context.request.get(origin+'/api/owner/quality.json',headers={'Authorization':'Bearer '+OWNER}).json()['responses']
                     assert len(rows)==25
+                    technical=owner_context.request.get(origin+'/api/owner/evaluation.json',headers={'Authorization':'Bearer '+OWNER}).json()['responses']
+                    assert len(technical)==5 and all(len(row['answers'])==10 for row in technical)
+                    assert all(abs(row['stroke_measurement']['rate_spm']-37.5)<.001 for row in technical)
                     summary=owner_context.request.get(origin+'/api/owner/summary',headers={'Authorization':'Bearer '+OWNER}).json()
                     assert summary['reviewer_count']==5 and summary['response_count']==5
                     print(json.dumps({'https_invitation_library_report_mapping':'passed','correct_report_links':10,
                       'original_and_annotated_mp4_seek':'passed','isolated_test_reviewers':5,'quality_answers':25,
-                      'aspect_answers':5,'browser':browser.version,'synthetic_only':True,'render_live':False}))
+                      'aspect_answers':5,'technical_judgments':50,'manual_cadence_roundtrips':5,
+                      'browser':browser.version,'synthetic_only':True,'render_live':False}))
                 finally:
                     for ctx in contexts:ctx.close()
                     browser.close()

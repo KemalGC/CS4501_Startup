@@ -16,6 +16,11 @@ jobs:
         with:
           python-version: '3.14'
       - run: python -m pip install -r strokesense/requirements-hosted.txt playwright==1.58.0
+      - name: Install real-video browser-test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
       - run: python -m unittest discover -s strokesense/hosting_tests -p 'test_*.py' -v
       - run: python strokesense/hosting_tests/browser_hosted.py
       - run: python strokesense/hosting_tests/browser_tester_links.py

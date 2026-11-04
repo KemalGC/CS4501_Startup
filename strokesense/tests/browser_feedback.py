@@ -27,7 +27,9 @@ def main():
                 page.wait_for_selector('#workspace:not([hidden])');page.wait_for_selector('#rating-form')
                 for width in (390,768,1440):
                     page.set_viewport_size({'width':width,'height':1000})
-                    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
+                    actual=page.evaluate('''()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,offenders:[...document.querySelectorAll('*')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,8).map(e=>({tag:e.tagName,id:e.id,className:e.className,right:e.getBoundingClientRect().right,text:e.textContent?.trim().slice(0,40)}))})''')
+                    print('FEEDBACK WIDTH',json.dumps(actual),flush=True)
+                    assert actual['scroll'] <= actual['width']+1
                 page.get_by_label('usefulness 4 — Very useful',exact=True).check()
                 page.get_by_label('accuracy 3 — Mixed',exact=True).check()
                 page.locator('#rating-form textarea[name=comment]').fill('Synthetic browser feedback; never a participant result.')

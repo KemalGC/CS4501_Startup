@@ -121,7 +121,11 @@ def main():
                         expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                         page.locator('#submit-video').click()
                         expect(page.locator('#submit-video-status')).to_contain_text('Submitted')
-                        page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                        page.reload()
+                        saved=ctx.request.get(origin+'/api/responses?clip=clip-1').json()
+                        assert len(saved['responses'])==1, 'Video response must persist after reload'
+                        page.goto(origin+'/library?clip=clip-1')
+                        expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                         expect(page.get_by_label('Clarity quality',exact=True)).to_have_value(str(i))
                         expect(page.locator('#evaluation-questions select').first).to_have_value('correct')
                         expect(page.locator('[name=catch_count]')).to_have_value('2')

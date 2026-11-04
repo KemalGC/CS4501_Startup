@@ -11,19 +11,18 @@ import io
 import json
 import math
 
-VERSION = 'technical-v1'
+VERSION = 'technical-v2'
 VERDICTS = ('correct', 'partly_correct', 'incorrect', 'cannot_judge', 'not_applicable')
 JUDGED = frozenset(VERDICTS[:3])
 QUESTIONS = {
     'subject_identity': ('Eight, seats and rower identity', 'Does the output follow the same eight, identify all eight rowing seats where visible, exclude the coxswain, and retain the correct rower identities throughout?', 'tracking'),
-    'stroke_rate': ('Stroke rate', 'Does the reported strokes per minute match repeated catches by the same rower during the analyzed window?', 'rate'),
+    'stroke_rate': ('Shared boat stroke rate', 'Does the shared boat stroke rate match the crew’s repeated rowing rhythm during the analyzed window? Check it by counting consecutive catches of the same clearly visible rower.', 'rate'),
     'catch_body_angle': ('Body angle at the catch', 'Does the catch body-angle claim match the visible trunk position at the actual catch, allowing for camera perspective?', 'position'),
     'finish_body_angle': ('Body angle at the finish', 'Does the finish body-angle claim match the visible trunk position at the actual finish, allowing for camera perspective?', 'position'),
     'drive_sequence': ('Drive sequence', 'Do claims about legs, body swing and arms during the drive match the visible movement?', 'sequencing'),
     'recovery_sequence': ('Recovery sequence', 'Do claims about hands away, body preparation and slide during recovery match the visible movement?', 'sequencing'),
     'crew_synchrony': ('Crew timing', 'Do the reported early or late rowers and catch differences match the same strokes you can see?', 'timing'),
-    'evidence_alignment': ('Evidence matches the claim', 'Do timestamps, highlighted rowers, snapshots and curves show the exact movement described, with enough context to check it?', 'evidence'),
-    'actionable_specificity': ('Specific, usable advice', 'Does the advice clearly identify a visible issue and a practical next step for this rower or crew?', 'evidence'),
+    'actionable_specificity': ('Specific, usable advice', 'Does the advice clearly identify a visible issue and a practical next step for this rower or crew?', None),
     'uncertainty_handling': ('Limits and uncertainty', 'Does the report acknowledge hidden joints, poor views, boat changes or too few strokes, and withhold claims the video cannot support?', None),
 }
 FIELDS = ['reviewer_id', 'role', 'experience', 'clip_id', 'analysis_version', 'questionnaire_version',
@@ -65,7 +64,7 @@ def validate_evaluation(data, clip):
         raise ValueError('evaluation_version_changed_reload')
     answers = data['answers']
     if not isinstance(answers, dict) or set(answers) != set(QUESTIONS):
-        raise ValueError('all_ten_technical_answers_required')
+        raise ValueError('all_technical_answers_required')
     validated = {}
     for key, value in answers.items():
         if not isinstance(value, dict) or set(value) != {'verdict', 'timestamp_seconds', 'comment'}:

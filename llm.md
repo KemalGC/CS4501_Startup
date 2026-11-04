@@ -2,7 +2,112 @@
 
 Previous root is preserved byte-for-byte in [llm-history-2026-11-04-render-preparation.md](llm-history-2026-11-04-render-preparation.md), original blob7c139d1985d292629eb5309196af383c93ce4553. Earlier histories remain linked. Expired October schedules are not resumed.
 
-## Current: 2026-11-04 — seven-eights evaluation and normal-library analyses (#115)
+## Current: 2026-11-04 — shared boat cadence, simpler review and email entry (#115)
+
+The current topic is `dev/2026-11-04-boat-cadence-trend`, based on the merged
+PR116 integration head `3183f8e2f4ec662a0c80f375e7de3d8eb7726ddf`.
+Ownership was split among the cadence estimator, report/review presentation,
+independent cache evaluation and public Site email access. The root owns media
+packaging, source integration and publication. Coordination remains in issue115.
+Do not edit `rowing-technique-analyzer` or promote `main` from software checks.
+
+The user replaced the Render destination with a public ChatGPT Site:
+https://strokesense-review.kemalgcortuk.chatgpt.site/ . Its canonical source is
+the existing Sites-managed repository, separate from this Python repository.
+Preserve its opaque project identity and public audience. No new Render service
+is needed. Publication and current browser verification are recorded in issue115.
+
+### Current behavior
+
+- `shared-boat-cadence-v3` fits one shared boat rate from overlapping observed
+  periods. Fixed phase offsets do not imply different rowing frequencies.
+  A fixed six-second neighborhood smooths observed periods; each distinct
+  rower gets one local vote. A strict majority, near-tie rejection, multiple
+  unique intervals per contributor, adequate overlapping time and majority
+  coverage prevent a noisy rower or a short clear tail from defining the boat.
+  No catches, missing strokes, harmonic corrections or gap-spanning periods
+  are invented. Exact catch events, aligned cycles and five-cycle readiness
+  remain separate diagnostics.
+- The report headline, rower cards and overlay show the same shared rate.
+  Raw rower rates remain in a collapsed diagnostic table and saved JSON.
+  A withheld boat rate stays unavailable everywhere. Trend ranges are model
+  min/max values, not accuracy intervals. Contributor counts are unions over
+  supported windows, not claims of simultaneous agreement throughout a clip.
+- Evidence snapshots, source links, curves and candidate explanations remain
+  in full reports. The test review no longer asks about evidence alignment,
+  evidence support or evidence-as-an-aspect. Canonical analysis data retains
+  six aspects for compatibility, while the review offers five aspects.
+  `technical-v2` has nine questions; `quality-v2` has four. Advice specificity
+  is independent of evidence availability. Historical responses remain stored
+  and exportable; they do not count as current-revision completion.
+- The public Site offers email entry with no password or verification email,
+  plus optional native ChatGPT sign-in. Typed email is private, self-declared
+  contact information. Random browser sessions last 30 days; the same email
+  in another browser never restores another participant's answers. Owner
+  exports still require verified native identity. Guest withdrawal removes
+  contact information, session, profile and all saved revisions. An additive
+  D1 migration preserves existing responses.
+
+### Seven-eights revision
+
+The selected study remains seven continuous cuts, 124 seconds, with eight
+target rowers per clip and the coxswain excluded. The September 9 broadside,
+September 9 close and September 26 reverse recordings replaced weaker earlier
+clips during the prior Site curation. Source cuts are unchanged in this revision;
+boat switches were already excluded. Seven clips do not imply seven independent
+crews. Source originals, pose caches and private reference notes stay outside
+public Git. The selected public videos/reports are in the authorized Site.
+
+| Clip | Shared model rate (SPM) |
+| --- | ---: |
+| September 9 broadside | 19.9 |
+| September 9 close | 19.1 |
+| October 1 second crew | 30.6 |
+| September 26 reverse | Unavailable |
+| October 13 daylight | 24.9 |
+| October 13 close | 23.5 |
+| October 13 stable side view | 27.1 |
+
+Reverse is withheld because clear support covers only 4.10 of 12.21 seconds
+with sufficient simultaneous observations (33.6%); its full clip is 20 seconds.
+These are model estimates, not manually verified cadence labels. Systematic
+shared tracking error remains possible, and body angles remain projected 2D.
+
+All seven outputs were rebuilt from source/model-identity-verified pose caches;
+no new detector inference was needed. All 56 raw rower cycle sequences and
+measured values match their prior versions. Execution metadata correctly records
+the change from four measurement workers to one. Reports and analysis revisions
+are genuine regenerated outputs; no participant responses were fabricated.
+
+The private pack is `eights-2026-11-04-v3`, catalog SHA-256
+`58961a43d83702f57142c3148d3d1560e9ed90b4a1870cbfb716b7399c6af40a`.
+The normal library imported seven new analysis revisions: ten registered
+recordings, seventeen saved analyses and zero inference jobs. Existing rows,
+recordings and analyses were retained; repeated import reuses all seven IDs.
+
+### Verification and remaining release boundary
+
+The frozen cadence source SHA-256 is
+`b95324a44e1e2d5a6449d3ff0263a66816c88438756530f2c351ad082ff11a65`.
+Full offline verification passed four standalone synthetic checks and 718
+unittest executions in 48.745 seconds. Seventeen new cadence regressions,
+fourteen existing cadence/measurement tests, eleven independent adversarial
+probes and all seven real-cache reconstructions passed. All 24 hosted HTTP
+tests passed. Python browser fixtures were updated; current CI results belong
+in the PR and issue115 rather than being inferred from compilation.
+
+The separate Site passed all sixteen protocol/export tests, TypeScript,
+production builds and disposable D1 route/persistence tests covering email
+isolation, expiry, tampering, owner authorization, saving/reopening, historical
+responses and withdrawal. No production participant data was used for tests.
+Managed preview reported a URL but refused connections; no alternate preview,
+network workaround or mock production authentication was introduced. Verify
+the deployed UI and record that result separately from isolated backend tests.
+
+Retain the conditional main-release gate and open issues114/115. Human technical
+review is still pending; software tests and model agreement are not coach labels.
+
+## Historical: 2026-11-04 — seven-eights evaluation and normal-library analyses (#115)
 
 The user's current scope explicitly limits the selection to eights. It supersedes
 the older ten-clip study count in the historical checkpoint below. Keep the

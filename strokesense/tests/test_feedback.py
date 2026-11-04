@@ -41,6 +41,19 @@ class FeedbackTests(unittest.TestCase):
     def test_requires_consent_and_session(self):
         self.assertEqual(self.request('POST','/api/reviews',self.review())[0],401)
         self.assertEqual(self.request('POST','/api/session',{'consent':False,'role':'rower','experience':'3to5'})[0],422)
+    def test_evidence_remains_in_catalog_but_cannot_be_reviewed(self):
+        _,_,body=self.request('GET','/api/bootstrap');data=json.loads(body)
+        self.assertEqual([a['id'] for a in data['aspects']],['tracking','rate','position','sequencing','timing'])
+        self.assertIn('evidence',data['clips'][0]['analysis']['aspects'])
+        self.assertEqual(len(self.f.load_catalog(self.root/'catalog.json')['clips'][0]['analysis']['aspects']),6)
+        session=self.enroll();old=self.review(aspect_id='evidence',comment='Synthetic historical evidence answer')
+        # Simulate a previously accepted response, rather than posting a removed criterion.
+        self.server.store.save(session['reviewer_id'],old)
+        self.assertEqual(self.request('POST','/api/reviews',old)[0],422)
+        _,_,body=self.request('GET','/api/owner/export.json',headers={'Authorization':'Bearer '+self.server.owner_key})
+        rows=json.loads(body)['responses']
+        self.assertEqual(len(rows),1);self.assertEqual(rows[0]['aspect_id'],'evidence')
+        self.assertEqual(rows[0]['comment'],old['comment'])
     def test_save_resume_and_update_are_not_duplicate_participants(self):
         self.enroll();self.assertEqual(self.request('POST','/api/reviews',self.review())[0],200)
         self.assertEqual(self.request('POST','/api/reviews',self.review(usefulness=5))[0],200)

@@ -54,10 +54,10 @@ def main():
                 with page.expect_response(lambda r: r.url.endswith('/api/reviews') and r.request.method == 'POST') as save:
                     page.get_by_role('button', name='Save & next aspect', exact=False).click()
                 assert save.value.status == 200
-                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                expect(page.locator('#progress')).to_have_text('1 / 5 saved')
                 page.locator('#reports-nav').click(); page.wait_for_selector('#reports-library:not([hidden])')
                 page.locator('[data-clip="clip-two"]').get_by_role('link', name='Review video').click()
-                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                expect(page.locator('#progress')).to_have_text('1 / 5 saved')
                 assert len(case.server.store.rows()) == 1
                 page.on('dialog', lambda d: d.accept())
                 page.get_by_role('button', name='Finish session', exact=True).click()

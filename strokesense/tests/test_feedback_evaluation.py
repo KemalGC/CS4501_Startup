@@ -52,15 +52,18 @@ class FeedbackEvaluationTests(unittest.TestCase):
         _, _, body = self.base.request('GET', '/api/bootstrap')
         self.base.csrf = json.loads(body)['csrf']
 
-    def test_bootstrap_adds_ten_criteria_preserving_existing_questionnaires(self):
+    def test_bootstrap_excludes_evidence_questions_and_keeps_report_analysis(self):
         _, _, body = self.base.request('GET', '/api/bootstrap')
         data = json.loads(body)
-        self.assertEqual(data['evaluation_version'], 'technical-v1')
+        self.assertEqual(data['evaluation_version'], 'technical-v2')
         self.assertEqual([q['id'] for q in data['evaluation_questions']], list(self.questions))
-        self.assertEqual(len(data['evaluation_questions']), 10)
-        self.assertEqual(len(data['aspects']), 6)
-        self.assertEqual(len(data['quality_questions']), 5)
+        self.assertEqual(len(data['evaluation_questions']), 9)
+        self.assertEqual(len(data['aspects']), 5)
+        self.assertEqual(len(data['quality_questions']), 4)
         self.assertIn('coxswain', data['evaluation_questions'][0]['question'])
+        self.assertNotIn('evidence_alignment', self.questions)
+        self.assertIsNone(self.questions['actionable_specificity'][2])
+        self.assertIn('evidence', data['clips'][0]['analysis']['aspects'])
 
     def test_static_assets_and_form_are_served_with_self_only_scripts(self):
         code, headers, html = self.base.request('GET', '/')
@@ -86,7 +89,7 @@ class FeedbackEvaluationTests(unittest.TestCase):
     def test_save_restore_edit_and_server_restart_preserve_one_assessment(self):
         self.base.enroll()
         data = self.payload()
-        data['answers']['evidence_alignment'].update(verdict='partly_correct', timestamp_seconds=2.75, comment='Synthetic evidence correction')
+        data['answers']['crew_synchrony'].update(verdict='partly_correct', timestamp_seconds=2.75, comment='Synthetic timing correction')
         self.assertEqual(self.save(data)[0], 200)
         original = self.get()[0]
         data['answers']['stroke_rate']['verdict'] = 'cannot_judge'
@@ -110,9 +113,37 @@ class FeedbackEvaluationTests(unittest.TestCase):
         self.assertEqual(self.save()[0], 200)
         self.assertEqual({r['analysis_version'] for r in self.get()}, {'revision1', 'revision2'})
 
+    def test_questionnaire_revision_preserves_historical_evidence_answer(self):
+        session = self.base.enroll()
+        legacy = self.payload()
+        legacy['questionnaire_version'] = 'technical-v1'
+        legacy['answers']['evidence_alignment'] = {'verdict': 'cannot_judge', 'timestamp_seconds': 2.5,
+                                                    'comment': 'Synthetic historical evidence answer'}
+        from strokesense.feedback_evaluation import EvaluationStore
+        EvaluationStore(self.base.server.store).save(session['reviewer_id'], legacy)
+        self.assertEqual(self.save(legacy)[0], 422)
+        self.assertEqual(self.save()[0], 200)
+        self.restart()
+        rows = {row['questionnaire_version']: row for row in self.get()}
+        self.assertEqual(set(rows), {'technical-v1', 'technical-v2'})
+        self.assertEqual(rows['technical-v1']['answers'], legacy['answers'])
+        self.assertNotIn('evidence_alignment', rows['technical-v2']['answers'])
+        _, _, body = self.owner('csv')
+        exported = list(csv.DictReader(io.StringIO(body.decode('utf-8-sig'))))
+        evidence = [row for row in exported if row['criterion_id'] == 'evidence_alignment']
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]['questionnaire_version'], 'technical-v1')
+
+    def test_advice_question_is_independent_of_report_evidence_status(self):
+        self.base.enroll()
+        self.base.clip['analysis']['aspects']['evidence']['status'] = 'unavailable'
+        self.restart()
+        self.assertEqual(self.save()[0], 200)
+        self.assertEqual(self.get()[0]['answers']['actionable_specificity']['verdict'], 'correct')
+
     def test_invalid_revision_questionnaire_clip_and_top_level_fields(self):
         self.base.enroll()
-        for key, value in [('analysis_version', 'stale'), ('questionnaire_version', 'technical-v2'), ('reviewer_id', 'someone-else')]:
+        for key, value in [('analysis_version', 'stale'), ('questionnaire_version', 'technical-v1'), ('reviewer_id', 'someone-else')]:
             with self.subTest(key=key):
                 data = self.payload();data[key] = value
                 self.assertEqual(self.save(data)[0], 422)
@@ -169,7 +200,7 @@ class FeedbackEvaluationTests(unittest.TestCase):
         self.base.enroll()
         data = self.payload()
         data['answers']['subject_identity'].update(timestamp_seconds=0, comment='<script>alert(1)</script>')
-        data['answers']['evidence_alignment']['timestamp_seconds'] = 10.
+        data['answers']['crew_synchrony']['timestamp_seconds'] = 10.
         self.assertEqual(self.save(data)[0], 200)
         self.assertEqual(self.get()[0]['answers']['subject_identity']['comment'], '<script>alert(1)</script>')
 
@@ -179,7 +210,7 @@ class FeedbackEvaluationTests(unittest.TestCase):
                             ('comment', [True, None, 'x'*501, 'bad\x00text'])]:
             for value in values:
                 with self.subTest(key=key, value=value):
-                    data = self.payload();data['answers']['evidence_alignment'][key] = value
+                    data = self.payload();data['answers']['crew_synchrony'][key] = value
                     self.assertEqual(self.save(data)[0], 422)
         for value in (False, 'x'*2001, 'bad\x00text'):
             data = self.payload();data['comment'] = value
@@ -237,9 +268,10 @@ class FeedbackEvaluationTests(unittest.TestCase):
     def test_withdraw_cascades_all_three_questionnaires(self):
         self.base.enroll()
         self.base.request('POST', '/api/reviews', self.base.review())
-        self.base.request('POST', '/api/quality', {'clip_id': 'clip-one', 'analysis_version': 'revision1',
-            'questionnaire_version': 'quality-v1', 'comment': 'Synthetic',
-            'answers': {key: 'cannot_judge' for key in ('clarity','specificity','completeness','evidence_support','actionability')}})
+        quality = self.base.request('POST', '/api/quality', {'clip_id': 'clip-one', 'analysis_version': 'revision1',
+            'questionnaire_version': 'quality-v2', 'comment': 'Synthetic',
+            'answers': {key: 'cannot_judge' for key in ('clarity','specificity','completeness','actionability')}})
+        self.assertEqual(quality[0], 200)
         self.assertEqual(self.save()[0], 200)
         self.assertEqual(self.base.request('POST', '/api/withdraw', {})[0], 200)
         _, _, body = self.owner()
@@ -256,9 +288,9 @@ class FeedbackEvaluationTests(unittest.TestCase):
         self.assertEqual(self.save(data)[0], 200)
         code, _, body = self.owner('csv');self.assertEqual(code, 200)
         rows = list(csv.DictReader(io.StringIO(body.decode('utf-8-sig'))))
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 9)
         rate = next(row for row in rows if row['criterion_id'] == 'stroke_rate')
-        self.assertEqual(rate['questionnaire_version'], 'technical-v1')
+        self.assertEqual(rate['questionnaire_version'], 'technical-v2')
         self.assertEqual(rate['analysis_version'], 'revision1')
         self.assertEqual(rate['verdict'], 'cannot_judge')
         self.assertEqual(rate['timestamp_seconds'], '2.5')

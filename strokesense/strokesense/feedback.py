@@ -28,12 +28,15 @@ from .feedback_evaluation import (VERSION as EVALUATION_VERSION, METHOD as EVALU
 
 ASPECTS = {
     'tracking': ('Rower detection & tracking', 'Does the system follow the right people without swapping or losing them?'),
-    'rate': ('Stroke rate', 'Does the reported rate match the catches you can see?'),
+    'rate': ('Boat stroke rate', 'Does the shared boat rate match the crew’s overall rowing rhythm?'),
     'position': ('Body positions & angles', 'Do the body-angle findings match the visible rower and camera view?'),
     'sequencing': ('Stroke sequencing', 'Do drive, recovery and technique flags match the observed movement?'),
     'timing': ('Crew timing', 'Do the reported catch differences match the crew in the video?'),
     'evidence': ('Evidence & explanation', 'Do the snapshots, curves and explanations support the claims and help you act?'),
 }
+# Keep evidence in the analysis catalog and report, but do not ask reviewers to
+# score it. Historical evidence responses remain available in owner exports.
+REVIEW_ASPECTS = {key: value for key, value in ASPECTS.items() if key != 'evidence'}
 ROLES = {'rower', 'coach', 'coxswain', 'other'}
 EXPERIENCE = {'under1', '1to3', '3to5', '5plus', 'skip'}
 ASSETS = Path(__file__).with_name('feedback_assets')
@@ -89,7 +92,7 @@ def validate_review(data, clip):
     if data['clip_id'] != clip['id'] or data['analysis_version'] != clip['analysis']['version']:
         raise ValueError('analysis_changed_reload')
     aspect = data['aspect_id']
-    if not isinstance(aspect, str) or aspect not in ASPECTS:
+    if not isinstance(aspect, str) or aspect not in REVIEW_ASPECTS:
         raise ValueError('invalid_aspect')
     for k in ('usefulness', 'accuracy'):
         if data[k] is not None and (type(data[k]) is not int or not 1 <= data[k] <= 5):
@@ -256,7 +259,7 @@ def create_server(pack, *, port=8767, db_path=None):
                     self.send(200,{'schema_version':1,'csrf':csrf,'session':self.session(),'clips':public,
                                   'quality_version':QUALITY_VERSION,'quality_questions':public_questions(),
                                   'evaluation_version':EVALUATION_VERSION,'evaluation_questions':evaluation_questions(),
-                                  'aspects':[{'id':k,'title':v[0],'question':v[1]} for k,v in ASPECTS.items()]});return
+                                  'aspects':[{'id':k,'title':v[0],'question':v[1]} for k,v in REVIEW_ASPECTS.items()]});return
                 if route.startswith('/api/owner/'):
                     if not self.owner():self.error(403,'owner_key_required');return
                     if route=='/api/owner/summary':self.send(200,{**store.summary(),'technical_evaluation':evaluation.summary()});return

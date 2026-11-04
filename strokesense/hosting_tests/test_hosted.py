@@ -94,11 +94,11 @@ class HostedTests(unittest.TestCase):
         self.assertEqual(self.client.head('/asset/clip-one/video').content,b'')
         self.assertIn("sandbox;",self.client.get('/asset/clip-one/report').headers['content-security-policy'])
         self.assertEqual(self.client.get('/study/.feedback/reviews.sqlite3').status_code,404)
-    def test_reviews_and_five_quality_responses_survive_restart_and_withdraw(self):
+    def test_reviews_and_four_quality_responses_survive_restart_and_withdraw(self):
         self.enroll();h={'Origin':ORIGIN,'X-CSRF-Token':self.csrf}
         self.assertEqual(self.client.post('/api/reviews',json=self.review(),headers=h).status_code,200)
-        q={'clip_id':'clip-one','analysis_version':'r1','questionnaire_version':'quality-v1',
-          'answers':{k:4 for k in ('clarity','specificity','completeness','evidence_support','actionability')},'comment':'Test'}
+        q={'clip_id':'clip-one','analysis_version':'r1','questionnaire_version':'quality-v2',
+          'answers':{k:4 for k in ('clarity','specificity','completeness','actionability')},'comment':'Test'}
         self.assertEqual(self.client.post('/api/quality',json=q,headers=h).status_code,200)
         cookies=list(self.client.cookies.jar)
         self.close_client()  # Stop and close the first backend, not just reload a page.
@@ -106,7 +106,7 @@ class HostedTests(unittest.TestCase):
         try:
             for cookie in cookies:other.cookies.jar.set_cookie(cookie)
             self.assertEqual(len(other.get('/api/responses?clip=clip-one').json()['responses']),1)
-            self.assertEqual(len(other.get('/api/quality?clip=clip-one').json()['responses']),5)
+            self.assertEqual(len(other.get('/api/quality?clip=clip-one').json()['responses']),4)
             csv=other.get('/api/owner/export.csv',headers={'Authorization':'Bearer '+OWNER})
             self.assertIn(b"'=SUM",csv.content)
             csrf=other.get('/api/bootstrap').json()['csrf']

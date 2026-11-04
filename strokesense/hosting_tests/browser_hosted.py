@@ -55,8 +55,8 @@ def main():
                     page.get_by_label('usefulness 4 — Very useful',exact=True).check()
                     page.get_by_label('accuracy 3 — Mixed',exact=True).check()
                     page.get_by_role('button',name='Save & next aspect',exact=False).click()
-                    expect(page.locator('#progress')).to_have_text('1 / 6 saved')
-                    page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                    expect(page.locator('#progress')).to_have_text('1 / 5 saved')
+                    page.reload();expect(page.locator('#progress')).to_have_text('1 / 5 saved')
                     page.goto(origin+'/#owner='+OWNER);page.wait_for_selector('#owner:not([hidden])')
                     with page.expect_download() as dl:page.get_by_role('button',name='Export CSV',exact=True).click()
                     assert dl.value.suggested_filename=='strokesense-feedback.csv'

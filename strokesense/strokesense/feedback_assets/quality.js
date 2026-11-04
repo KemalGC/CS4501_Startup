@@ -25,10 +25,11 @@
    const response=await fetch('/api/quality?clip='+encodeURIComponent(c.id),{credentials:'same-origin'});const data=await response.json();
    if(!response.ok)throw Error('Could not restore quality ratings.');
    if(request!==sequence)return;
-   const rows=data.responses.filter(r=>r.analysis_version===c.analysis.version&&r.questionnaire_version===current.version);
+   const questionIds=new Set(current.questions.map(q=>q.id));
+   const rows=data.responses.filter(r=>r.analysis_version===c.analysis.version&&r.questionnaire_version===current.version&&questionIds.has(r.question_id));
    for(const r of rows)form.elements.namedItem(r.question_id).value=r.reason==='rated'?String(r.score):r.reason;
    form.elements.comment.value=rows[0]?.comment||'';
-   status.textContent=rows.length===5?'Saved · edits replace this assessment':'No quality assessment saved yet';
+   status.textContent=rows.length===current.questions.length?'Saved · edits replace this assessment':'No quality assessment saved yet';
   }catch(e){if(request===sequence)status.textContent=e.message;}
  });
  form.addEventListener('input',()=>{dirty(true);status.textContent='Unsaved quality answers';});
@@ -40,7 +41,7 @@
   try{
    const response=await fetch('/api/quality',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':current.csrf},body:JSON.stringify(data)});
    const body=await response.json();if(!response.ok)throw Error((body.error||'Quality assessment was not saved.').replaceAll('_',' '));
-   if(request===sequence){dirty(false);status.textContent='All five quality answers saved';}
+   if(request===sequence){dirty(false);status.textContent='All quality answers saved';}
   }catch(e){if(request===sequence)status.textContent=e.message;}finally{button.disabled=false;}
  };
 })();

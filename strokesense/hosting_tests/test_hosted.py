@@ -17,12 +17,15 @@ INVITE='review-test-code-'+'y'*24
 
 def package(extra=None, bad_path=None):
     clip={'id':'clip-one','title':'Synthetic clip','duration':10,'video':bad_path or 'media/test.mp4',
-        'report':'reports/test.html','analysis':{'version':'r1','status':'provisional',
+        'report':'reports/test.html','poster':'media/poster.jpg','annotated':'media/overlay.mp4',
+        'analysis':{'version':'r1','status':'provisional',
         'aspects':{k:{'status':'available','summary':'Fixture'} for k in ASPECTS}}}
     out=io.BytesIO()
     with zipfile.ZipFile(out,'w') as z:
         z.writestr('Bundle/study/catalog.json',json.dumps({'schema_version':1,'clips':[clip]}))
         z.writestr('Bundle/study/media/test.mp4',b'0123456789')
+        z.writestr('Bundle/study/media/overlay.mp4',b'0123456789')
+        z.writestr('Bundle/study/media/poster.jpg',b'synthetic-poster')
         z.writestr('Bundle/study/reports/test.html','<h1>Fixture</h1><script>alert(1)</script>')
         if extra:z.writestr(*extra)
     return out.getvalue()
@@ -39,7 +42,8 @@ class HostedTests(unittest.TestCase):
         if self.client is not None:
             self.client.__exit__(None,None,None);self.client=None
     def new_client(self):
-        client=TestClient(self.create(data_dir=self.root,origin=ORIGIN,owner_key=OWNER,review_code=INVITE),base_url=ORIGIN)
+        client=TestClient(self.create(data_dir=self.root,origin=ORIGIN,owner_key=OWNER,review_code=INVITE,
+            expected_clips=getattr(self, 'expected_clips', 1)),base_url=ORIGIN)
         client.__enter__();return client
     def post(self,path,data,**changes):
         headers={'Origin':ORIGIN,'X-CSRF-Token':self.client.get('/api/hosting').json()['csrf']}

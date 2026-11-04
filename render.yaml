@@ -24,3 +24,5 @@ services:
         generateValue: true
       - key: STROKESENSE_REVIEW_CODE
         generateValue: true
+      - key: STROKESENSE_EXPECTED_CLIPS
+        value: "7"

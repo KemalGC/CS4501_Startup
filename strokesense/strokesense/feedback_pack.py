@@ -45,13 +45,14 @@ def install_pack(archive: Path, data_dir: Path):
                 raise ValueError('empty_study')
             wanted = set()
             for clip in parsed['clips']:
-                for kind in ('video', 'poster', 'report', 'annotated'):
+                for kind in ('video', 'poster', 'report', 'annotated', 'metrics'):
                     name = clip.get(kind)
                     if not name:
                         continue
                     p = PurePosixPath(name)
                     allowed = {'video': {'.mp4', '.webm', '.mov'}, 'annotated': {'.mp4', '.webm'},
-                               'poster': {'.jpg', '.jpeg', '.png'}, 'report': {'.html'}}[kind]
+                               'poster': {'.jpg', '.jpeg', '.png'}, 'report': {'.html'},
+                               'metrics': {'.json'}}[kind]
                     if any(x.startswith('.') for x in p.parts) or p.suffix.lower() not in allowed:
                         raise ValueError('unexpected_asset_type')
                     wanted.add(name)

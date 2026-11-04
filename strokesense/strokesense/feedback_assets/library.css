@@ -6,11 +6,11 @@
 .reports-tools p{max-width:530px;margin:0}.report-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin:22px 0 40px}
 .report-card{overflow:hidden;display:flex;flex-direction:column;min-width:0}.report-card>img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--wash)}
 .report-card-body{padding:22px;display:flex;flex-direction:column;gap:10px;flex:1}.report-card .badge{align-self:flex-start;white-space:normal}.report-card h3{font-size:21px;overflow-wrap:anywhere;margin:4px 0}.report-card p{margin:0}
-.report-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:auto;padding-top:16px}.report-actions a{font-size:12px;padding:10px 13px;gap:8px;justify-content:center}.paired-note{font-size:11px;color:var(--teal)}.report-limit{font-size:13px;line-height:1.6;color:var(--muted)}
+.report-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:auto;padding-top:16px}.report-actions a{font-size:12px;padding:10px 13px;gap:8px;justify-content:center}.paired-note{font-size:12px;color:var(--teal)}.report-limit{font-size:13px;line-height:1.6;color:var(--muted)}
 .report-heading{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:12px}.report-heading h3{flex:1 1 210px;margin:0}.report-heading .secondary{font-size:12px;padding:8px 12px;gap:0}
 #reports-library .section-heading{flex-wrap:wrap;align-items:flex-start}#reports-library .section-heading p{max-width:710px}
 @media(max-width:1050px){.report-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.report-grid{grid-template-columns:1fr;gap:16px}.reports-tools{flex-direction:column;align-items:stretch;gap:12px}.reports-tools label{flex:auto}.report-card-body{padding:19px}.top-actions{gap:8px}.top-actions .privacy-dot{display:none}.library-nav{font-size:11px;padding:7px 9px}}
+@media(max-width:700px){.report-grid{grid-template-columns:1fr;gap:16px}.reports-tools{flex-direction:column;align-items:stretch;gap:12px}.reports-tools label{flex:auto}.report-card-body{padding:19px}.top-actions{gap:8px}.top-actions .privacy-dot{display:none}.library-nav{font-size:12px;padding:7px 9px}}
 
 /* Stack navigation instead of overflowing narrow phones after session start. */
 @media(max-width:380px){.topbar{height:auto;min-height:66px;flex-wrap:wrap;padding:12px 20px;gap:9px}.top-actions{width:100%;justify-content:space-between}.top-actions .quiet{white-space:nowrap}.brand{flex-shrink:0}}

@@ -26,10 +26,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse, RedirectResponse
 from starlette.routing import Route
 from .feedback import create_server, MAX_BODY
 from .feedback_pack import install_pack, MAX_UPLOAD
+from .feedback_sharing import mint_invitation, verify_invitation, study_readiness
 
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "media-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; "
@@ -37,7 +38,7 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' 
 ASSETS = Path(__file__).with_name('hosted_assets')
 
 
-def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None):
+def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, expected_clips=None):
     root = Path(data_dir or os.environ.get('STROKESENSE_DATA_DIR', '/var/data')).resolve()
     origin = (origin or os.environ.get('STROKESENSE_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')).rstrip('/')
     owner = owner_key or os.environ.get('STROKESENSE_OWNER_KEY', '')
@@ -48,10 +49,13 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None):
         raise ValueError('an_exact_https_public_origin_is_required')
     if not 32 <= len(owner) <= 256 or not 16 <= len(invite) <= 256 or owner == invite:
         raise ValueError('distinct_owner_and_reviewer_secrets_required')
+    expected = int(os.environ.get('STROKESENSE_EXPECTED_CLIPS', '7')) if expected_clips is None else expected_clips
+    if type(expected) is not int or not 1 <= expected <= 100:
+        raise ValueError('invalid_expected_study_count')
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     csrf = hmac.new(owner.encode(), b'hosting-csrf-v1', hashlib.sha256).hexdigest()
     lock = threading.Lock()
-    state = {'server': None, 'thread': None, 'http': None, 'failures': [], 'writes': []}
+    state = {'server': None, 'thread': None, 'http': None, 'failures': [], 'writes': [], 'catalog_digest': None}
 
     def start_backend():
         if state['server'] or not (root / 'study/catalog.json').is_file():
@@ -68,7 +72,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None):
         server = create_server(root / 'study', port=0)
         thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .05}, daemon=True)
         thread.start()
-        state.update(server=server, thread=thread)
+        state.update(server=server, thread=thread, catalog_digest=hashlib.sha256((root/'study/catalog.json').read_bytes()).hexdigest())
 
     @asynccontextmanager
     async def lifespan(app):
@@ -88,8 +92,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None):
         value = request.headers.get('authorization', '')
         return hmac.compare_digest(value.encode(), ('Bearer ' + owner).encode())
 
-    def access_token():
-        expiry = str(int(time.time()) + 7 * 86400)
+    def access_token(expiry=None):
+        expiry = str(expiry if expiry is not None else int(time.time()) + 7 * 86400)
         signature = hmac.new(owner.encode(), ('access:' + expiry + ':' + invite).encode(), hashlib.sha256).hexdigest()
         return expiry + '.' + signature
 
@@ -118,26 +122,46 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None):
             return err(405, 'method_not_allowed')
         if path == '/healthz' and request.method in ('GET', 'HEAD'):
             # Liveness must work for Render's internal health probes as well.
-            return JSONResponse({'ok': True, 'study_ready': state['server'] is not None})
+            readiness = study_readiness(root / 'study', expected, state['catalog_digest'])
+            return JSONResponse({'ok': True, 'study_ready': state['server'] is not None and readiness['ready'],
+                                 'clip_count': readiness['clip_count'], 'expected_clips': expected})
         hosts = request.headers.getlist('host')
         origins = request.headers.getlist('origin')
         if (hosts != [u.netloc] or len(request.url.query) > 512 or len(path) > 512
                 or (origins and origins != [origin])
                 or (request.method == 'POST' and origins != [origin])):
             return err(403, 'same_origin_required')
-        if path in ('/hosted.js', '/hosted.css') and request.method in ('GET', 'HEAD'):
+        if path == '/' and request.method in ('GET', 'HEAD'):
+            return RedirectResponse('/library' + ('?' + request.url.query if request.url.query else ''), status_code=307)
+        if path in ('/join', '/owner') and request.method in ('GET', 'HEAD'):
+            if request.url.query:
+                return err(400, 'invitation_must_use_fragment')
+            name = 'join.html' if path == '/join' else 'owner.html'
+            return HTMLResponse((ASSETS/name).read_text())
+        if path == '/api/owner/invitation':
+            if request.method not in ('GET', 'HEAD'):
+                return err(405, 'get_required')
+            if not owner_ok(request):
+                return err(403, 'owner_key_required')
+            readiness = study_readiness(root/'study', expected, state['catalog_digest'])
+            if not state['server'] or not readiness['ready']:
+                return JSONResponse({'error':'library_not_ready','readiness':readiness}, status_code=409)
+            token, expiry = mint_invitation(owner, invite, origin)
+            return JSONResponse({'url':origin+'/join#invite='+token, 'expires_utc':expiry,
+                                 'readiness':readiness, 'scope':'reviewer_only'})
+        if path in ('/hosted.js', '/hosted.css', '/sharing.js') and request.method in ('GET', 'HEAD'):
             mime = 'application/javascript' if path.endswith('.js') else 'text/css'
             return Response((ASSETS / path[1:]).read_bytes(), media_type=mime)
         if path == '/api/hosting' and request.method in ('GET', 'HEAD'):
             return JSONResponse({'csrf': csrf, 'study_ready': state['server'] is not None})
         if path == '/setup' and request.method in ('GET', 'HEAD'):
             return HTMLResponse((ASSETS / 'setup.html').read_text())
-        if path in ('/api/access', '/api/setup'):
+        if path in ('/api/access', '/api/redeem', '/api/setup'):
             if request.method != 'POST':
                 return err(405, 'post_required')
             if not hmac.compare_digest(request.headers.get('x-csrf-token', '').encode(), csrf.encode()):
                 return err(403, 'csrf_required')
-            if path == '/api/access':
+            if path in ('/api/access', '/api/redeem'):
                 now = time.monotonic()
                 state['failures'] = [t for t in state['failures'] if now - t < 60]
                 if len(state['failures']) >= 30:
@@ -145,18 +169,29 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None):
                 try:
                     raw = await small_body(request)
                     data = json.loads(raw)
-                    if not isinstance(data, dict) or set(data) != {'code'} or not isinstance(data['code'], str):
+                    field = 'token' if path == '/api/redeem' else 'code'
+                    if not isinstance(data, dict) or set(data) != {field} or not isinstance(data[field], str):
                         return err(422, 'invalid_code')
                 except OverflowError:
                     return err(413, 'request_too_large')
                 except (ValueError, TypeError):
                     return err(422, 'invalid_code')
-                valid = hmac.compare_digest(data['code'].encode(), invite.encode()) or hmac.compare_digest(data['code'].encode(), owner.encode())
+                expiry = None
+                if path == '/api/redeem':
+                    expiry = verify_invitation(data['token'], owner, invite, origin)
+                    valid = expiry is not None
+                else:
+                    valid = hmac.compare_digest(data['code'].encode(), invite.encode()) or hmac.compare_digest(data['code'].encode(), owner.encode())
                 if not valid:
                     state['failures'].append(now)
-                    return err(403, 'invalid_code')
-                result = JSONResponse({'ok': True})
-                result.set_cookie('ss_access', access_token(), secure=True, httponly=True, samesite='strict', max_age=7*86400)
+                    return err(403, 'invitation_expired_or_invalid' if path == '/api/redeem' else 'invalid_code')
+                if path == '/api/redeem':
+                    readiness = study_readiness(root/'study', expected, state['catalog_digest'])
+                    if not state['server'] or not readiness['ready']:
+                        return err(409, 'library_not_ready')
+                result = JSONResponse({'ok': True, 'next': '/library'})
+                lifetime = expiry - int(time.time()) if expiry is not None else 7*86400
+                result.set_cookie('ss_access', access_token(expiry), secure=True, httponly=True, samesite='strict', max_age=lifetime)
                 return result
             if not owner_ok(request):
                 return err(403, 'owner_key_required')

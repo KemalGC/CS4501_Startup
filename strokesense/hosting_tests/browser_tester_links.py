@@ -54,9 +54,9 @@ def main():
                     owner.get_by_role('button',name='Upload and initialize study').click()
                     expect(owner.locator('#status')).to_contain_text('10 clips installed')
                     owner.goto(origin+'/owner');owner.get_by_label('Private owner key').fill(OWNER)
-                    owner.get_by_role('button',name='Generate tester link').click()
+                    owner.get_by_role('button',name='Check study and show link').click()
                     expect(owner.locator('#invitation-result')).to_be_visible()
-                    link=owner.locator('#tester-link').input_value();token=link.split('#invite=',1)[1]
+                    link=owner.locator('#tester-link').input_value();assert link==origin+'/library'
                     assert OWNER not in link and INVITE not in link
                     urls=[];reviewer_ids=[]
                     for i in range(1,6):
@@ -64,7 +64,7 @@ def main():
                         contexts.append(ctx);page=ctx.new_page();page.on('request',lambda r:urls.append(r.url))
                         page.goto(link);page.wait_for_url(origin+'/library')
                         assert '#' not in page.url
-                        page.get_by_label('I agree to provide feedback',exact=False).check()
+                        page.get_by_label('Your name',exact=False).fill('Synthetic Rowing Tester '+str(i));page.get_by_label('I agree to provide feedback',exact=False).check()
                         page.get_by_role('button',name='Begin review',exact=False).click()
                         expect(page.locator('#report-cards .report-card')).to_have_count(10)
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
@@ -119,6 +119,8 @@ def main():
                         page.get_by_label('accuracy 3 — Mixed',exact=True).check()
                         page.get_by_role('button',name='Save & next aspect',exact=False).click()
                         expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                        page.locator('#submit-video').click()
+                        expect(page.locator('#submit-video-status')).to_contain_text('Submitted')
                         page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                         expect(page.get_by_label('Clarity quality',exact=True)).to_have_value(str(i))
                         expect(page.locator('#evaluation-questions select').first).to_have_value('correct')
@@ -128,10 +130,9 @@ def main():
                         assert ctx.request.get(origin+'/api/owner/export.json').status==403
                         assert ctx.request.get(origin+'/api/owner/evaluation.json').status==403
                     assert len(set(reviewer_ids))==5
-                    assert all(token not in url for url in urls)
+                    assert all('owner=' not in url for url in urls)
                     # Owner authentication is independent of the reviewer invitation.
-                    owner.goto(origin+'/library');owner.get_by_label('Reviewer access code').fill(OWNER)
-                    owner.get_by_role('button',name='Open the review study').click()
+                    owner.goto(origin+'/library')
                     owner.wait_for_selector('#welcome:not([hidden])')
                     rows=owner_context.request.get(origin+'/api/owner/quality.json',headers={'Authorization':'Bearer '+OWNER}).json()['responses']
                     assert len(rows)==25
@@ -140,7 +141,7 @@ def main():
                     assert all(abs(row['stroke_measurement']['rate_spm']-37.5)<.001 for row in technical)
                     summary=owner_context.request.get(origin+'/api/owner/summary',headers={'Authorization':'Bearer '+OWNER}).json()
                     assert summary['reviewer_count']==5 and summary['response_count']==5
-                    print(json.dumps({'https_invitation_library_report_mapping':'passed','correct_report_links':10,
+                    print(json.dumps({'https_guest_library_report_mapping':'passed','correct_report_links':10,
                       'original_and_annotated_mp4_seek':'passed','isolated_test_reviewers':5,'quality_answers':25,
                       'aspect_answers':5,'technical_judgments':50,'manual_cadence_roundtrips':5,
                       'browser':browser.version,'synthetic_only':True,'render_live':False}))

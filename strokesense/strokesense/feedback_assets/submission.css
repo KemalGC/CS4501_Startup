@@ -1,0 +1,7 @@
+/* Guest-by-name, explicit per-video submission. */
+.welcome input[name="display_name"]{display:block;width:100%;max-width:420px;font:inherit;padding:13px 14px;border:1px solid var(--line);border-radius:10px;margin:6px 0 18px}
+.video-submit-panel{margin:24px 0;padding:28px;border:2px solid var(--teal);border-radius:16px;background:var(--paper)}
+.video-submit-panel h2{margin:6px 0 14px}.video-submit-panel p{max-width:800px}.video-submit-panel button{min-height:44px}
+#video-submit-status{font-size:15px;color:var(--teal)}#video-submit-success{background:var(--wash);border-radius:12px;padding:16px;margin-top:15px}
+#video-submit-success button{margin:5px 8px 5px 0}.review-heading{flex-wrap:wrap;align-items:center}.review-heading .secondary{font-size:14px}
+@media(max-width:660px){.video-submit-panel{padding:17px}.video-submit-panel .save-row{flex-wrap:wrap}.welcome input[name="display_name"]{max-width:100%}}

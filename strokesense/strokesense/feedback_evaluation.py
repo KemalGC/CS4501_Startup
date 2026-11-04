@@ -26,7 +26,7 @@ QUESTIONS = {
     'actionable_specificity': ('Specific, usable advice', 'Does the advice clearly identify a visible issue and a practical next step for this rower or crew?', 'evidence'),
     'uncertainty_handling': ('Limits and uncertainty', 'Does the report acknowledge hidden joints, poor views, boat changes or too few strokes, and withhold claims the video cannot support?', None),
 }
-FIELDS = ['reviewer_id', 'role', 'experience', 'clip_id', 'analysis_version', 'questionnaire_version',
+FIELDS = ['reviewer_id', 'display_name', 'role', 'experience', 'clip_id', 'analysis_version', 'questionnaire_version',
           'assessment_type', 'criterion_id', 'verdict', 'timestamp_seconds', 'criterion_comment',
           'manual_catch_count', 'manual_first_catch_seconds', 'manual_last_catch_seconds',
           'manual_rate_spm', 'manual_rower_reference', 'measurement_method', 'comment',
@@ -150,7 +150,7 @@ class EvaluationStore:
 
     def rows(self):
         with closing(self.store.connect()) as conn:
-            return [self._decode(row) for row in conn.execute('''SELECT e.*,s.role,s.experience
+            return [self._decode(row) for row in conn.execute('''SELECT e.*,s.role,s.experience,s.display_name
               FROM technical_evaluations e JOIN sessions s USING(reviewer_id) ORDER BY e.updated_utc''')]
 
     def summary(self):
@@ -167,7 +167,7 @@ class EvaluationStore:
         writer.writeheader()
         for row in self.rows():
             measurement = row['stroke_measurement'] or {}
-            base = {key: row[key] for key in ('reviewer_id', 'role', 'experience', 'clip_id', 'analysis_version',
+            base = {key: row[key] for key in ('reviewer_id', 'display_name', 'role', 'experience', 'clip_id', 'analysis_version',
                     'questionnaire_version', 'assessment_type', 'comment', 'created_utc', 'updated_utc')}
             base.update(manual_catch_count=measurement.get('catch_count'),
                         manual_first_catch_seconds=measurement.get('first_catch_seconds'),

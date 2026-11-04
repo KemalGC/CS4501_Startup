@@ -22,7 +22,7 @@ def main():
             try:
                 page=browser.new_page(viewport={'width':1440,'height':1000})
                 errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-                page.goto(case.origin+'/');page.get_by_label('I agree to provide feedback',exact=False).check()
+                page.goto(case.origin+'/');page.get_by_label('Your name',exact=False).fill('Synthetic Browser Reviewer');page.get_by_label('I agree to provide feedback',exact=False).check()
                 page.get_by_role('button',name='Begin review',exact=False).click()
                 page.wait_for_selector('#workspace:not([hidden])');page.wait_for_selector('#rating-form')
                 for width in (390,768,1440):

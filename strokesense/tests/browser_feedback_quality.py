@@ -17,7 +17,7 @@ def main():
    try:
     page=browser.new_page(viewport={'width':1440,'height':1000});errors=[]
     page.on('pageerror',lambda error:errors.append(str(error)))
-    page.goto(case.origin+'/');page.get_by_label('I agree to provide feedback',exact=False).check()
+    page.goto(case.origin+'/');page.get_by_label('Your name',exact=False).fill('Synthetic Browser Reviewer');page.get_by_label('I agree to provide feedback',exact=False).check()
     page.get_by_role('button',name='Begin review',exact=False).click()
     page.wait_for_selector('#quality-panel:not([hidden])')
     expect(page.locator('#quality-state')).to_have_text('No quality assessment saved yet')

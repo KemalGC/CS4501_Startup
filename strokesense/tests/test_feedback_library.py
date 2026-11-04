@@ -56,7 +56,7 @@ class ReportLibraryTests(unittest.TestCase):
         c.close(); return result
 
     def enroll(self):
-        status, h, _ = self.request('POST', '/api/session', {'consent': True, 'role': 'rower', 'experience': '3to5'})
+        status, h, _ = self.request('POST', '/api/session', {'consent': True, 'role': 'rower', 'experience': '3to5', 'display_name': 'Synthetic Tester'})
         self.assertEqual(status, 201); self.cookie = h['Set-Cookie'].split(';')[0]
 
     def test_library_route_has_visible_navigation_and_report_grid(self):

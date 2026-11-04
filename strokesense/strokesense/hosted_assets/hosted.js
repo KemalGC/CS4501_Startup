@@ -19,9 +19,9 @@
     xhr.onerror=()=>{status.textContent='Upload interrupted. Reload to check whether setup completed before retrying.';b.disabled=false;};
     xhr.onload=()=>{let result;try{result=JSON.parse(xhr.responseText);}catch{status.textContent='Host rejected the upload. Check Render logs or use the authenticated SCP transfer described in RENDER_DEPLOY.md.';b.disabled=false;return;}
      if(xhr.status!==201){status.textContent=String(result.error||'Upload failed').replaceAll('_',' ');b.disabled=false;return;}
-     status.textContent=result.clip_count+' clips installed. Open Tester invitations to create a reviewer-only link.';
+     status.textContent=result.clip_count+' clips installed. Share /library with your reviewers.';
      const a=document.createElement('a');a.href='/#owner='+encodeURIComponent(key);a.textContent='Open private owner dashboard';
-     const box=document.getElementById('owner-link');const invite=document.createElement('a');invite.href='/owner';invite.textContent='Create tester invitation';box.replaceChildren(invite,document.createTextNode(' · '),a);box.hidden=false;
+     const box=document.getElementById('owner-link');const invite=document.createElement('a');invite.href='/owner';invite.textContent='Copy public survey link';box.replaceChildren(invite,document.createTextNode(' · '),a);box.hidden=false;
      document.getElementById('owner').value='';
     };xhr.send(file);
    };

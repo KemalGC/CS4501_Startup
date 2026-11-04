@@ -12,7 +12,7 @@ QUESTIONS = {
  'evidence_support': ('Evidence support', 'How well do the annotations and examples support the report\'s claims?'),
  'actionability': ('Actionability', 'How useful is this report for deciding what to review or work on next?'),
 }
-FIELDS = ['reviewer_id','role','experience','clip_id','analysis_version','questionnaire_version',
+FIELDS = ['reviewer_id','display_name','role','experience','clip_id','analysis_version','questionnaire_version',
           'question_id','score','reason','comment','created_utc','updated_utc']
 
 
@@ -74,7 +74,7 @@ class QualityStore:
             return [dict(r) for r in c.execute('SELECT * FROM quality_responses WHERE reviewer_id=? AND clip_id=? ORDER BY question_id',(rid,clip_id))]
     def rows(self):
         with closing(self.store.connect()) as c:
-            return [dict(r) for r in c.execute('''SELECT q.*,s.role,s.experience FROM quality_responses q
+            return [dict(r) for r in c.execute('''SELECT q.*,s.role,s.experience,s.display_name FROM quality_responses q
               JOIN sessions s USING(reviewer_id) ORDER BY q.updated_utc,q.question_id''')]
     def export_csv(self):
         out=io.StringIO();writer=csv.DictWriter(out,fieldnames=FIELDS);writer.writeheader()

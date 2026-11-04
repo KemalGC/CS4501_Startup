@@ -34,13 +34,13 @@ class FeedbackTests(unittest.TestCase):
         c=http.client.HTTPConnection('127.0.0.1',self.port,timeout=5);c.request(method,path,raw,hdr)
         r=c.getresponse();b=r.read();h=dict(r.getheaders());status=r.status;c.close();return status,h,b
     def enroll(self):
-        s,h,b=self.request('POST','/api/session',{'consent':True,'role':'rower','experience':'3to5'})
+        s,h,b=self.request('POST','/api/session',{'consent':True,'role':'rower','experience':'3to5','display_name':'Synthetic Tester'})
         self.assertEqual(s,201);self.cookie=h['Set-Cookie'].split(';')[0];return json.loads(b)
     def review(self,**changes):
         return dict({'clip_id':'clip-one','analysis_version':'revision1','aspect_id':'rate','usefulness':4,'accuracy':None,'accuracy_reason':'cannot_judge','comment':'Not enough visible entries.','timestamp_seconds':3.2},**changes)
     def test_requires_consent_and_session(self):
         self.assertEqual(self.request('POST','/api/reviews',self.review())[0],401)
-        self.assertEqual(self.request('POST','/api/session',{'consent':False,'role':'rower','experience':'3to5'})[0],422)
+        self.assertEqual(self.request('POST','/api/session',{'consent':False,'role':'rower','experience':'3to5','display_name':'Synthetic Tester'})[0],422)
     def test_save_resume_and_update_are_not_duplicate_participants(self):
         self.enroll();self.assertEqual(self.request('POST','/api/reviews',self.review())[0],200)
         self.assertEqual(self.request('POST','/api/reviews',self.review(usefulness=5))[0],200)

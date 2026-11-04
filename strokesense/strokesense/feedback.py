@@ -121,14 +121,24 @@ class ReviewStore:
             INSERT INTO meta SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM meta);
             CREATE TABLE IF NOT EXISTS sessions(
               token_hash TEXT PRIMARY KEY, reviewer_id TEXT UNIQUE NOT NULL,
-              role TEXT NOT NULL, experience TEXT NOT NULL, consent_utc TEXT NOT NULL);
+              role TEXT NOT NULL, experience TEXT NOT NULL, consent_utc TEXT NOT NULL,
+              display_name TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS responses(
               reviewer_id TEXT NOT NULL REFERENCES sessions(reviewer_id) ON DELETE CASCADE,
               clip_id TEXT NOT NULL, analysis_version TEXT NOT NULL, aspect_id TEXT NOT NULL,
               usefulness INTEGER, accuracy INTEGER, accuracy_reason TEXT NOT NULL,
               comment TEXT NOT NULL, timestamp_seconds REAL, created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL,
               PRIMARY KEY(reviewer_id,clip_id,analysis_version,aspect_id));
+            CREATE TABLE IF NOT EXISTS video_submissions(
+              reviewer_id TEXT NOT NULL REFERENCES sessions(reviewer_id) ON DELETE CASCADE,
+              clip_id TEXT NOT NULL, analysis_version TEXT NOT NULL,
+              created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL,
+              PRIMARY KEY(reviewer_id,clip_id,analysis_version));
             ''')
+            # Additive migration: existing feedback and anonymous sessions are retained.
+            columns = {row[1] for row in c.execute('PRAGMA table_info(sessions)')}
+            if 'display_name' not in columns:
+                c.execute("ALTER TABLE sessions ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
             if c.execute('SELECT version FROM meta').fetchone()[0] != 1:
                 raise ValueError('unsupported_feedback_schema')
             c.commit()
@@ -141,19 +151,25 @@ class ReviewStore:
         conn.execute('PRAGMA foreign_keys=ON')
         return conn
 
-    def enroll(self, role, experience, consent):
+    def enroll(self, role, experience, consent, display_name):
+        if not isinstance(display_name, str):
+            raise ValueError('reviewer_name_required')
+        display_name = display_name.strip()
+        if (not 2 <= len(display_name) <= 80 or any(ord(ch) < 32 or ord(ch) == 127 for ch in display_name)):
+            raise ValueError('reviewer_name_required')
         if consent is not True or role not in ROLES or experience not in EXPERIENCE:
             raise ValueError('consent_and_profile_required')
         token, rid = secrets.token_urlsafe(32), secrets.token_hex(8)
         now = datetime.now(timezone.utc).isoformat()
         with closing(self.connect()) as c, c:
-            c.execute('INSERT INTO sessions VALUES(?,?,?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), rid, role, experience, now))
+            c.execute('''INSERT INTO sessions(token_hash,reviewer_id,role,experience,consent_utc,display_name)
+              VALUES(?,?,?,?,?,?)''', (hashlib.sha256(token.encode()).hexdigest(), rid, role, experience, now, display_name))
         return token
 
     def session(self, token):
         if not token or len(token) > 100: return None
         with closing(self.connect()) as c:
-            row = c.execute('SELECT reviewer_id,role,experience,consent_utc FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+            row = c.execute('SELECT reviewer_id,role,experience,consent_utc,display_name FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
             return dict(row) if row else None
 
     def save(self, rid, row):
@@ -170,13 +186,50 @@ class ReviewStore:
         with closing(self.connect()) as c:
             return [dict(r) for r in c.execute('SELECT * FROM responses WHERE reviewer_id=? AND clip_id=?', (rid, clip))]
 
+
+    def submissions(self, rid=None):
+        with closing(self.connect()) as c:
+            condition = 'WHERE v.reviewer_id=?' if rid is not None else ''
+            values = (rid,) if rid is not None else ()
+            rows = c.execute(f'''SELECT v.*,s.display_name,s.role,s.experience
+                FROM video_submissions v JOIN sessions s USING(reviewer_id)
+                {condition} ORDER BY v.updated_utc, v.clip_id''', values)
+            result=[]
+            for r in rows:
+                row=dict(r)
+                row['saved']=self._counts(c,row['reviewer_id'],row['clip_id'],row['analysis_version'])
+                result.append(row)
+            return result
+
+    @staticmethod
+    def _counts(conn,rid,clip,revision):
+        args=(rid,clip,revision)
+        aspect=conn.execute('''SELECT COUNT(*) FROM responses WHERE reviewer_id=?
+                            AND clip_id=? AND analysis_version=?''', args).fetchone()[0]
+        quality=conn.execute('''SELECT COUNT(*) FROM quality_responses WHERE reviewer_id=?
+                            AND clip_id=? AND analysis_version=?''', args).fetchone()[0]
+        technical=conn.execute('''SELECT COUNT(*) FROM technical_evaluations WHERE reviewer_id=?
+                            AND clip_id=? AND analysis_version=?''', args).fetchone()[0]
+        return {'aspect_count':aspect,'quality_count':quality,'technical_count':technical}
+
+    def submit_video(self,rid,clip,revision):
+        now=datetime.now(timezone.utc).isoformat()
+        with closing(self.connect()) as c,c:
+            counts=self._counts(c,rid,clip,revision)
+            if not any(counts.values()):
+                raise ValueError('save_one_assessment_before_submitting')
+            c.execute('''INSERT INTO video_submissions VALUES(?,?,?,?,?)
+              ON CONFLICT(reviewer_id,clip_id,analysis_version)
+              DO UPDATE SET updated_utc=excluded.updated_utc''',(rid,clip,revision,now,now))
+        return {'clip_id':clip,'analysis_version':revision,'submitted_utc':now,'saved':counts}
+
     def withdraw(self, rid):
         with closing(self.connect()) as c, c:
             c.execute('DELETE FROM sessions WHERE reviewer_id=?', (rid,))
 
     def rows(self):
         with closing(self.connect()) as c:
-            return [dict(r) for r in c.execute('SELECT r.*,s.role,s.experience FROM responses r JOIN sessions s USING(reviewer_id) ORDER BY r.updated_utc')]
+            return [dict(r) for r in c.execute('SELECT r.*,s.role,s.experience,s.display_name FROM responses r JOIN sessions s USING(reviewer_id) ORDER BY r.updated_utc')]
 
     def summary(self):
         rows = self.rows(); groups = defaultdict(list)
@@ -190,7 +243,9 @@ class ReviewStore:
                 'accuracy_n':len(acc),'accuracy_mean':sum(acc)/len(acc) if acc else None,
                 'cannot_judge_n':sum(r['accuracy_reason']=='cannot_judge' for r in group),
                 'not_applicable_n':sum(r['accuracy_reason']=='not_applicable' for r in group)})
-        return {'reviewer_count':len({r['reviewer_id'] for r in rows}), 'response_count':len(rows), 'aspects':aspects,
+        return {'reviewer_count':len({r['reviewer_id'] for r in rows}), 'response_count':len(rows),
+                'submitted_videos_count':len(self.submissions()),
+                'submitted_reviewers_count':len({r['reviewer_id'] for r in self.submissions()}), 'aspects':aspects,
                 'method':'Self-reported usefulness and perceived accuracy; not labeled model accuracy. Repeated versions/recordings are not independent evidence.'}
 
 
@@ -241,9 +296,9 @@ def create_server(pack, *, port=8767, db_path=None):
             if not self.trusted(): self.error(403,'same_origin_required'); return
             parsed = urlsplit(self.path); route = parsed.path
             try:
-                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css', '/quality.js', '/quality.css', '/evaluation.js', '/evaluation.css'):
+                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css', '/quality.js', '/quality.css', '/evaluation.js', '/evaluation.css', '/submission.css'):
                     name = 'index.html' if route in ('/', '/library') else route[1:]
-                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8', 'quality.js':'application/javascript; charset=utf-8', 'quality.css':'text/css; charset=utf-8', 'evaluation.js':'application/javascript; charset=utf-8', 'evaluation.css':'text/css; charset=utf-8'}[name]
+                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8', 'quality.js':'application/javascript; charset=utf-8', 'quality.css':'text/css; charset=utf-8', 'evaluation.js':'application/javascript; charset=utf-8', 'evaluation.css':'text/css; charset=utf-8', 'submission.css':'text/css; charset=utf-8'}[name]
                     self.send(200,(ASSETS/name).read_bytes(),mime);return
                 if route=='/api/bootstrap':
                     public=[]
@@ -254,12 +309,25 @@ def create_server(pack, *, port=8767, db_path=None):
                         item['report_state'] = ('analysis' if c['analysis'].get('status') == 'provisional' else 'diagnostic') if 'report' in item['assets'] else 'unavailable'
                         public.append(item)
                     self.send(200,{'schema_version':1,'csrf':csrf,'session':self.session(),'clips':public,
+                                  'submissions':store.submissions(self.session()['reviewer_id']) if self.session() else [],
                                   'quality_version':QUALITY_VERSION,'quality_questions':public_questions(),
                                   'evaluation_version':EVALUATION_VERSION,'evaluation_questions':evaluation_questions(),
                                   'aspects':[{'id':k,'title':v[0],'question':v[1]} for k,v in ASPECTS.items()]});return
-                if route.startswith('/api/owner/'):
+                if route.startswith('/api/owner/'): 
                     if not self.owner():self.error(403,'owner_key_required');return
                     if route=='/api/owner/summary':self.send(200,{**store.summary(),'technical_evaluation':evaluation.summary()});return
+                    if route=='/api/owner/submissions.json':
+                        self.send(200,{'schema_version':1,'submissions':store.submissions()},headers={
+                            'Content-Disposition':'attachment; filename="strokesense-submissions.json"'});return
+                    if route=='/api/owner/submissions.csv':
+                        columns=['reviewer_id','display_name','role','experience','clip_id','analysis_version',
+                                 'aspect_count','quality_count','technical_count','created_utc','updated_utc']
+                        output=io.StringIO();writer=csv.DictWriter(output,fieldnames=columns);writer.writeheader()
+                        for r in store.submissions():
+                            entry={k:(r['saved'][k] if k in r['saved'] else r.get(k)) for k in columns}
+                            writer.writerow({k:("'"+v if isinstance(v,str) and v.lstrip().startswith(('=','+','-','@')) else v) for k,v in entry.items()})
+                        self.send(200,output.getvalue().encode('utf-8-sig'),'text/csv; charset=utf-8',{
+                            'Content-Disposition':'attachment; filename="strokesense-submissions.csv"'});return
                     if route=='/api/owner/evaluation.json':
                         self.send(200,{'schema_version':1,'questionnaire_version':EVALUATION_VERSION,
                             'method':EVALUATION_METHOD,'questions':evaluation_questions(),
@@ -279,7 +347,7 @@ def create_server(pack, *, port=8767, db_path=None):
                     if route=='/api/owner/export.json':
                         self.send(200,{'schema_version':1,'exported_utc':datetime.now(timezone.utc).isoformat(),'summary':store.summary(),'responses':rows},headers={'Content-Disposition':'attachment; filename="strokesense-feedback.json"'});return
                     if route=='/api/owner/export.csv':
-                        fields=['reviewer_id','role','experience','clip_id','analysis_version','aspect_id','usefulness','accuracy','accuracy_reason','timestamp_seconds','comment','created_utc','updated_utc']
+                        fields=['reviewer_id','display_name','role','experience','clip_id','analysis_version','aspect_id','usefulness','accuracy','accuracy_reason','timestamp_seconds','comment','created_utc','updated_utc']
                         out=io.StringIO();writer=csv.DictWriter(out,fieldnames=fields);writer.writeheader()
                         for row in rows:
                             safe={k:("'"+v if isinstance(v,str) and v.lstrip().startswith(('=','+','-','@')) else v) for k,v in row.items()}
@@ -288,6 +356,15 @@ def create_server(pack, *, port=8767, db_path=None):
                     self.error(404,'not_found');return
                 session = self.session()
                 if not session:self.error(401,'begin_review_first');return
+                if route=='/api/submit-video':
+                    if not isinstance(data,dict) or set(data)!={'clip_id','analysis_version'}:
+                        raise ValueError('invalid_submission_fields')
+                    cid=data['clip_id']
+                    if not isinstance(cid,str) or cid not in clips:
+                        raise ValueError('invalid_clip')
+                    if data['analysis_version']!=clips[cid]['analysis']['version']:
+                        raise ValueError('analysis_changed_reload')
+                    self.send(200,store.submit_video(s['reviewer_id'],cid,data['analysis_version']));return
                 if route=='/api/evaluation':
                     q=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
                     if set(q)!={'clip'} or len(q['clip'])!=1:raise ValueError('invalid_query')
@@ -300,6 +377,8 @@ def create_server(pack, *, port=8767, db_path=None):
                     cid=q['clip'][0]
                     if cid not in clips:self.error(404,'clip_not_found');return
                     self.send(200,{'responses':quality.responses(session['reviewer_id'],cid)});return
+                if route=='/api/submissions':
+                    self.send(200,{'submissions':store.submissions(session['reviewer_id'])});return
                 if route=='/api/responses':
                     q=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
                     cid=q.get('clip',[''])[0]
@@ -358,11 +437,20 @@ def create_server(pack, *, port=8767, db_path=None):
                 data=json.loads(raw)
                 route=urlsplit(self.path).path
                 if route=='/api/session':
-                    if set(data)!={'consent','role','experience'}:raise ValueError('invalid_session_fields')
-                    token=store.enroll(data['role'],data['experience'],data['consent'])
+                    if not isinstance(data,dict) or set(data)!={'consent','role','experience','display_name'}:raise ValueError('invalid_session_fields')
+                    token=store.enroll(data['role'],data['experience'],data['consent'],data['display_name'])
                     self.send(201,store.session(token),headers={'Set-Cookie':f'ss_review={token}; HttpOnly; SameSite=Strict; Path=/'});return
                 s=self.session()
                 if not s:self.error(401,'begin_review_first');return
+                if route=='/api/submit-video':
+                    if not isinstance(data,dict) or set(data)!={'clip_id','analysis_version'}:
+                        raise ValueError('invalid_submission_fields')
+                    cid=data['clip_id']
+                    if not isinstance(cid,str) or cid not in clips:
+                        raise ValueError('invalid_clip')
+                    if data['analysis_version']!=clips[cid]['analysis']['version']:
+                        raise ValueError('analysis_changed_reload')
+                    self.send(200,store.submit_video(s['reviewer_id'],cid,data['analysis_version']));return
                 if route=='/api/evaluation':
                     cid=data.get('clip_id') if isinstance(data,dict) else None
                     if not isinstance(cid,str) or cid not in clips:self.error(404,'clip_not_found');return

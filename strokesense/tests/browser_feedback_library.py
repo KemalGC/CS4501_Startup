@@ -26,7 +26,7 @@ def main():
                 assert page.goto(case.origin+'/library').status == 200
                 assert page.locator('#welcome').is_visible()
                 assert page.locator('#reports-library').is_hidden()
-                page.get_by_label('I agree to provide feedback', exact=False).check()
+                page.get_by_label('Your name',exact=False).fill('Synthetic Browser Reviewer');page.get_by_label('I agree to provide feedback', exact=False).check()
                 page.get_by_role('button', name='Begin review', exact=False).click()
                 page.wait_for_selector('#reports-library:not([hidden])')
                 assert page.locator('#workspace').is_hidden()

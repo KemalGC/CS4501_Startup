@@ -54,20 +54,19 @@ class HostedTests(unittest.TestCase):
           'Origin':ORIGIN,'Authorization':'Bearer '+OWNER,'Content-Type':'application/zip',
           'X-CSRF-Token':self.client.get('/api/hosting').json()['csrf']})
     def unlock(self):
-        r=self.post('/api/access',{'code':INVITE});self.assertEqual(r.status_code,200)
-        self.assertIn('Secure',r.headers['set-cookie']);self.assertIn('HttpOnly',r.headers['set-cookie'])
+        self.assertEqual(self.client.get('/library').status_code,200)
     def enroll(self):
         self.upload();self.unlock()
         bootstrap=self.client.get('/api/bootstrap').json();self.csrf=bootstrap['csrf']
-        r=self.client.post('/api/session',json={'consent':True,'role':'rower','experience':'3to5'},headers={'Origin':ORIGIN,'X-CSRF-Token':self.csrf})
+        r=self.client.post('/api/session',json={'consent':True,'role':'rower','experience':'3to5','display_name':'Synthetic Rowing Tester'},headers={'Origin':ORIGIN,'X-CSRF-Token':self.csrf})
         self.assertEqual(r.status_code,201);self.assertIn('Secure',r.headers['set-cookie'])
     def review(self):
         return dict(clip_id='clip-one',analysis_version='r1',aspect_id='rate',usefulness=4,
           accuracy=3,accuracy_reason='rated',comment='=SUM(1,2)',timestamp_seconds=2.0)
     def test_missing_study_is_explicit_and_health_ready_is_false(self):
         self.assertEqual(self.client.get('/healthz').json()['study_ready'],False)
-        self.assertEqual(self.client.get('/api/bootstrap').status_code,401)
-        self.assertIn('Study access',self.client.get('/library').text)
+        self.assertEqual(self.client.get('/api/bootstrap').status_code,503)
+        self.assertEqual(self.client.get('/library').status_code,503)
         self.assertEqual(self.upload().status_code,201)
         self.assertTrue(self.client.get('/healthz').json()['study_ready'])
     def test_unsafe_configuration_fails_instead_of_trusting_every_host(self):
@@ -80,8 +79,8 @@ class HostedTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/access',json={'code':INVITE}).status_code,403)
         self.assertEqual(self.client.get('/',headers={'Host':'evil.example','X-Forwarded-Host':'review.example.com'}).status_code,403)
     def test_invite_owner_and_csrf_gates(self):
-        self.assertEqual(self.post('/api/access',{'code':'wrong'}).status_code,403)
-        self.assertEqual(self.post('/api/access',{'code':INVITE},**{'X-CSRF-Token':'wrong'}).status_code,403)
+        self.assertEqual(self.post('/api/access',{'code':'wrong'}).status_code,410)
+        self.assertEqual(self.post('/api/setup',{'anything':'x'},**{'X-CSRF-Token':'wrong'}).status_code,403)
         self.assertEqual(self.client.post('/api/setup',content=package(),headers={'Origin':ORIGIN}).status_code,403)
         self.upload();self.unlock()
         self.assertEqual(self.client.get('/asset/clip-one/video').status_code,401)
@@ -125,7 +124,7 @@ class HostedTests(unittest.TestCase):
                 self.assertFalse((self.root/'study').exists())
         self.assertFalse((self.root/'escape').exists())
     def test_small_routes_are_bounded_and_unknown_methods_are_rejected(self):
-        self.assertEqual(self.post('/api/access',{'code':'x'*20000}).status_code,413)
+        self.assertEqual(self.post('/api/access',{'code':'x'*20000}).status_code,410)
         self.assertEqual(self.client.delete('/api/owner/export.json').status_code,405)
 
 if __name__=='__main__':unittest.main()

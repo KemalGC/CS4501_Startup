@@ -47,8 +47,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
     if (u.scheme != 'https' or not u.hostname or u.username or u.password or u.path or u.query or u.fragment
             or not re.fullmatch(r'[a-z0-9.-]+(?::[0-9]+)?', u.netloc) or '*' in u.netloc):
         raise ValueError('an_exact_https_public_origin_is_required')
-    if not 32 <= len(owner) <= 256 or not 16 <= len(invite) <= 256 or owner == invite:
-        raise ValueError('distinct_owner_and_reviewer_secrets_required')
+    if not 32 <= len(owner) <= 256:
+        raise ValueError('owner_secret_required')
     expected = int(os.environ.get('STROKESENSE_EXPECTED_CLIPS', '7')) if expected_clips is None else expected_clips
     if type(expected) is not int or not 1 <= expected <= 100:
         raise ValueError('invalid_expected_study_count')
@@ -92,19 +92,6 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
         value = request.headers.get('authorization', '')
         return hmac.compare_digest(value.encode(), ('Bearer ' + owner).encode())
 
-    def access_token(expiry=None):
-        expiry = str(expiry if expiry is not None else int(time.time()) + 7 * 86400)
-        signature = hmac.new(owner.encode(), ('access:' + expiry + ':' + invite).encode(), hashlib.sha256).hexdigest()
-        return expiry + '.' + signature
-
-    def invited(request):
-        token = request.cookies.get('ss_access', '')
-        if not re.fullmatch(r'[0-9]{10}\.[a-f0-9]{64}', token):
-            return False
-        expiry, signature = token.split('.')
-        expected = hmac.new(owner.encode(), ('access:' + expiry + ':' + invite).encode(), hashlib.sha256).hexdigest()
-        return int(expiry) > time.time() and hmac.compare_digest(signature, expected)
-
     def err(status, reason):
         return JSONResponse({'error': reason}, status_code=status)
 
@@ -133,11 +120,10 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
             return err(403, 'same_origin_required')
         if path == '/' and request.method in ('GET', 'HEAD'):
             return RedirectResponse('/library' + ('?' + request.url.query if request.url.query else ''), status_code=307)
-        if path in ('/join', '/owner') and request.method in ('GET', 'HEAD'):
-            if request.url.query:
-                return err(400, 'invitation_must_use_fragment')
-            name = 'join.html' if path == '/join' else 'owner.html'
-            return HTMLResponse((ASSETS/name).read_text())
+        if path == '/join' and request.method in ('GET', 'HEAD'):
+            return RedirectResponse('/library', status_code=303)
+        if path == '/owner' and request.method in ('GET', 'HEAD'):
+            return HTMLResponse((ASSETS/'owner.html').read_text())
         if path == '/api/owner/invitation':
             if request.method not in ('GET', 'HEAD'):
                 return err(405, 'get_required')
@@ -146,9 +132,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
             readiness = study_readiness(root/'study', expected, state['catalog_digest'])
             if not state['server'] or not readiness['ready']:
                 return JSONResponse({'error':'library_not_ready','readiness':readiness}, status_code=409)
-            token, expiry = mint_invitation(owner, invite, origin)
-            return JSONResponse({'url':origin+'/join#invite='+token, 'expires_utc':expiry,
-                                 'readiness':readiness, 'scope':'reviewer_only'})
+            return JSONResponse({'url':origin+'/library', 'readiness':readiness,
+                                 'scope':'guest_name_and_consent'})
         if path in ('/hosted.js', '/hosted.css', '/sharing.js') and request.method in ('GET', 'HEAD'):
             mime = 'application/javascript' if path.endswith('.js') else 'text/css'
             return Response((ASSETS / path[1:]).read_bytes(), media_type=mime)
@@ -156,43 +141,13 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
             return JSONResponse({'csrf': csrf, 'study_ready': state['server'] is not None})
         if path == '/setup' and request.method in ('GET', 'HEAD'):
             return HTMLResponse((ASSETS / 'setup.html').read_text())
-        if path in ('/api/access', '/api/redeem', '/api/setup'):
+        if path in ('/api/access', '/api/redeem'):
+            return err(410, 'guest_link_replaces_access_codes')
+        if path == '/api/setup':
             if request.method != 'POST':
                 return err(405, 'post_required')
             if not hmac.compare_digest(request.headers.get('x-csrf-token', '').encode(), csrf.encode()):
                 return err(403, 'csrf_required')
-            if path in ('/api/access', '/api/redeem'):
-                now = time.monotonic()
-                state['failures'] = [t for t in state['failures'] if now - t < 60]
-                if len(state['failures']) >= 30:
-                    return err(429, 'try_again_in_one_minute')
-                try:
-                    raw = await small_body(request)
-                    data = json.loads(raw)
-                    field = 'token' if path == '/api/redeem' else 'code'
-                    if not isinstance(data, dict) or set(data) != {field} or not isinstance(data[field], str):
-                        return err(422, 'invalid_code')
-                except OverflowError:
-                    return err(413, 'request_too_large')
-                except (ValueError, TypeError):
-                    return err(422, 'invalid_code')
-                expiry = None
-                if path == '/api/redeem':
-                    expiry = verify_invitation(data['token'], owner, invite, origin)
-                    valid = expiry is not None
-                else:
-                    valid = hmac.compare_digest(data['code'].encode(), invite.encode()) or hmac.compare_digest(data['code'].encode(), owner.encode())
-                if not valid:
-                    state['failures'].append(now)
-                    return err(403, 'invitation_expired_or_invalid' if path == '/api/redeem' else 'invalid_code')
-                if path == '/api/redeem':
-                    readiness = study_readiness(root/'study', expected, state['catalog_digest'])
-                    if not state['server'] or not readiness['ready']:
-                        return err(409, 'library_not_ready')
-                result = JSONResponse({'ok': True, 'next': '/library'})
-                lifetime = expiry - int(time.time()) if expiry is not None else 7*86400
-                result.set_cookie('ss_access', access_token(expiry), secure=True, httponly=True, samesite='strict', max_age=lifetime)
-                return result
             if not owner_ok(request):
                 return err(403, 'owner_key_required')
             if (root / 'study').exists():
@@ -229,10 +184,6 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
                 if tmp is not None:
                     tmp.unlink(missing_ok=True)
                 lock.release()
-        if not invited(request):
-            if path in ('/', '/library') and request.method in ('GET', 'HEAD'):
-                return HTMLResponse((ASSETS / 'access.html').read_text())
-            return err(401, 'review_invitation_required')
         if not state['server']:
             return err(503, 'study_not_uploaded_yet')
         if path.startswith('/api/owner/') and not owner_ok(request):

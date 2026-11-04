@@ -55,10 +55,21 @@ continuous tracking or correct identities. Body angles are projected 2D estimate
 not calibrated biomechanics. Assistant visual cadence estimates are private
 reference notes, not coach labels or participant answers. Preserve these limits.
 
-Before the final inference-binding guard, the full offline suite passed 688 test
-executions in57.101s. The guard's focused suite passed8tests; the prior hosting
-suite passed23tests. Final exact-commit CI, actual seven-pack normal-library
-import and deployment status will be recorded in issue115 after completion.
+PR116 targets dev-consolidated. Published head5050e5a passed all692offline test
+executions in43.892s and all24hosted HTTP tests. The actual final seven-clip pack
+was imported into isolated normal-library storage: seven clips, seven saved
+analyses and zero jobs. All35assets matched source bytes/hashes, video ranges
+worked, repeat import reused all IDs, and a real close/reopen without reimport
+preserved every record and asset. No participant feedback was created.
+
+Initial native browser CI found narrow-screen overflow in the expanded form;
+the CSS now explicitly allows grid/fieldset/input shrinking and header wrapping.
+The original width assertions remain. Hosted browser CI reached actual playback
+but its wait_for_function helper was rejected by strict CSP; it now polls within
+a supplied function while keeping the production CSP enabled. No assertion or
+security check was removed. Final browser rerun and integration/deployment status
+will be recorded in PR116 and issue115. Synthetic browser identities are tests,
+not human study participants.
 
 ### Deployment status and next action
 

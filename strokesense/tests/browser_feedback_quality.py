@@ -25,7 +25,15 @@ def main():
     assert all(v=='' for v in page.locator('#quality-form select').evaluate_all('(els)=>els.map(x=>x.value)'))
     for width in (320,390,768,1440):
      page.set_viewport_size({'width':width,'height':1000})
-     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
+     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1'), json.dumps(page.evaluate("""() => ({
+      viewport: innerWidth, documentWidth: document.documentElement.scrollWidth,
+      overflowingElements: Array.from(document.querySelectorAll('body *')).map(element => {
+       const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+       return {tag: element.tagName, id: element.id, classes: String(element.className),
+        left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width),
+        minWidth: style.minWidth, display: style.display, whiteSpace: style.whiteSpace};
+      }).filter(item => item.width > 0 && (item.right > innerWidth + 1 || item.left < -1)).slice(0, 12)
+     })"""))
     for key in ('clarity','specificity','completeness','evidence_support','actionability'):
      page.locator('#quality-form [name='+key+']').select_option('4')
     page.locator('#quality-form [name=evidence_support]').select_option('cannot_judge')

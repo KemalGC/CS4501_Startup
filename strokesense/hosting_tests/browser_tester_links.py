@@ -81,9 +81,22 @@ def main():
                                 page.locator(mode).click()
                                 # preload=metadata is allowed to stop before loadeddata.
                                 # Actually request playback, then prove decoded frames advance.
-                                page.locator('#video').evaluate("async v => { v.muted=true; v.currentTime=0; await v.play(); }")
-                                page.wait_for_function("document.querySelector('#video').currentTime > 0.2 && document.querySelector('#video').readyState >= 2", timeout=10000)
-                                page.locator('#video').evaluate("v => v.pause()")
+                                # Poll inside a supplied function: wait_for_function's
+                                # string evaluation is blocked by the real strict CSP.
+                                # Keep CSP enabled and verify actual decoded playback.
+                                page.locator('#video').evaluate("""async v => {
+                                  v.muted=true; v.currentTime=0; await v.play();
+                                  await new Promise((resolve,reject) => {
+                                    const deadline=performance.now()+10000;
+                                    function check() {
+                                      if(v.currentTime>0.2 && v.readyState>=2) return resolve(true);
+                                      if(performance.now()>=deadline) return reject(Error('Video did not advance'));
+                                      setTimeout(check,50);
+                                    }
+                                    check();
+                                  });
+                                  v.pause();
+                                }""")
                                 page.locator('#video').evaluate("v => new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Seek failed')),10000);v.addEventListener('seeked',()=>{clearTimeout(timer);resolve(true);},{once:true});v.currentTime=1;})")
                                 assert abs(page.locator('#video').evaluate('v => v.currentTime') - 1) < .15
                         expect(page.locator('#progress')).to_have_text('0 / 6 saved')

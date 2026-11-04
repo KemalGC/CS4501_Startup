@@ -22,6 +22,7 @@ import re
 import secrets
 import sqlite3
 from urllib.parse import parse_qs, urlsplit
+from .feedback_quality import VERSION as QUALITY_VERSION, public_questions, validate_quality, QualityStore
 
 ASPECTS = {
     'tracking': ('Rower detection & tracking', 'Does the system follow the right people without swapping or losing them?'),
@@ -200,6 +201,7 @@ def create_server(pack, *, port=8767, db_path=None):
         keyfile.write_text(secrets.token_urlsafe(32)); keyfile.chmod(0o600)
     owner = keyfile.read_text().strip()
     store = ReviewStore(db_path or private/'reviews.sqlite3'); csrf = secrets.token_urlsafe(32)
+    quality = QualityStore(store)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = 'StrokeSenseReview/1'
@@ -236,9 +238,9 @@ def create_server(pack, *, port=8767, db_path=None):
             if not self.trusted(): self.error(403,'same_origin_required'); return
             parsed = urlsplit(self.path); route = parsed.path
             try:
-                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css'):
+                if route in ('/', '/library', '/app.js', '/style.css', '/library.js', '/library.css', '/quality.js', '/quality.css'):
                     name = 'index.html' if route in ('/', '/library') else route[1:]
-                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8'}[name]
+                    mime = {'index.html':'text/html; charset=utf-8','app.js':'application/javascript; charset=utf-8','style.css':'text/css; charset=utf-8', 'library.js':'application/javascript; charset=utf-8', 'library.css':'text/css; charset=utf-8', 'quality.js':'application/javascript; charset=utf-8', 'quality.css':'text/css; charset=utf-8'}[name]
                     self.send(200,(ASSETS/name).read_bytes(),mime);return
                 if route=='/api/bootstrap':
                     public=[]
@@ -249,10 +251,18 @@ def create_server(pack, *, port=8767, db_path=None):
                         item['report_state'] = ('analysis' if c['analysis'].get('status') == 'provisional' else 'diagnostic') if 'report' in item['assets'] else 'unavailable'
                         public.append(item)
                     self.send(200,{'schema_version':1,'csrf':csrf,'session':self.session(),'clips':public,
+                                  'quality_version':QUALITY_VERSION,'quality_questions':public_questions(),
                                   'aspects':[{'id':k,'title':v[0],'question':v[1]} for k,v in ASPECTS.items()]});return
                 if route.startswith('/api/owner/'):
                     if not self.owner():self.error(403,'owner_key_required');return
                     if route=='/api/owner/summary':self.send(200,store.summary());return
+                    if route=='/api/owner/quality.json':
+                        self.send(200,{'schema_version':1,'questionnaire_version':QUALITY_VERSION,
+                            'questions':public_questions(),'responses':quality.rows()},
+                            headers={'Content-Disposition':'attachment; filename="strokesense-quality.json"'});return
+                    if route=='/api/owner/quality.csv':
+                        self.send(200,quality.export_csv(),'text/csv; charset=utf-8',
+                            {'Content-Disposition':'attachment; filename="strokesense-quality.csv"'});return
                     rows=store.rows()
                     if route=='/api/owner/export.json':
                         self.send(200,{'schema_version':1,'exported_utc':datetime.now(timezone.utc).isoformat(),'summary':store.summary(),'responses':rows},headers={'Content-Disposition':'attachment; filename="strokesense-feedback.json"'});return
@@ -266,6 +276,12 @@ def create_server(pack, *, port=8767, db_path=None):
                     self.error(404,'not_found');return
                 session = self.session()
                 if not session:self.error(401,'begin_review_first');return
+                if route=='/api/quality':
+                    q=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
+                    if set(q)!={'clip'} or len(q['clip'])!=1:raise ValueError('invalid_query')
+                    cid=q['clip'][0]
+                    if cid not in clips:self.error(404,'clip_not_found');return
+                    self.send(200,{'responses':quality.responses(session['reviewer_id'],cid)});return
                 if route=='/api/responses':
                     q=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
                     cid=q.get('clip',[''])[0]
@@ -329,6 +345,11 @@ def create_server(pack, *, port=8767, db_path=None):
                     self.send(201,store.session(token),headers={'Set-Cookie':f'ss_review={token}; HttpOnly; SameSite=Strict; Path=/'});return
                 s=self.session()
                 if not s:self.error(401,'begin_review_first');return
+                if route=='/api/quality':
+                    cid=data.get('clip_id') if isinstance(data,dict) else None
+                    if cid not in clips:raise ValueError('invalid_clip')
+                    rows=validate_quality(data,clips[cid]);quality.save(s['reviewer_id'],rows)
+                    self.send(200,{'saved':True,'question_count':len(rows)});return
                 if route=='/api/reviews':
                     cid=data.get('clip_id')
                     if cid not in clips:raise ValueError('invalid_clip')

@@ -56,3 +56,5 @@ jobs:
         run: python strokesense/tests/browser_feedback.py
       - name: Navigate the report library and preserve private feedback
         run: python strokesense/tests/browser_feedback_library.py
+      - name: Save five separate report-quality answers and export them privately
+        run: python strokesense/tests/browser_feedback_quality.py

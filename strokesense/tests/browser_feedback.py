@@ -30,7 +30,7 @@ def main():
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
                 page.get_by_label('usefulness 4 — Very useful',exact=True).check()
                 page.get_by_label('accuracy 3 — Mixed',exact=True).check()
-                page.locator('textarea[name=comment]').fill('Synthetic browser feedback; never a participant result.')
+                page.locator('#rating-form textarea[name=comment]').fill('Synthetic browser feedback; never a participant result.')
                 with page.expect_response(lambda r:r.url.endswith('/api/reviews') and r.request.method=='POST') as response:
                     page.get_by_role('button',name='Save & next aspect',exact=False).click()
                 assert response.value.status==200

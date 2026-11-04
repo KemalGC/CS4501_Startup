@@ -37,7 +37,9 @@ def main():
                     page.get_by_role('button',name='Save & next aspect',exact=False).click()
                 assert response.value.status==200
                 expect(page.locator('#progress')).to_have_text('1 / 6 saved')
-                page.reload();expect(page.locator('#progress')).to_have_text('1 / 6 saved')
+                page.reload()
+                print('NATIVE RELOAD DIAGNOSTIC',json.dumps({'url':page.url,'rows':len(case.server.store.rows()),'toast':page.locator('#toast').inner_text(),'progress':page.locator('#progress').inner_text(),'errors':errors}),flush=True)
+                expect(page.locator('#progress')).to_have_text('1 / 6 saved')
                 assert len(case.server.store.rows())==1
                 page.goto(case.origin+'/#owner='+case.server.owner_key)
                 page.wait_for_selector('#owner:not([hidden])');page.wait_for_selector('.stat-card')

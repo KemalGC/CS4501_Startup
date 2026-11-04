@@ -34,7 +34,10 @@ class HostedTests(unittest.TestCase):
         self.create=create_app
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        self.client=self.new_client();self.addCleanup(self.client.__exit__,None,None,None)
+        self.client=self.new_client();self.addCleanup(self.close_client)
+    def close_client(self):
+        if self.client is not None:
+            self.client.__exit__(None,None,None);self.client=None
     def new_client(self):
         client=TestClient(self.create(data_dir=self.root,origin=ORIGIN,owner_key=OWNER,review_code=INVITE),base_url=ORIGIN)
         client.__enter__();return client
@@ -93,9 +96,11 @@ class HostedTests(unittest.TestCase):
         q={'clip_id':'clip-one','analysis_version':'r1','questionnaire_version':'quality-v1',
           'answers':{k:4 for k in ('clarity','specificity','completeness','evidence_support','actionability')},'comment':'Test'}
         self.assertEqual(self.client.post('/api/quality',json=q,headers=h).status_code,200)
-        other=self.new_client()
+        cookies=list(self.client.cookies.jar)
+        self.close_client()  # Stop and close the first backend, not just reload a page.
+        self.client=self.new_client();other=self.client
         try:
-            other.cookies.update(self.client.cookies)
+            for cookie in cookies:other.cookies.jar.set_cookie(cookie)
             self.assertEqual(len(other.get('/api/responses?clip=clip-one').json()['responses']),1)
             self.assertEqual(len(other.get('/api/quality?clip=clip-one').json()['responses']),5)
             csv=other.get('/api/owner/export.csv',headers={'Authorization':'Bearer '+OWNER})
@@ -104,7 +109,7 @@ class HostedTests(unittest.TestCase):
             self.assertEqual(other.post('/api/withdraw',json={},headers={'Origin':ORIGIN,'X-CSRF-Token':csrf}).status_code,200)
             rows=other.get('/api/owner/quality.json',headers={'Authorization':'Bearer '+OWNER}).json()['responses']
             self.assertEqual(rows,[])
-        finally:other.__exit__(None,None,None)
+        finally:self.close_client()
     def test_setup_rejects_overwrite_and_preserves_database(self):
         self.enroll();before=(self.root/'study/.feedback/reviews.sqlite3').read_bytes()
         self.assertEqual(self.upload().status_code,409)

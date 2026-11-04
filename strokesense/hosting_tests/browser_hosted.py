@@ -59,7 +59,15 @@ def main():
                     expect(page.locator('#submit-video-status')).to_contain_text('Submitted')
                     page.reload()
                     status=page.request.get(origin+'/api/responses?clip=clip-one').json()
-                    print('HOSTED RELOAD DIAGNOSTIC',json.dumps({'url':page.url,'responses':len(status.get('responses',[])),'progress':page.locator('#progress').inner_text(),'workspace_hidden':page.locator('#workspace').is_hidden()}),flush=True)
+                    client=page.evaluate("""async () => {
+                       const b=await(await fetch('/api/bootstrap')).json();
+                       const r=await(await fetch('/api/responses?clip=clip-one')).json();
+                       return {session:!!b.session,clip:b.clips?.[0]?.id,clipVersion:b.clips?.[0]?.analysis?.version,
+                               rows:r.responses?.map(v=>({version:v.analysis_version,aspect:v.aspect_id})),
+                               toast:document.getElementById('toast').textContent,
+                               saveState:document.getElementById('save-state').textContent};
+                    }""")
+                    print('HOSTED RELOAD DIAGNOSTIC',json.dumps({'url':page.url,'responses':len(status.get('responses',[])),'progress':page.locator('#progress').inner_text(),'workspace_hidden':page.locator('#workspace').is_hidden(),'browser':client}),flush=True)
                     assert len(status['responses'])==1, 'Saved responses must persist after reload'
                     page.goto(origin+'/library?clip=clip-one')
                     expect(page.locator('#progress')).to_have_text('1 / 6 saved')

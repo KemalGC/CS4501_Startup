@@ -17,10 +17,12 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import tempfile
 import threading
+import time
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -31,6 +33,7 @@ from starlette.routing import Route
 from .media import plausible_container
 from .oneclick_demo import PAGE, _safe_media, _safe_result, MAX_MEDIA_BYTES
 from .hosted_demo_state import HostedDemoState
+from .hosted_video_tabs import add_video_tabs
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; media-src 'self'; connect-src 'self'; "
@@ -44,6 +47,27 @@ REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
               "https://strokesense-review.kemalgcortuk.chatgpt.site")
 DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
+VISITOR_UPLOAD_BYTES = 50 * 1024 * 1024
+VISITOR_UPLOAD_COUNT = 3
+VISITOR_UPLOAD_TTL = 60 * 60 * 2
+VISITOR_GLOBAL_HOURLY_LIMIT = 24
+VISITOR_CLIENT_HOURLY_LIMIT = 6
+VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
+VISITOR_ID = re.compile(r"[0-9a-f]{48}\Z")
+
+
+def _visitor_name(value, *, encoded=True):
+    """Use a filename for display only, never as part of a filesystem path."""
+    if not isinstance(value, str):
+        return None
+    try:
+        name = unquote(value, encoding="utf-8", errors="strict") if encoded else value
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not 1 <= len(name) <= 120 or any(c in name for c in "\\/\r\n\0"):
+        return None
+    ext = Path(name).suffix.lower()
+    return (name, ext) if ext in VISITOR_MEDIA_TYPES else None
 
 
 def _install_demo_video(source_url, sha256, video_path, upper):
@@ -123,6 +147,7 @@ def _page(csrf: str, nonce: str):
     page = page.replace("fetch('/api/status'", "fetch('/api/demo/status'")
     page = page.replace("fetch('/api/analyze'", "fetch('/api/demo/analyze'")
     page = page.replace("'x-csrf-token':token", "'x-demo-csrf':token")
+    page = add_video_tabs(page)
     page = page.replace('__CSRF_JSON__',json.dumps(csrf))
     return page.replace('__NONCE__',nonce)
 
@@ -185,8 +210,14 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     demo_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     video_path = demo_root / "prepared.mp4"
     work_dir = demo_root / "outputs"
+    visitor_root = demo_root / "visitor-uploads"
+    if visitor_root.is_symlink():
+        raise ValueError("unsafe_visitor_directory")
+    visitor_root.mkdir(mode=0o700, exist_ok=True)
     lock = threading.Lock()
-    data = {"demo": None}
+    analysis_gate = threading.Lock()
+    data = {"demo": None, "uploads": {}}
+    upload_history = []
     csrf = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(18)
     bootstrap_status = {"state": "not_configured"}
@@ -200,6 +231,74 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     if video_path.is_file():
         data["demo"] = fresh_state()
         bootstrap_status["state"] = "ready"
+
+    def analysis_busy():
+        prepared = data["demo"]
+        return (prepared is not None and prepared.snapshot()["state"] == "running"
+                or any(entry["state"].snapshot()["state"] == "running"
+                       for entry in data["uploads"].values()))
+
+    def visitor_entry(job_id):
+        """Enforce temporary-upload expiration on every read or rerun."""
+        entry = data["uploads"].get(job_id)
+        if (entry is not None and time.time() - entry["created"] > VISITOR_UPLOAD_TTL
+                and entry["state"].snapshot()["state"] != "running"):
+            return None
+        return entry
+
+    def visitor_quota_open(request):
+        """Bound public paid-CPU work, even after completed jobs are evicted."""
+        now = time.time()
+        upload_history[:] = [(at, client) for at, client in upload_history if now - at < 3600]
+        client = request.client.host if request.client else "unknown"
+        return (len(upload_history) < VISITOR_GLOBAL_HOURLY_LIMIT and
+                sum(previous == client for _, previous in upload_history) < VISITOR_CLIENT_HOURLY_LIMIT)
+
+    def load_uploads():
+        # A Render restart must not silently swap an uploaded report with the
+        # prepared report. Each private-id directory restores only its own run.
+        now = time.time()
+        for folder in sorted(visitor_root.iterdir()):
+            if not folder.is_dir() or folder.is_symlink() or not VISITOR_ID.fullmatch(folder.name):
+                continue
+            try:
+                meta_path = folder / "upload.json"
+                if meta_path.is_symlink() or meta_path.stat().st_size > 1024:
+                    continue
+                meta = json.loads(meta_path.read_text())
+                name = _visitor_name(meta["name"], encoded=False)
+                created = meta["created"]
+                if (not name or type(created) not in (int, float) or created > now + 60
+                        or now - created > VISITOR_UPLOAD_TTL):
+                    shutil.rmtree(folder)
+                    continue
+                media_path = folder / ("input" + name[1])
+                if media_path.is_symlink() or not media_path.is_file():
+                    continue
+                state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
+                data["uploads"][folder.name] = {"name": name[0], "created": created,
+                                                 "state": state, "video": media_path, "root": folder}
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+
+    def free_upload_slot():
+        now = time.time()
+        for job_id, entry in list(data["uploads"].items()):
+            if now - entry["created"] > VISITOR_UPLOAD_TTL and entry["state"].snapshot()["state"] != "running":
+                data["uploads"].pop(job_id)
+                shutil.rmtree(entry["root"])
+        if len(data["uploads"]) >= VISITOR_UPLOAD_COUNT:
+            # Preserve active analysis jobs; completed reports are temporary.
+            reusable = [(job_id, entry) for job_id, entry in data["uploads"].items()
+                        if entry["state"].snapshot()["state"] != "running"]
+            if not reusable:
+                return False
+            job_id, entry = min(reusable, key=lambda item: item[1]["created"])
+            data["uploads"].pop(job_id)
+            shutil.rmtree(entry["root"])
+        return True
+
+    load_uploads()
 
     source_url = bootstrap_url or os.environ.get("STROKESENSE_DEMO_SOURCE_URL", "")
     source_sha256 = bootstrap_sha256 or os.environ.get("STROKESENSE_DEMO_SOURCE_SHA256", "")
@@ -301,6 +400,31 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 headers={"Content-Security-Policy":PUBLIC_CSP.format(nonce=nonce)})
         if route == "/api/demo/status" and request.method in ("GET","HEAD"):
             return JSONResponse(data["demo"].snapshot()) if data["demo"] else reply(409,"video_not_ready")
+        visitor_status = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/status", route)
+        if visitor_status and request.method in ("GET", "HEAD"):
+            entry = visitor_entry(visitor_status.group(1))
+            return JSONResponse(entry["state"].snapshot()) if entry else reply(404, "video_not_found")
+        visitor_media = re.fullmatch(r"/demo/videos/([0-9a-f]{48})/(video|report|annotated)", route)
+        if visitor_media and request.method in ("GET", "HEAD"):
+            entry = visitor_entry(visitor_media.group(1))
+            if entry is None:
+                return reply(404, "video_not_found")
+            kind = visitor_media.group(2)
+            if kind == "video":
+                return video_response(request, entry["video"])
+            state = entry["state"]
+            if state.snapshot()["state"] != "finished":
+                return reply(404, "report_not_ready")
+            path = state.report if kind == "report" else state.overlay
+            if path is None or not _safe_result(state.output_root, path):
+                return reply(404, "report_not_ready")
+            if kind == "annotated":
+                return video_response(request, path)
+            if path.stat().st_size > 16 * 1024 * 1024:
+                return reply(503, "report_too_large")
+            return Response(path.read_bytes() if request.method == "GET" else b"",
+                media_type="text/html; charset=utf-8",
+                headers={"Content-Security-Policy": REPORT_CSP})
         if route == "/demo/video" and request.method in ("GET","HEAD"):
             if data["demo"] is None:
                 return reply(404,"video_not_ready")
@@ -333,9 +457,96 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             demo=data["demo"]
             if demo is None:
                 return reply(409,"video_not_ready")
-            if not demo.begin():
-                return reply(409,"analysis_already_started")
+            with analysis_gate:
+                if analysis_busy() or not demo.begin():
+                    return reply(409,"analysis_already_started")
             return JSONResponse({"started":True},status_code=202)
+        visitor_analyze = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/analyze", route)
+        if visitor_analyze and request.method == "POST":
+            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+                return reply(403, "csrf_required")
+            if request.headers.get("content-type") != "application/json":
+                return reply(415, "json_required")
+            try:
+                raw = await bounded_body(request, 2)
+            except OverflowError:
+                return reply(400, "expected_empty_json")
+            if raw != b"{}":
+                return reply(400, "expected_empty_json")
+            entry = visitor_entry(visitor_analyze.group(1))
+            if entry is None:
+                return reply(404, "video_not_found")
+            with analysis_gate:
+                if analysis_busy() or not entry["state"].begin():
+                    return reply(409, "analysis_in_progress")
+            return JSONResponse({"started": True}, status_code=202)
+        if route == "/api/demo/videos" and request.method == "POST":
+            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+                return reply(403, "csrf_required")
+            name = _visitor_name(request.headers.get("x-demo-filename", ""))
+            if not name or request.headers.get("content-type") != VISITOR_MEDIA_TYPES[name[1]]:
+                return reply(415, "supported_video_required")
+            limit = min(upper, VISITOR_UPLOAD_BYTES)
+            lengths = request.headers.getlist("content-length")
+            if len(lengths) > 1 or (lengths and not lengths[0].isdigit()):
+                return reply(411, "invalid_content_length")
+            if lengths and not 0 < int(lengths[0]) <= limit:
+                return reply(413, "video_too_large")
+            if not lock.acquire(blocking=False):
+                return reply(409, "upload_in_progress")
+            pending = None
+            folder = None
+            try:
+                if not visitor_quota_open(request):
+                    return reply(429, "upload_rate_limited")
+                with analysis_gate:
+                    if analysis_busy():
+                        return reply(409, "analysis_in_progress")
+                with tempfile.NamedTemporaryFile(dir=visitor_root, prefix=".upload-", delete=False) as stream:
+                    pending = Path(stream.name)
+                    total = 0
+                    header = bytearray()
+                    async for chunk in request.stream():
+                        total += len(chunk)
+                        if total > limit:
+                            return reply(413, "video_too_large")
+                        if len(header) < 4096:
+                            header.extend(chunk[:4096 - len(header)])
+                        stream.write(chunk)
+                if total < 1 or (lengths and total != int(lengths[0])):
+                    return reply(422, "incomplete_video")
+                if not plausible_container(bytes(header), name[1], total_size=total):
+                    return reply(422, "invalid_video_container")
+                if not free_upload_slot():
+                    return reply(429, "analysis_capacity_reached")
+                job_id = secrets.token_hex(24)
+                folder = visitor_root / job_id
+                folder.mkdir(mode=0o700)
+                media_path = folder / ("input" + name[1])
+                os.chmod(pending, 0o600)
+                os.replace(pending, media_path)
+                pending = None
+                created = time.time()
+                (folder / "upload.json").write_text(json.dumps({"name": name[0], "created": created}))
+                state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
+                with analysis_gate:
+                    if analysis_busy() or not state.begin():
+                        return reply(409, "analysis_in_progress")
+                    data["uploads"][job_id] = {"name": name[0], "created": created,
+                                                "state": state, "video": media_path, "root": folder}
+                    upload_history.append((created, request.client.host if request.client else "unknown"))
+                folder = None
+                return JSONResponse({"id": job_id, "name": name[0], "started": True,
+                    "status_url": f"/api/demo/videos/{job_id}/status",
+                    "video_url": f"/demo/videos/{job_id}/video",
+                    "report_url": f"/demo/videos/{job_id}/report",
+                    "annotated_url": f"/demo/videos/{job_id}/annotated"}, status_code=202)
+            finally:
+                if pending is not None:
+                    pending.unlink(missing_ok=True)
+                if folder is not None:
+                    shutil.rmtree(folder)
+                lock.release()
         if route == "/api/owner/demo-video" and request.method == "POST":
             if not owner_ok(request):
                 return reply(403,"owner_key_required")

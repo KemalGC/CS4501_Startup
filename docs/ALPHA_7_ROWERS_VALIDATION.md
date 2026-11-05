@@ -3,7 +3,7 @@
 **Due:** Nov 5, 2026, 11 a.m. Eastern. **Repository:** https://github.com/KemalGC/CS4501_Startup. **Review Site:** https://strokesense-review.kemalgcortuk.chatgpt.site. Working source is on \`dev-consolidated\`; do not assume \`main\` has the latest Alpha.
 
 ## Activity 1 — MVP hypothesis check
-The MVP slide states: **"Coaches can review footage faster without losing useful coaching detail."** This is a review-workflow hypothesis, not proof from pose-estimation output.
+The original MVP slide states: **"Coaches can review footage faster without losing useful coaching detail."** For the broader Alpha audience, we state the hypothesis as **"Rowers and coaches can review footage faster without losing useful coaching detail."** This is a proposed workflow hypothesis, not proof from pose-estimation output. The original coach-specific success thresholds remain unchanged until the pilot is independently redefined.
 
 The **team-reported revised pilot is seven rowers; two have coached before**. Previously proposed: four coaches, twelve rowers, thirty clips. The actual software study uses seven trimmed **eights-only** clips, 124 seconds total, not seven unique human subjects. Two rowers with prior coaching do not constitute an independent four-coach reference majority.
 
@@ -29,11 +29,11 @@ The following **nine core Alpha stories** are an intentionally selected product 
 
 | ID | User story (As a…, I want…, so that…) | Acceptance evidence | Issue links | Status |
 |---|---|---|---|---|
-| S1 | As a coach, I want permission-checked video upload and one-click analysis, so I can review without manual setup. | Consent/Origin/size checks, duplicate-safe upload, status/report | #29 #88 #94 | Local Alpha done |
-| S2 | As a coach, I want detected rowers and a confirmed eight on one boat, so other crews cannot enter results. | Detect candidates; select exactly eight; withhold ambiguous | #98 #100 | Local Alpha done |
+| S1 | As a rower or coach, I want permission-checked video upload and one-click analysis, so I can review without manual setup. | Consent/Origin/size checks, duplicate-safe upload, status/report | #29 #88 #94 | Local Alpha done |
+| S2 | As a rower or coach, I want detected rowers and a confirmed eight on one boat, so other crews cannot enter results. | Detect candidates; select exactly eight; withhold ambiguous | #98 #100 | Local Alpha done |
 | S3 | As a rower, I want one shared boat cadence and per-seat timing, so rower cards do not disagree about SPM. | Common cycle estimate or withheld; raw observations preserved | #108 #118 | Cadence done, wider validation open |
-| S4 | As a coach, I want video-linked reports and frames, so I can verify every technique claim. | Report/overlay/clip matching, failure warnings, snapshot links | #95 #111 | Curated clip reports done |
-| S5 | As a coach, I want independently checked LLM coaching cues, so numeric hallucinations do not appear as confirmed advice. | Offline reject/correct/withhold; live reviewed in-product provider demonstration outstanding | #14 #15 #17 #50 #56 #120 | Partial |
+| S4 | As a rower or coach, I want video-linked reports and frames, so I can verify every technique claim. | Report/overlay/clip matching, failure warnings, snapshot links | #95 #111 | Curated clip reports done |
+| S5 | As a rower or coach, I want independently checked LLM coaching cues, so numeric hallucinations do not appear as confirmed advice. | Offline reject/correct/withhold; live reviewed in-product provider demonstration outstanding | #14 #15 #17 #50 #56 #120 | Partial |
 | S6 | As a tester, I want a usable saved review form with owner-only exports, so I can give private product feedback. | Clip-specific persistence, role, technical questions, withdraw and exports | #110 #115 #117 | Site live separately; Python guest variant open |
 | S7 | As a researcher, I want seven-rower baseline vs assisted data, so we can decide if the hypothesis holds. | Pair timing, preserve detail, independent fault labels, real n | #119 | Open |
 | S8 | As a tester, I want a separate private optional-demo upload, so I can inspect my own video without contaminating the seven research clips. | Private upload and playback, quota, delete, no fake analysis | #121 | Open |

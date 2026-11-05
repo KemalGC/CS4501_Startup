@@ -23,6 +23,7 @@ import threading
 from urllib.parse import urlsplit
 
 from starlette.applications import Starlette
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
@@ -318,6 +319,6 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
 
     app=Starlette(routes=[Route("/{path:path}",handle,
                       methods=["GET","HEAD","POST","PUT","DELETE","PATCH","OPTIONS"])])
-    app.middleware("http")(security_headers)
+    app.add_middleware(BaseHTTPMiddleware, dispatch=security_headers)
     app.state.demo_csrf=csrf
     return app

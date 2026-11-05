@@ -16,7 +16,7 @@ The **team-reported revised pilot is seven rowers; two have coached before**. Pr
 4. Where actual independent coach labels exist, calculate per-opportunity fault agreement with denominators. \`cannot_judge\`, estimates, unconsented and withdrawn records cannot silently become measurements.
 5. Interview the participants: useful cue, incorrect/missing cue, would-use-again, and first requested change. Quote only consent-cleared nonidentifying feedback.
 
-**Metrics:** percent reduction in median review time \`100 * (median(manual) - median(assisted)) / median(manual)\`; preserved-detail percent among answered respondents; actionable report percent by reviewer role; expert agreement from genuine independent fault labels. Existing slide targets are **>=30% review-time reduction, >=70% qualified-coach actionability, >=75% agreement with coach majority**.
+**Metrics:** percent reduction in median review time \`100 * (median(manual) - median(assisted)) / median(manual)\`; preserved-detail percent among answered respondents; actionable report percent by reviewer role; collegiate rower–coach agreement from eligible, independently recorded paired fault judgments. Original MVP coach-only benchmarks are historical. The revised Alpha target measures are **>=30% review-time reduction, >=70% usefulness among responding rowers and coaches, and >=75% agreement between eligible independently paired collegiate rower and coach technique judgments**. None is claimed achieved.
 
 **Current outcome:** the user supplied a revised sample size/composition but not per-person consent, stopwatch pairs, blind fault labels, detailed responses or coach-majority labels. **NOT YET VALIDATED**; this means evidence is incomplete, not that the hypothesis has been falsified. No measured percentage may be inferred from software tests, sample-size alone, synthetic responses or model SPM estimates.
 
@@ -65,4 +65,4 @@ The assignment asks for an 8-minute section including a 2-minute Q&A, although i
 
 Deliverables by Nov 5 11 a.m.: **Slides PDF, Part 1 Activities PDF, repo link**. A random teammate is selected to speak; all should rehearse and be ready.
 
-**Outstanding before claiming a validated MVP:** real signed/consented test responses, paired stopwatch readings and fault labels; qualified coach reference, reproducible coverage percentage, and a verified live LLM path where required. The conservative pivot option is to focus on verified rhythm and evidence-first coach review, pending actual user feedback—not a proven new market claim.
+**Outstanding before claiming a validated MVP:** real signed/consented test responses, paired stopwatch readings and fault labels; independent collegiate rower/coach paired judgments, reproducible coverage percentage, and a verified live LLM path where required. The conservative pivot option is to focus on verified rhythm and evidence-first coach review, pending actual user feedback—not a proven new market claim.

@@ -17,9 +17,9 @@ import os
 from pathlib import Path
 import re
 import secrets
-import shutil
 import tempfile
 import threading
+import urllib.request
 from urllib.parse import urlsplit
 
 from starlette.applications import Starlette
@@ -29,7 +29,8 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Route
 
 from .media import plausible_container
-from .oneclick_demo import DemoState, PAGE, _safe_media, _safe_result, MAX_MEDIA_BYTES
+from .oneclick_demo import PAGE, _safe_media, _safe_result, MAX_MEDIA_BYTES
+from .hosted_demo_state import HostedDemoState
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; media-src 'self'; connect-src 'self'; "
@@ -40,6 +41,51 @@ DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
               "https://strokesense-review.kemalgcortuk.chatgpt.site")
+DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
+
+
+def _install_demo_video(source_url, sha256, video_path, upper):
+    """Install only the owner's declared public demo asset, with verified bytes."""
+    if source_url != DEMO_SOURCE_URL or not re.fullmatch(r"[a-f0-9]{64}", sha256 or ""):
+        raise ValueError("invalid_demo_source")
+    if video_path.exists():
+        return
+    pending = None
+    try:
+        request = urllib.request.Request(source_url, headers={"User-Agent": "StrokeSense-Render/1.0"})
+        with urllib.request.urlopen(request, timeout=60) as response:
+            if response.geturl() != source_url:
+                raise ValueError("unexpected_demo_redirect")
+            expected = response.headers.get("Content-Length")
+            if expected and (not expected.isdigit() or not 0 < int(expected) <= upper):
+                raise ValueError("invalid_demo_size")
+            digest = hashlib.sha256()
+            total = 0
+            header = bytearray()
+            with tempfile.NamedTemporaryFile(dir=video_path.parent, prefix=".bootstrap-", delete=False) as stream:
+                pending = Path(stream.name)
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > upper:
+                        raise ValueError("demo_too_large")
+                    if len(header) < 4096:
+                        header.extend(chunk[:4096-len(header)])
+                    digest.update(chunk)
+                    stream.write(chunk)
+            if (not total or (expected and total != int(expected)) or digest.hexdigest() != sha256
+                    or not plausible_container(bytes(header), ".mp4", total_size=total)):
+                raise ValueError("demo_integrity_check_failed")
+        os.chmod(pending, 0o600)
+        # The caller holds the same lock used by authenticated owner uploads.
+        if not video_path.exists():
+            os.replace(pending, video_path)
+            pending = None
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
 
 def _safe_origin(value: str):
     u = urlsplit(value)
@@ -64,6 +110,11 @@ def _page(csrf: str, nonce: str):
     page = page.replace("Unable to connect to the local analysis service", "Unable to connect to the analysis service")
     page = page.replace("The demo is available only on this computer.",
                         "Separate from the seven curated study clips and participant feedback.")
+    page = page.replace("The report will be computed on this exact 16-second excerpt.", "The report is computed from this exact video.")
+    page = page.replace("button.disabled=data.state==='running'||data.state==='finished';", "button.disabled=data.state==='running';")
+    page = page.replace("data.state==='finished'?'Analysis finished'", "data.state==='finished'?'Run analysis again'")
+    page = page.replace("Click once to start actual inference on this clip. The button does not replay a precomputed result.",
+                        "Run pose detection and stroke analysis on the video. You can open the latest report or run a fresh analysis.")
     page = page.replace('src="/video"', 'src="/demo/video"')
     page = page.replace('href="/report"', 'href="/demo/report"')
     page = page.replace('href="/annotated"', 'href="/demo/annotated"')
@@ -117,7 +168,7 @@ document.getElementById('upload').addEventListener('submit',async (event)=>{
 
 
 def create_app(*, data_dir=None, origin=None, owner_key=None,
-               max_upload_bytes=None, command_factory=None):
+               max_upload_bytes=None, command_factory=None, bootstrap_url=None, bootstrap_sha256=None):
     root = Path(data_dir or os.environ.get("STROKESENSE_DEMO_DATA_DIR", "/var/data")).resolve()
     origin = (origin or os.environ.get("STROKESENSE_DEMO_ORIGIN")
               or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
@@ -136,19 +187,35 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     data = {"demo": None}
     csrf = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(18)
+    bootstrap_status = {"state": "not_configured"}
 
     def fresh_state():
-        # Only disposable demonstration results live here; clearing stale output
-        # ensures a newly triggered worker never releases a prior report.
-        if work_dir.exists():
-            if work_dir.is_symlink():
-                raise ValueError("unsafe_output_directory")
-            shutil.rmtree(work_dir)
-        work_dir.mkdir(mode=0o700)
-        return DemoState(video_path, work_dir, command_factory=command_factory)
+        if work_dir.is_symlink():
+            raise ValueError("unsafe_output_directory")
+        work_dir.mkdir(mode=0o700, exist_ok=True)
+        return HostedDemoState(video_path, work_dir, command_factory=command_factory)
 
     if video_path.is_file():
         data["demo"] = fresh_state()
+        bootstrap_status["state"] = "ready"
+
+    source_url = bootstrap_url or os.environ.get("STROKESENSE_DEMO_SOURCE_URL", "")
+    source_sha256 = bootstrap_sha256 or os.environ.get("STROKESENSE_DEMO_SOURCE_SHA256", "")
+    bootstrap_thread = None
+    if data["demo"] is None and source_url:
+        if source_url != DEMO_SOURCE_URL or not re.fullmatch(r"[a-f0-9]{64}", source_sha256):
+            raise ValueError("invalid_demo_source")
+        bootstrap_status["state"] = "preparing"
+        def bootstrap():
+            with lock:
+                try:
+                    _install_demo_video(source_url, source_sha256, video_path, upper)
+                    data["demo"] = fresh_state()
+                    bootstrap_status["state"] = "ready"
+                except (OSError, ValueError):
+                    bootstrap_status["state"] = "failed"
+        bootstrap_thread = threading.Thread(target=bootstrap, daemon=True)
+        bootstrap_thread.start()
 
     def reply(status, reason):
         return JSONResponse({"error":reason},status_code=status)
@@ -201,7 +268,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     async def handle(request: Request):
         route = request.url.path
         if route == "/healthz" and request.method in ("GET","HEAD"):
-            return JSONResponse({"ok":True,"demo_video_ready":data["demo"] is not None})
+            return JSONResponse({"ok":True,"demo_video_ready":data["demo"] is not None,
+                "demo_setup":bootstrap_status["state"],"version":"render-demo-v2"})
         if not protected(request):
             return reply(403,"same_origin_required")
         if request.method not in ("GET","HEAD","POST"):
@@ -214,9 +282,10 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     "<!doctype html><html lang='en'><meta charset='utf-8'>"
                     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>StrokeSense demo setup</title>"
-                    "<main style='font:18px system-ui;max-width:650px;margin:60px auto'>"
-                    "<h1>Demo video not loaded yet</h1>"
-                    "<p>The owner must prepare the video before visitors can run the model.</p>"
+                    "<main style='font:18px system-ui;max-width:650px;margin:60px auto'>" +
+                    ("<h1>Preparing the demo video</h1><p>The video is being transferred to the analysis service. Refresh shortly.</p>"
+                     if bootstrap_status["state"] == "preparing" else
+                     "<h1>Demo video not loaded yet</h1><p>The owner must prepare the video before visitors can run the model.</p>") +
                     "<a href='/setup'>Prepare the demo video</a></main></html>"
                 )
             return HTMLResponse(_page(csrf,nonce),
@@ -321,4 +390,6 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                       methods=["GET","HEAD","POST","PUT","DELETE","PATCH","OPTIONS"])])
     app.add_middleware(BaseHTTPMiddleware, dispatch=security_headers)
     app.state.demo_csrf=csrf
+    app.state.bootstrap_thread=bootstrap_thread
+    app.state.demo_data=data
     return app

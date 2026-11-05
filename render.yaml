@@ -1,28 +1,29 @@
+# This isolated branch deploys ONLY the compute-backed live demo. The survey site is unchanged.
+# Paid 2 CPU / 4 GB Render instance: owner must accept charges in Render.
+# Do not deploy or switch plans without approval.
 services:
   - type: web
-    name: strokesense-alpha
+    name: strokesense-real-analysis-demo
     runtime: python
     repo: https://github.com/KemalGC/CS4501_Startup
-    branch: dev-consolidated
+    branch: dev/2026-11-04-render-oneclick-live
     rootDir: strokesense
-    plan: 0.5c-512mb
+    plan: 2c-4g
     region: virginia
     autoDeployTrigger: "off"
-    buildCommand: pip install -r requirements-hosted.txt
-    startCommand: uvicorn strokesense.feedback_hosted:create_app --factory --host 0.0.0.0 --port $PORT --workers 1 --limit-concurrency 32 --timeout-keep-alive 5 --no-proxy-headers --no-access-log
+    buildCommand: pip install -r requirements-demo-hosted.txt
+    startCommand: uvicorn strokesense.web_demo_hosted:create_app --factory --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 5 --no-proxy-headers --no-access-log
     healthCheckPath: /healthz
     disk:
-      name: strokesense-study
+      name: strokesense-demo
       mountPath: /var/data
       sizeGB: 2
     envVars:
       - key: PYTHON_VERSION
-        value: 3.14.8
-      - key: STROKESENSE_DATA_DIR
+        value: "3.11.11"
+      - key: MPLBACKEND
+        value: Agg
+      - key: STROKESENSE_DEMO_DATA_DIR
         value: /var/data
-      - key: STROKESENSE_OWNER_KEY
+      - key: STROKESENSE_DEMO_OWNER_KEY
         generateValue: true
-      - key: STROKESENSE_REVIEW_CODE
-        generateValue: true
-      - key: STROKESENSE_EXPECTED_CLIPS
-        value: "7"

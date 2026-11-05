@@ -31,3 +31,5 @@ services:
         value: https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4
       - key: STROKESENSE_DEMO_SOURCE_SHA256
         value: 4ef24792190ca9f6cfed0887b5a0ae5dd1787ababd857a66d3f26d42167299d3
+      - key: STROKESENSE_DEMO_RELEASE
+        value: render-demo-v3

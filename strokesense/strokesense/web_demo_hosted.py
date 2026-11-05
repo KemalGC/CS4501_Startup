@@ -38,6 +38,8 @@ PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
                "https://strokesense-review.kemalgcortuk.chatgpt.site")
+MEDIA_CSP = ("default-src 'none'; media-src 'self'; frame-ancestors 'self' "
+             "https://strokesense-review.kemalgcortuk.chatgpt.site")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
               "https://strokesense-review.kemalgcortuk.chatgpt.site")
@@ -249,6 +251,9 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             path, request.headers.get("range"), head=True,
             mime=mimetypes.guess_type(path.name)[0] or "video/mp4"
         )
+        # Browsers apply this policy to their generated standalone video page.
+        # A default-src 'none' response without media-src blocks its own MP4.
+        headers["Content-Security-Policy"] = MEDIA_CSP
         if code == 416:
             return Response(status_code=416,headers=headers)
         if request.method == "HEAD":
@@ -269,7 +274,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         route = request.url.path
         if route == "/healthz" and request.method in ("GET","HEAD"):
             return JSONResponse({"ok":True,"demo_video_ready":data["demo"] is not None,
-                "demo_setup":bootstrap_status["state"],"version":"render-demo-v2"})
+                "demo_setup":bootstrap_status["state"],
+                "version":os.environ.get("STROKESENSE_DEMO_RELEASE", "render-demo-v3")})
         if not protected(request):
             return reply(403,"same_origin_required")
         if request.method not in ("GET","HEAD","POST"):

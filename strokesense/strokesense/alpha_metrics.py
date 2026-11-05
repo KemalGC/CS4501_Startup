@@ -21,7 +21,7 @@ def assert_same_commit(expected: str, actual: str) -> None:
 
 def parse_unittest_log(log: str) -> dict:
     """Parse one completed unittest run; preserve duplicate discovery counts."""
-    ids = re.findall(r'^test\S+\s+\(([^)]+)\)\s+\.\.\.', log, re.MULTILINE)
+    ids = re.findall(r'^test\S+\s+\(([^)]+)\)', log, re.MULTILINE)
     runs = list(re.finditer(r'^Ran (\d+) tests? in ([\d.]+)s\s*$', log, re.MULTILINE))
     result = {'complete': False, 'executions': None, 'unique_tests': len(set(ids)),
               'repeated_executions': max(0, len(ids) - len(set(ids))),

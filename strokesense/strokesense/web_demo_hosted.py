@@ -113,10 +113,10 @@ def _page(csrf: str, nonce: str):
     page = page.replace("The demo is available only on this computer.",
                         "Separate from the seven curated study clips and participant feedback.")
     page = page.replace("The report will be computed on this exact 16-second excerpt.", "The report is computed from this exact video.")
-    page = page.replace("button.disabled=data.state==='running'||data.state==='finished';", "button.disabled=data.state==='running';")
+    page = page.replace("button.disabled=data.state==='running'||data.state==='finished';", "button.disabled=data.state==='running'||data.can_rerun===false;")
     page = page.replace("data.state==='finished'?'Analysis finished'", "data.state==='finished'?'Run analysis again'")
     page = page.replace("Click once to start actual inference on this clip. The button does not replay a precomputed result.",
-                        "Run pose detection and stroke analysis on the video. You can open the latest report or run a fresh analysis.")
+                        "Run pose detection and stroke analysis, then generate coaching feedback with a language model. You can open the latest report or run a fresh analysis.")
     page = page.replace('src="/video"', 'src="/demo/video"')
     page = page.replace('href="/report"', 'href="/demo/report"')
     page = page.replace('href="/annotated"', 'href="/demo/annotated"')

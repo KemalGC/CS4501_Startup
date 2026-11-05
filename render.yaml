@@ -32,4 +32,8 @@ services:
       - key: STROKESENSE_DEMO_SOURCE_SHA256
         value: 4ef24792190ca9f6cfed0887b5a0ae5dd1787ababd857a66d3f26d42167299d3
       - key: STROKESENSE_DEMO_RELEASE
-        value: render-demo-v3
+        value: render-demo-v4-llm
+      - key: STROKESENSE_LLM_FEEDBACK
+        value: "1"
+      - key: STROKESENSE_LLM_MODEL_DIR
+        value: /var/data/llm-models

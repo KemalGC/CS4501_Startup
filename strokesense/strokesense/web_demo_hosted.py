@@ -216,6 +216,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     visitor_root.mkdir(mode=0o700, exist_ok=True)
     lock = threading.Lock()
     analysis_gate = threading.Lock()
+    queue_wake = threading.Event()
+    queue_thread = None
     data = {"demo": None, "uploads": {}}
     upload_history = []
     csrf = secrets.token_urlsafe(32)
@@ -237,6 +239,18 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         return (prepared is not None and prepared.snapshot()["state"] == "running"
                 or any(entry["state"].snapshot()["state"] == "running"
                        for entry in data["uploads"].values()))
+
+    def queue_pending():
+        return any(entry.get("queued", False) for entry in data["uploads"].values())
+
+    def visitor_snapshot(entry):
+        if entry.get("queued"):
+            return {"state": "queued", "label": "Waiting for Render analysis",
+                "detail": "Your video was uploaded successfully. Render will start its full analysis automatically when the current job finishes.",
+                "progress": 0, "has_report": False, "has_overlay": False,
+                "elapsed_seconds": None, "crew_summary": None,
+                "llm_feedback": {"state": "pending"}, "can_rerun": False}
+        return entry["state"].snapshot()
 
     def visitor_entry(job_id):
         """Enforce temporary-upload expiration on every read or rerun."""
@@ -268,6 +282,10 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 meta = json.loads(meta_path.read_text())
                 name = _visitor_name(meta["name"], encoded=False)
                 created = meta["created"]
+                delete_token = meta.get("delete_token")
+                if delete_token is not None and (not isinstance(delete_token, str)
+                        or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", delete_token)):
+                    continue
                 if (not name or type(created) not in (int, float) or created > now + 60
                         or now - created > VISITOR_UPLOAD_TTL):
                     shutil.rmtree(folder)
@@ -277,20 +295,24 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     continue
                 state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
                 data["uploads"][folder.name] = {"name": name[0], "created": created,
-                                                 "state": state, "video": media_path, "root": folder}
+                                                 "state": state, "video": media_path, "root": folder,
+                                                 "delete_token": delete_token,
+                                                 "queued": bool(meta.get("auto_start")) and
+                                                     state.snapshot()["state"] == "ready"}
             except (OSError, ValueError, KeyError, TypeError):
                 continue
 
     def free_upload_slot():
         now = time.time()
         for job_id, entry in list(data["uploads"].items()):
-            if now - entry["created"] > VISITOR_UPLOAD_TTL and entry["state"].snapshot()["state"] != "running":
+            if (now - entry["created"] > VISITOR_UPLOAD_TTL and
+                    entry["state"].snapshot()["state"] != "running"):
                 data["uploads"].pop(job_id)
                 shutil.rmtree(entry["root"])
         if len(data["uploads"]) >= VISITOR_UPLOAD_COUNT:
             # Preserve active analysis jobs; completed reports are temporary.
             reusable = [(job_id, entry) for job_id, entry in data["uploads"].items()
-                        if entry["state"].snapshot()["state"] != "running"]
+                        if not entry.get("queued") and entry["state"].snapshot()["state"] != "running"]
             if not reusable:
                 return False
             job_id, entry = min(reusable, key=lambda item: item[1]["created"])
@@ -298,7 +320,33 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             shutil.rmtree(entry["root"])
         return True
 
+    def process_queue():
+        """One daemon per Render worker; never overlap CPU-heavy model jobs."""
+        while True:
+            queue_wake.wait(1.0)
+            queue_wake.clear()
+            with lock:
+                with analysis_gate:
+                    waiting = sorted((entry for entry in data["uploads"].values()
+                                      if entry.get("queued") and
+                                      time.time() - entry["created"] <= VISITOR_UPLOAD_TTL),
+                                     key=lambda entry: entry["created"])
+                    if waiting and not analysis_busy():
+                        next_job = waiting[0]
+                        if next_job["state"].begin():
+                            next_job["queued"] = False
+
+    def ensure_queue_worker():
+        nonlocal queue_thread
+        # Called while holding `lock`, except for single-threaded app setup.
+        if queue_thread is None or not queue_thread.is_alive():
+            queue_thread = threading.Thread(target=process_queue, daemon=True)
+            queue_thread.start()
+        queue_wake.set()
+
     load_uploads()
+    if queue_pending():
+        ensure_queue_worker()
 
     source_url = bootstrap_url or os.environ.get("STROKESENSE_DEMO_SOURCE_URL", "")
     source_sha256 = bootstrap_sha256 or os.environ.get("STROKESENSE_DEMO_SOURCE_SHA256", "")
@@ -327,7 +375,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         return (hosts == [host] and len(request.url.path) <= 512
                 and len(request.url.query) <= 512 and
                 (not origins or origins == [origin]) and
-                (request.method != "POST" or origins == [origin]))
+                (request.method not in ("POST", "DELETE") or origins == [origin]))
 
     def owner_ok(request: Request):
         return hmac.compare_digest(
@@ -377,7 +425,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 "version":os.environ.get("STROKESENSE_DEMO_RELEASE", "render-demo-v3")})
         if not protected(request):
             return reply(403,"same_origin_required")
-        if request.method not in ("GET","HEAD","POST"):
+        if request.method not in ("GET","HEAD","POST","DELETE"):
             return reply(405,"method_not_allowed")
         if route == "/" and request.method in ("GET","HEAD"):
             return RedirectResponse("/demo",status_code=307)
@@ -403,7 +451,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         visitor_status = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/status", route)
         if visitor_status and request.method in ("GET", "HEAD"):
             entry = visitor_entry(visitor_status.group(1))
-            return JSONResponse(entry["state"].snapshot()) if entry else reply(404, "video_not_found")
+            return JSONResponse(visitor_snapshot(entry)) if entry else reply(404, "video_not_found")
         visitor_media = re.fullmatch(r"/demo/videos/([0-9a-f]{48})/(video|report|annotated)", route)
         if visitor_media and request.method in ("GET", "HEAD"):
             entry = visitor_entry(visitor_media.group(1))
@@ -458,7 +506,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if demo is None:
                 return reply(409,"video_not_ready")
             with analysis_gate:
-                if analysis_busy() or not demo.begin():
+                if analysis_busy() or queue_pending() or not demo.begin():
                     return reply(409,"analysis_already_started")
             return JSONResponse({"started":True},status_code=202)
         visitor_analyze = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/analyze", route)
@@ -477,9 +525,39 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if entry is None:
                 return reply(404, "video_not_found")
             with analysis_gate:
-                if analysis_busy() or not entry["state"].begin():
+                if entry.get("queued") or analysis_busy() or queue_pending() or not entry["state"].begin():
                     return reply(409, "analysis_in_progress")
             return JSONResponse({"started": True}, status_code=202)
+        visitor_delete = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})", route)
+        if visitor_delete and request.method == "DELETE":
+            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+                return reply(403, "csrf_required")
+            if not lock.acquire(blocking=False):
+                return reply(409, "upload_in_progress")
+            try:
+                with analysis_gate:
+                    job_id = visitor_delete.group(1)
+                    entry = visitor_entry(job_id)
+                    if entry is None:
+                        return reply(404, "video_not_found")
+                    delete_token = entry.get("delete_token")
+                    # Clips created before removal was added had no per-clip
+                    # token. Their unpredictable 192-bit ID remains the only
+                    # bearer capability for the rest of their two-hour life.
+                    if delete_token and not hmac.compare_digest(
+                            request.headers.get("x-demo-delete-token", ""), delete_token):
+                        return reply(403, "delete_token_required")
+                    snapshot = entry["state"].snapshot()
+                    if snapshot["state"] == "running" or not snapshot["can_rerun"]:
+                        return reply(409, "analysis_in_progress")
+                    try:
+                        shutil.rmtree(entry["root"])
+                    except OSError:
+                        return reply(503, "unable_to_remove_video")
+                    data["uploads"].pop(job_id, None)
+                return JSONResponse({"removed": True, "id": job_id})
+            finally:
+                lock.release()
         if route == "/api/demo/videos" and request.method == "POST":
             if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
                 return reply(403, "csrf_required")
@@ -499,9 +577,6 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             try:
                 if not visitor_quota_open(request):
                     return reply(429, "upload_rate_limited")
-                with analysis_gate:
-                    if analysis_busy():
-                        return reply(409, "analysis_in_progress")
                 with tempfile.NamedTemporaryFile(dir=visitor_root, prefix=".upload-", delete=False) as stream:
                     pending = Path(stream.name)
                     total = 0
@@ -527,16 +602,26 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 os.replace(pending, media_path)
                 pending = None
                 created = time.time()
-                (folder / "upload.json").write_text(json.dumps({"name": name[0], "created": created}))
+                delete_token = secrets.token_urlsafe(32)
+                (folder / "upload.json").write_text(json.dumps({
+                    "name": name[0], "created": created, "delete_token": delete_token,
+                    "auto_start": True,
+                }))
                 state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
                 with analysis_gate:
-                    if analysis_busy() or not state.begin():
-                        return reply(409, "analysis_in_progress")
+                    queued = analysis_busy() or queue_pending()
+                    if not queued and not state.begin():
+                        return reply(503, "unable_to_start_analysis")
                     data["uploads"][job_id] = {"name": name[0], "created": created,
-                                                "state": state, "video": media_path, "root": folder}
+                                                "state": state, "video": media_path, "root": folder,
+                                                "delete_token": delete_token, "queued": queued}
                     upload_history.append((created, request.client.host if request.client else "unknown"))
+                if queued:
+                    ensure_queue_worker()
                 folder = None
-                return JSONResponse({"id": job_id, "name": name[0], "started": True,
+                return JSONResponse({"id": job_id, "name": name[0],
+                    "started": not queued, "queued": queued,
+                    "delete_token": delete_token,
                     "status_url": f"/api/demo/videos/{job_id}/status",
                     "video_url": f"/demo/videos/{job_id}/video",
                     "report_url": f"/demo/videos/{job_id}/report",

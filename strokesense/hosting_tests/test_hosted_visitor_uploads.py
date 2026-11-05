@@ -83,6 +83,14 @@ class VisitorUploadTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.03)
         self.fail("Synthetic worker did not reach a terminal state")
 
+    async def deletable(self, job_id):
+        for _ in range(150):
+            status = (await self.request("GET", f"/api/demo/videos/{job_id}/status")).json()
+            if status["state"] == "finished" and status["can_rerun"]:
+                return
+            await asyncio.sleep(.03)
+        self.fail("Upload did not finish background work")
+
     async def test_prepared_video_remains_default_and_new_tabs_have_full_analysis(self):
         page = await self.request("GET", "/demo")
         self.assertEqual(page.status_code, 200, page.text)
@@ -99,6 +107,7 @@ class VisitorUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(info["name"], "Video 2.mp4")
         self.assertEqual(len(info["id"]), 48)
         self.assertTrue(info["started"])
+        self.assertGreaterEqual(len(info["delete_token"]), 32)
         self.assertEqual((await self.request("GET", info["video_url"])).content, CUSTOM)
         report_while_running = await self.request("GET", info["report_url"])
         self.assertEqual(report_while_running.status_code, 404)
@@ -170,8 +179,25 @@ class VisitorUploadTests(unittest.IsolatedAsyncioTestCase):
         first = await self.upload()
         self.assertEqual(first.status_code, 202, first.text)
         second = await self.upload(name="clip3.mp4")
-        self.assertEqual(second.status_code, 409, second.text)
-        self.assertEqual(second.json()["error"], "analysis_in_progress")
+        self.assertEqual(second.status_code, 202, second.text)
+        self.assertFalse(second.json()["started"])
+        self.assertTrue(second.json()["queued"])
+        second_state = (await self.request("GET", second.json()["status_url"])).json()
+        self.assertEqual(second_state["state"], "queued", second_state)
+        self.assertIn("automatically", second_state["detail"])
+        self.assertEqual((await self.finished(first.json()["id"]))["state"], "finished")
+        self.assertEqual((await self.finished(second.json()["id"]))["state"], "finished")
+
+    async def test_queued_video_can_be_removed_without_waiting_for_analysis(self):
+        first = await self.upload()
+        second = await self.upload(name="queued.mp4")
+        self.assertEqual(second.status_code, 202, second.text)
+        self.assertTrue(second.json()["queued"])
+        removed = await self.request("DELETE", f"/api/demo/videos/{second.json()['id']}",
+            origin=True, csrf=True,
+            headers={"X-Demo-Delete-Token": second.json()["delete_token"]})
+        self.assertEqual(removed.status_code, 200, removed.text)
+        self.assertEqual((await self.request("GET", second.json()["status_url"])).status_code, 404)
         self.assertEqual((await self.finished(first.json()["id"]))["state"], "finished")
 
     async def test_public_upload_quota_bounds_paid_render_work(self):
@@ -182,6 +208,58 @@ class VisitorUploadTests(unittest.IsolatedAsyncioTestCase):
             second = await self.upload(name="next.mp4")
         self.assertEqual(second.status_code, 429, second.text)
         self.assertEqual(second.json()["error"], "upload_rate_limited")
+
+    async def test_remove_deletes_video_and_report_but_never_prepared_default(self):
+        accepted = await self.upload()
+        self.assertEqual(accepted.status_code, 202, accepted.text)
+        job = accepted.json()
+        url = f"/api/demo/videos/{job['id']}"
+        token = job["delete_token"]
+        self.assertEqual((await self.request("DELETE", url, csrf=True,
+            headers={"X-Demo-Delete-Token": token})).status_code, 403)
+        self.assertEqual((await self.request("DELETE", url, origin=True,
+            headers={"X-Demo-Delete-Token": token})).status_code, 403)
+        self.assertEqual((await self.request("DELETE", url, origin=True, csrf=True)).status_code, 403)
+        self.assertEqual((await self.request("DELETE", url, origin=True, csrf=True,
+            headers={"X-Demo-Delete-Token": "wrong"})).status_code, 403)
+        self.assertEqual((await self.request("DELETE", url, origin=True, csrf=True,
+            headers={"X-Demo-Delete-Token": token})).status_code, 409)
+        await self.deletable(job["id"])
+        self.assertIn("SYNTHETIC FIXTURE C", (await self.request("GET", job["report_url"])).text)
+        removed = await self.request("DELETE", url, origin=True, csrf=True,
+                                     headers={"X-Demo-Delete-Token": token})
+        self.assertEqual(removed.status_code, 200, removed.text)
+        self.assertTrue(removed.json()["removed"])
+        self.assertFalse((self.root / "demo" / "visitor-uploads" / job["id"]).exists())
+        for path in (job["video_url"], job["report_url"], job["annotated_url"], job["status_url"]):
+            self.assertEqual((await self.request("GET", path)).status_code, 404)
+        self.assertEqual((await self.request("DELETE", url, origin=True, csrf=True,
+            headers={"X-Demo-Delete-Token": token})).status_code, 404)
+        self.assertEqual((await self.request("GET", "/demo/video")).content, PREPARED)
+        self.assertEqual((await self.request("GET", "/api/demo/status")).json()["state"], "ready")
+
+    async def test_remove_token_is_restored_with_its_video_after_restart(self):
+        accepted = await self.upload()
+        job = accepted.json()
+        await self.deletable(job["id"])
+        restarted = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER, max_upload_bytes=1024)
+        response = await self.request("DELETE", f"/api/demo/videos/{job['id']}", app=restarted,
+                                      origin=True, csrf=True,
+                                      headers={"X-Demo-Delete-Token": job["delete_token"]})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual((await self.request("GET", "/demo/video", app=restarted)).content, PREPARED)
+
+    async def test_existing_upload_from_before_remove_feature_can_be_removed(self):
+        accepted = await self.upload()
+        job_id = accepted.json()["id"]
+        await self.deletable(job_id)
+        # Older Render deployments created unpredictable video IDs but did not
+        # issue separate removal tokens. Keep those existing tabs removable.
+        self.app.state.demo_data["uploads"][job_id]["delete_token"] = None
+        removed = await self.request("DELETE", f"/api/demo/videos/{job_id}",
+                                     origin=True, csrf=True)
+        self.assertEqual(removed.status_code, 200, removed.text)
+        self.assertEqual((await self.request("GET", "/demo/video")).content, PREPARED)
 
     async def test_expired_upload_cannot_be_read_or_rerun(self):
         accepted = await self.upload()

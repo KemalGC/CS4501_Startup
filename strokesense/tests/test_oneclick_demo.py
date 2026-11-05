@@ -25,6 +25,7 @@ class OneClickDemoTests(unittest.TestCase):
         fake='''from pathlib import Path\nimport sys,time\np=Path(sys.argv[1])/'example'\np.mkdir(parents=True,exist_ok=True)\nprint('[1/4] Running pose estimation',flush=True)\nprint('frame 30/80',flush=True)\n(p/'report.html').write_text('<h1>Fresh synthetic report</h1>')\n(p/'metrics.json').write_text('\\{\\"synthetic\\":true\\}')\n(p/'crew_annotated.mp4').write_bytes(b'FAKE_OUTPUT')\n'''
         # Avoid malformed escape sequences in test fixture JSON.
         fake=fake.replace("'\\{\\\"synthetic\\\":true\\}'", "'{}'")
+        fake=fake.replace("write_text('{}')", "write_text('{\\\"rowers\\\":[{\\\"seat\\\":\\\"R1\\\",\\\"strokes\\\":[{},{}]},{\\\"seat\\\":\\\"R2\\\",\\\"strokes\\\":[{},{}]}],\\\"crew_cadence\\\":{\\\"rate_spm\\\":30.0}}')")
         self.server=create_server(self.video,output_dir=out,port=0,command_factory=lambda:[sys.executable,'-c',fake,str(out)])
         self.base=f'http://127.0.0.1:{self.server.server_address[1]}'
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)

@@ -13,6 +13,7 @@ import hashlib
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -26,6 +27,43 @@ import time
 MAX_DURATION_SECONDS = 30 * 60
 MAX_MEDIA_BYTES = 150 * 1024 * 1024
 MAX_LOG_BYTES = 32 * 1024 * 1024
+MAX_METRICS_BYTES = 16 * 1024 * 1024
+
+def summarize_crew_metrics(metrics):
+    """Expose only actual saved model measurements, never assume 8 identities.
+
+    A track count is not independent identity verification; a missing cadence
+    stays unavailable instead of being silently substituted from one rower.
+    """
+    if not isinstance(metrics, dict) or not isinstance(metrics.get('rowers'), list):
+        raise ValueError('invalid_crew_metrics')
+    rowers = metrics['rowers']
+    if not 2 <= len(rowers) <= 9:
+        raise ValueError('no_usable_crew_tracks')
+    seen, strokes = set(), 0
+    for rower in rowers:
+        if not isinstance(rower, dict):
+            raise ValueError('invalid_crew_rower')
+        seat, cycles = rower.get('seat'), rower.get('strokes')
+        if (not isinstance(seat, str) or not 1 <= len(seat) <= 80 or seat in seen
+                or not isinstance(cycles, list) or len(cycles) > 10000
+                or not all(isinstance(cycle, dict) for cycle in cycles)):
+            raise ValueError('invalid_crew_rower')
+        seen.add(seat)
+        strokes += len(cycles)
+    if strokes < 1:
+        raise ValueError('no_usable_strokes')
+    cadence = metrics.get('crew_cadence')
+    if not isinstance(cadence, dict):
+        raise ValueError('invalid_crew_cadence')
+    rate = cadence.get('rate_spm')
+    if rate is not None and (type(rate) not in (int, float) or not math.isfinite(rate)
+                             or not 5 <= rate <= 90):
+        raise ValueError('invalid_crew_cadence')
+    return {'candidate_rowers': len(rowers), 'observed_cycles': strokes,
+            'shared_rate_spm': round(float(rate), 1) if rate is not None else None,
+            'full_eight_observed': len(rowers) == 8,
+            'method': 'model candidate tracks; not independently verified rower identities'}
 
 
 def _safe_result(base: Path, path: Path) -> bool:
@@ -106,6 +144,7 @@ h2{font-size:24px;margin:0 0 11px}p{margin:9px 0} .status{font-size:18px;font-we
 <div class="grid"><section class="card" aria-labelledby="video-title"><h2 id="video-title">IMG_5092 · 16-second eights clip</h2>
 <video controls playsinline preload="metadata" src="/video" aria-label="Prepared eights video"></video>
 <p class="meta">Original window: 10–26 seconds of IMG_5092.MOV. The report will be computed on this exact 16-second excerpt.</p>
+<div id="crew-summary" class="note" role="status" aria-live="polite" hidden></div>
 <div id="result-links" class="links" hidden><a class="secondary" href="/report" target="_blank" rel="noopener">Open generated analysis report</a>
 <a id="annotated" class="secondary" href="/annotated" target="_blank" rel="noopener">Watch generated model overlay</a></div></section>
 <section class="card" aria-labelledby="run-title"><h2 id="run-title">Run the model</h2>
@@ -124,6 +163,7 @@ const details = document.getElementById('details');
 const bar = document.getElementById('bar');
 const links = document.getElementById('result-links');
 const overlay = document.getElementById('annotated');
+const crew = document.getElementById('crew-summary');
 async function refresh(){
  try{
   const response=await fetch('/api/status',{cache:'no-store',credentials:'same-origin'});
@@ -136,6 +176,8 @@ async function refresh(){
   bar.style.width=(data.progress||0)+'%';
   links.hidden=data.state!=='finished';
   overlay.hidden=!data.has_overlay;
+  crew.hidden=data.state!=='finished'||!data.crew_summary;
+  if(!crew.hidden){const info=data.crew_summary;const rate=info.shared_rate_spm===null?'rate unavailable':info.shared_rate_spm.toFixed(1)+' shared boat SPM';crew.textContent=info.candidate_rowers+' candidate rower tracks · '+info.observed_cycles+' measured stroke cycles · '+rate+'. '+(info.full_eight_observed?'Tracks are not independently identity-verified.':'Not all eight rowers were identified; review the report before drawing conclusions.');}
  }catch(e){status.textContent='Unable to connect to the local analysis service';details.textContent='Check the terminal running the demo.'}
 }
 button.addEventListener('click',async()=>{
@@ -168,6 +210,7 @@ class DemoState:
         self.last_end = None
         self.report = None
         self.overlay = None
+        self.crew_summary = None
         self.log = None
         self.worker = None
 
@@ -181,6 +224,7 @@ class DemoState:
             error = self.error
             report = self.report
             overlay = self.overlay
+            crew_summary = self.crew_summary
             log = self.log
             start = self.last_start
         label = {'ready': 'Ready for analysis', 'running': 'Running StrokeSense',
@@ -211,17 +255,22 @@ class DemoState:
             detail={'model_missing':'The pose model could not be loaded. Install requirements and retry.',
                     'analysis_timeout':'The CPU analysis exceeded its time limit.',
                     'no_usable_strokes':'The model could not produce a reliable report for this view.',
-                    'analysis_failed':'The model process failed. See the private terminal for diagnostic details.'}.get(error,'The analysis did not complete. See the private terminal.')
+                    'analysis_failed':'The model process failed. See the private terminal for diagnostic details.',
+                    'invalid_crew_metrics':'The report did not contain usable measured crew data.',
+                    'invalid_crew_rower':'The crew track data could not be validated.',
+                    'invalid_crew_cadence':'The saved shared boat cadence was invalid.',
+                    'no_usable_crew_tracks':'The model did not identify multiple rowers on one boat.'}.get(error,'The analysis did not complete. See the private terminal.')
         return {'state':phase,'label':label,'detail':detail,'progress':progress,
                 'has_report':bool(report and report.exists()),'has_overlay':bool(overlay and overlay.exists()),
-                'elapsed_seconds':int(time.monotonic()-start) if start and phase=='running' else None}
+                'elapsed_seconds':int(time.monotonic()-start) if start and phase=='running' else None,
+                'crew_summary':crew_summary if phase=='finished' else None}
 
     def begin(self):
         with self.lock:
             if self.phase == 'running':return False
             if self.phase == 'finished':return False  # Exactly one fresh run in this session.
             self.phase='running';self.error='';self.last_start=time.monotonic()
-            self.report=None;self.overlay=None;self.log=self.root / '.oneclick-analysis.log'
+            self.report=None;self.overlay=None;self.crew_summary=None;self.log=self.root / '.oneclick-analysis.log'
             self.worker=threading.Thread(target=self._run,daemon=True)
             self.worker.start()
             return True
@@ -254,12 +303,22 @@ class DemoState:
                 with self.lock:self.phase='failed';self.error='analysis_failed'
                 return
             meta=report.parent / 'metrics.json'
-            if not _safe_result(self.root,meta):
-                with self.lock:self.phase='failed';self.error='analysis_failed'
+            if not _safe_result(self.root,meta) or meta.stat().st_size > MAX_METRICS_BYTES:
+                with self.lock:self.phase='failed';self.error='invalid_crew_metrics'
+                return
+            try:
+                with meta.open('rb') as stream:
+                    metrics = json.load(stream)
+                crew_summary = summarize_crew_metrics(metrics)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                error = str(exc) if isinstance(exc, ValueError) and str(exc) in (
+                    'invalid_crew_metrics','invalid_crew_rower','invalid_crew_cadence',
+                    'no_usable_crew_tracks','no_usable_strokes') else 'invalid_crew_metrics'
+                with self.lock:self.phase='failed';self.error=error
                 return
             overlay=next((x for x in sorted(report.parent.glob('*_annotated.*')) if x.suffix.lower() in ('.mp4','.webm') and _safe_result(self.root,x)),None)
             with self.lock:
-                self.report=report;self.overlay=overlay;self.phase='finished';self.error=''
+                self.report=report;self.overlay=overlay;self.crew_summary=crew_summary;self.phase='finished';self.error=''
         except (OSError,ValueError,subprocess.SubprocessError):
             with self.lock:self.phase='failed';self.error='analysis_failed'
 

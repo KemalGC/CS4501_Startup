@@ -10,6 +10,7 @@ import unittest
 
 import httpx
 from strokesense.web_demo_hosted import create_app
+from strokesense.oneclick_demo import summarize_crew_metrics, DemoState
 
 ORIGIN = "https://demo.example.test"
 OWNER = "owner-" + "A" * 48
@@ -20,11 +21,11 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         fixture = (
-            "from pathlib import Path;import sys,time;"
+            "from pathlib import Path;import sys,time,json;"
             "p=Path(sys.argv[1])/'synthetic';p.mkdir(parents=True,exist_ok=True);"
             "print('[1/4] Running pose estimation',flush=True);"
             "(p/'report.html').write_text('<h1>TEST FIXTURE ONLY</h1>');"
-            "(p/'metrics.json').write_text('{}');"
+            "(p/'metrics.json').write_text(json.dumps({'rowers':[ {'seat':str(i),'strokes':[{}]*2} for i in range(8)],'crew_cadence':{'rate_spm':30.1}}));"
             "(p/'crew_annotated.mp4').write_bytes(b'FAKE VIDEO')"
         )
         self.app = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
@@ -111,6 +112,9 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.025)
         self.assertEqual(snapshot["state"],"finished",snapshot)
         self.assertTrue(snapshot["has_report"])
+        self.assertEqual(snapshot["crew_summary"]["candidate_rowers"],8)
+        self.assertEqual(snapshot["crew_summary"]["observed_cycles"],16)
+        self.assertEqual(snapshot["crew_summary"]["shared_rate_spm"],30.1)
         self.assertTrue(snapshot["has_overlay"])
         doc=await self.req("GET","/demo/report")
         self.assertEqual(doc.status_code,200)
@@ -132,6 +136,56 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
         await self.prepared()
         bad=await self.req("GET","/api/demo/status",headers={"Host":"evil.example"})
         self.assertEqual(bad.status_code,403)
+
+class CrewMetricsContractTests(unittest.TestCase):
+    def fixture(self, n=8, cycles=2, rate=30.):
+        return {"rowers": [{"seat": f"R{i}","strokes": [{}]*cycles} for i in range(n)],
+                "crew_cadence": {"rate_spm": rate}}
+
+    def test_one_shared_rate_for_eight_tracks(self):
+        summary = summarize_crew_metrics(self.fixture())
+        self.assertEqual(summary['candidate_rowers'],8)
+        self.assertEqual(summary['observed_cycles'],16)
+        self.assertEqual(summary['shared_rate_spm'],30.)
+        self.assertTrue(summary['full_eight_observed'])
+
+    def test_partial_crew_is_explicit_not_falsely_eight(self):
+        summary = summarize_crew_metrics(self.fixture(n=5,rate=None))
+        self.assertEqual(summary['candidate_rowers'],5)
+        self.assertIsNone(summary['shared_rate_spm'])
+        self.assertFalse(summary['full_eight_observed'])
+
+    def test_no_usable_stroke_cycles_cannot_claim_finished(self):
+        with self.assertRaisesRegex(ValueError,'no_usable_strokes'):
+            summarize_crew_metrics(self.fixture(cycles=0))
+
+    def test_missing_or_malformed_metrics_rejected(self):
+        for bad in ({}, {'rowers': []}, {'rowers':[{},{}]},
+                    {'rowers':[{'seat':'R1','strokes':[{}]}, {'seat':'R1','strokes':[{}]}],
+                     'crew_cadence':{'rate_spm':30}}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                summarize_crew_metrics(bad)
+
+    def test_nonfinite_rate_rejected(self):
+        for rate in (float('nan'),float('inf'),-1,True,1000):
+            with self.subTest(rate=rate), self.assertRaisesRegex(ValueError,'invalid_crew_cadence'):
+                summarize_crew_metrics(self.fixture(rate=rate))
+
+    def test_real_command_uses_pose_cli_and_dominant_crew(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'prepared.mp4';source.write_bytes(VALID_MP4)
+            demo=DemoState(source,Path(temp)/'results')
+            command=demo._command()
+            self.assertEqual(command[1:4],['-u','-m','strokesense.cli'])
+            self.assertIn('--dominant-crew',command)
+            self.assertIn('--fps',command)
+            self.assertEqual(command[command.index('--fps')+1],'10')
+
+    def test_status_does_not_expose_crew_metrics_before_analysis(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'prepared.mp4';source.write_bytes(VALID_MP4)
+            demo=DemoState(source,Path(temp)/'results')
+            self.assertIsNone(demo.snapshot()['crew_summary'])
 
 if __name__=="__main__":
     unittest.main()

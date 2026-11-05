@@ -13,7 +13,7 @@
   "17": ["test_provider"],
   "50": ["test_coaching_cli"],
   "56": ["test_coaching_demo", "test_demo"],
-  "120": ["test_coaching_job_state", "test_web_coaching_state"],
+  "120": ["test_coaching_job_state", "test_web_coaching_state", "test_review_demo"],
   "110": ["test_feedback", "test_feedback_evaluation", "test_feedback_quality"],
   "115": ["test_tester_links", "test_hosted", "test_curated_study"],
   "117": [],

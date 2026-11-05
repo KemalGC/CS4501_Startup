@@ -160,6 +160,29 @@ class ReviewDemoTests(unittest.TestCase):
         self.assertFalse(self.session().begin())
         self.factory.assert_not_called()
 
+    def test_source_timestamps_seek_relative_to_trimmed_clip(self):
+        metrics = json.loads(self.metrics.read_text())
+        snapshot = metrics['evidence']
+        snapshot['start_seconds'] = 10.0
+        for stroke in snapshot['strokes']:
+            for key in ('catch_seconds', 'finish_seconds', 'next_catch_seconds'):
+                stroke[key] += 10.0
+        payload = {k: v for k, v in snapshot.items() if k != 'snapshot_sha256'}
+        snapshot['snapshot_sha256'] = hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
+            allow_nan=False).encode()).hexdigest()
+        self.metrics.write_text(json.dumps(metrics))
+        self.manifest['metrics_sha256'] = hashlib.sha256(self.metrics.read_bytes()).hexdigest()
+        self.save_review()
+        result = self.run_session(self.session())
+        self.assertAlmostEqual(result['evidence'][0]['video_seek_seconds'], 10 / 15, places=6)
+
+    def test_unapproved_cue_never_constructs_the_provider(self):
+        self.manifest['cues'][self.candidate['cue_id']]['review_status'] = 'unreviewed'
+        self.save_review()
+        self.assertFalse(self.session().begin())
+        self.factory.assert_not_called()
+
     def start_server(self, session):
         from strokesense.review_demo import create_server
         server = create_server(session, port=0)

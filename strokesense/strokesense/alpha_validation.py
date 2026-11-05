@@ -1,6 +1,6 @@
 """Privacy-safe seven-rower StrokeSense Alpha pilot summary.
 
-Seven rowers, two with prior coaching experience, are team-reported recruitment
+Seven feedback-form reviewers, two with prior coaching experience, are team-reported recruitment
 composition; this does NOT establish a qualified coach-majority reference.
 """
 from __future__ import annotations
@@ -77,7 +77,7 @@ def summarize(rows):
     actions = [r['actionable'] for r, _, _ in clean if r['actionable']]
     return {
         'schema_version': 1,
-        'population': 'team-reported seven rowers; two have coached before; not a verified expert-majority panel',
+        'population': 'team-reported seven form reviewers; two have coached before; the filmed athletes are not respondents',
         'declared_sample_n': EXPECTED_ROWS,
         'declared_prior_coaching_n': REPORTED_PRIOR_COACHING,
         'profile_rows_n': len(rows),

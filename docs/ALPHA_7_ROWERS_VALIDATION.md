@@ -1,11 +1,11 @@
-# StrokeSense Project Alpha — seven-rower validation and engineering evidence
+# StrokeSense Project Alpha — seven-form-reviewer validation and engineering evidence
 
 **Due:** Nov 5, 2026, 11 a.m. Eastern. **Repository:** https://github.com/KemalGC/CS4501_Startup. **Review Site:** https://strokesense-review.kemalgcortuk.chatgpt.site. Working source is on \`dev-consolidated\`; do not assume \`main\` has the latest Alpha.
 
 ## Activity 1 — MVP hypothesis check
 The original MVP slide states: **"Coaches can review footage faster without losing useful coaching detail."** For the broader Alpha audience, we state the hypothesis as **"Rowers and coaches can review footage faster without losing useful coaching detail."** This is a proposed workflow hypothesis, not proof from pose-estimation output. The original coach-specific success thresholds remain unchanged until the pilot is independently redefined.
 
-The **team-reported revised pilot is seven rowers; two have coached before**. Previously proposed: four coaches, twelve rowers, thirty clips. The actual software study uses seven trimmed **eights-only** clips, 124 seconds total, not seven unique human subjects. Two rowers with prior coaching do not constitute an independent four-coach reference majority.
+The **revised validation group is seven people completing review forms; two have coached before**. These seven reviewers are not the eight athletes appearing in each crew video. Previously proposed: four coaches, twelve rowers, thirty clips. The actual software study uses seven trimmed **eights-only** clips, 124 seconds total, not seven completed human reviews. Two form reviewers with prior coaching do not constitute an independent four-coach reference majority.
 
 **Do not place names, contact details, video permissions or raw judgments in public GitHub.** Use a consent-controlled ID-to-person mapping privately; the blank \`docs/alpha_validation_7_template.csv\` contains \`R01\` to \`R07\` as *placeholder identifiers*, not verified individuals or outcomes. The rower-to-coaching-history mapping was not supplied and remains blank.
 
@@ -35,7 +35,7 @@ The following **nine core Alpha stories** are an intentionally selected product 
 | S4 | As a rower or coach, I want video-linked reports and frames, so I can verify every technique claim. | Report/overlay/clip matching, failure warnings, snapshot links | #95 #111 | Curated clip reports done |
 | S5 | As a rower or coach, I want independently checked LLM coaching cues, so numeric hallucinations do not appear as confirmed advice. | Offline reject/correct/withhold; live reviewed in-product provider demonstration outstanding | #14 #15 #17 #50 #56 #120 | Partial |
 | S6 | As a tester, I want a usable saved review form with owner-only exports, so I can give private product feedback. | Clip-specific persistence, role, technical questions, withdraw and exports | #110 #115 #117 | Site live separately; Python guest variant open |
-| S7 | As a researcher, I want seven-rower baseline vs assisted data, so we can decide if the hypothesis holds. | Pair timing, preserve detail, independent fault labels, real n | #119 | Open |
+| S7 | As a researcher, I want seven-reviewer baseline vs assisted data, so we can decide if the hypothesis holds. | Pair timing, preserve detail, independent fault labels, real n | #119 | Open |
 | S8 | As a tester, I want a separate private optional-demo upload, so I can inspect my own video without contaminating the seven research clips. | Private upload and playback, quota, delete, no fake analysis | #121 | Open |
 | S9 | As a developer, I want exact test/coverage/provenance metrics, so we can substantiate QA slides. | Test runs, line coverage, AI/manual provenance, issue-to-test map | #122 | In progress |
 

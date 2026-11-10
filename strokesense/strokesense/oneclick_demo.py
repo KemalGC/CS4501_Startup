@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -213,10 +214,48 @@ class DemoState:
         self.crew_summary = None
         self.log = None
         self.worker = None
+        self.cancel_requested = threading.Event()
+        self.process = None
 
     def _command(self):
         return [sys.executable, '-u', '-m', 'strokesense.cli', str(self.video),
                 '--out', str(self.root), '--fps', '10', '--dominant-crew', '--threads','2']
+
+    def _stop_process(self, proc):
+        """Stop this analysis subprocess and its descendants without blocking the HTTP handler."""
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            if os.name == 'posix':
+                os.killpg(proc.pid, signal.SIGTERM)
+            else:
+                proc.terminate()
+        except (OSError, ProcessLookupError):
+            return
+
+        def force_stop():
+            try:
+                proc.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                if proc.poll() is None:
+                    try:
+                        if os.name == 'posix':
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        else:
+                            proc.kill()
+                    except (OSError, ProcessLookupError):
+                        pass
+        threading.Thread(target=force_stop, daemon=True).start()
+
+    def cancel(self):
+        """Request cancellation of a running worker; preserve uploaded inputs and prior files."""
+        with self.lock:
+            if self.phase != 'running' and not (self.worker and self.worker.is_alive()):
+                return False
+            self.cancel_requested.set()
+            proc = self.process
+        self._stop_process(proc)
+        return True
 
     def snapshot(self):
         with self.lock:
@@ -267,8 +306,10 @@ class DemoState:
 
     def begin(self):
         with self.lock:
-            if self.phase == 'running':return False
+            if self.phase == 'running' or (self.worker and self.worker.is_alive()):return False
             if self.phase == 'finished':return False  # Exactly one fresh run in this session.
+            self.cancel_requested.clear()
+            self.process=None
             self.phase='running';self.error='';self.last_start=time.monotonic()
             self.report=None;self.overlay=None;self.crew_summary=None;self.log=self.root / '.oneclick-analysis.log'
             self.worker=threading.Thread(target=self._run,daemon=True)
@@ -279,32 +320,65 @@ class DemoState:
         log = self.log
         try:
             with log.open('wb') as out:
-                cmd=self.command_factory()
-                if not isinstance(cmd,list) or not cmd or not all(isinstance(i,str) for i in cmd):
+                cmd = self.command_factory()
+                if not isinstance(cmd, list) or not cmd or not all(isinstance(i, str) for i in cmd):
                     raise ValueError('bad_command')
-                proc=subprocess.Popen(cmd,stdin=subprocess.DEVNULL,stdout=out,stderr=subprocess.STDOUT,
-                    cwd=str(Path(__file__).resolve().parents[1]),close_fds=True)
-                try:
-                    ret=proc.wait(timeout=MAX_DURATION_SECONDS)
-                except subprocess.TimeoutExpired:
-                    proc.kill();proc.wait(timeout=10)
-                    with self.lock:self.phase='failed';self.error='analysis_timeout'
+                if self.cancel_requested.is_set():
                     return
-            if ret!=0:
-                with self.lock:self.phase='failed';self.error='analysis_failed'
+                proc = subprocess.Popen(
+                    cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                    cwd=str(Path(__file__).resolve().parents[1]), close_fds=True,
+                    start_new_session=(os.name == 'posix'),
+                )
+                with self.lock:
+                    self.process = proc
+                # Covers cancellation between the pre-spawn check and Popen.
+                if self.cancel_requested.is_set():
+                    self._stop_process(proc)
+                try:
+                    ret = proc.wait(timeout=MAX_DURATION_SECONDS)
+                except subprocess.TimeoutExpired:
+                    try:
+                        if os.name == 'posix':
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        else:
+                            proc.kill()
+                    except (OSError, ProcessLookupError):
+                        pass
+                    proc.wait(timeout=10)
+                    with self.lock:
+                        self.phase = 'failed'
+                        self.error = 'analysis_timeout'
+                    return
+                finally:
+                    with self.lock:
+                        if self.process is proc:
+                            self.process = None
+            if self.cancel_requested.is_set():
+                return
+            if ret != 0:
+                with self.lock:
+                    self.phase = 'failed'
+                    self.error = 'analysis_failed'
                 return
             # The output root is dedicated to this one-click demo, with no existing reports.
-            found=sorted(self.root.rglob('report.html'), key=lambda p:p.stat().st_mtime,reverse=True)
+            found = sorted(self.root.rglob('report.html'), key=lambda p: p.stat().st_mtime, reverse=True)
             if not found:
-                with self.lock:self.phase='failed';self.error='no_usable_strokes'
+                with self.lock:
+                    self.phase = 'failed'
+                    self.error = 'no_usable_strokes'
                 return
-            report=found[0]
-            if not _safe_result(self.root,report) or report.stat().st_size > 16*1024*1024:
-                with self.lock:self.phase='failed';self.error='analysis_failed'
+            report = found[0]
+            if not _safe_result(self.root, report) or report.stat().st_size > 16 * 1024 * 1024:
+                with self.lock:
+                    self.phase = 'failed'
+                    self.error = 'analysis_failed'
                 return
-            meta=report.parent / 'metrics.json'
-            if not _safe_result(self.root,meta) or meta.stat().st_size > MAX_METRICS_BYTES:
-                with self.lock:self.phase='failed';self.error='invalid_crew_metrics'
+            meta = report.parent / 'metrics.json'
+            if not _safe_result(self.root, meta) or meta.stat().st_size > MAX_METRICS_BYTES:
+                with self.lock:
+                    self.phase = 'failed'
+                    self.error = 'invalid_crew_metrics'
                 return
             try:
                 with meta.open('rb') as stream:
@@ -312,15 +386,33 @@ class DemoState:
                 crew_summary = summarize_crew_metrics(metrics)
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 error = str(exc) if isinstance(exc, ValueError) and str(exc) in (
-                    'invalid_crew_metrics','invalid_crew_rower','invalid_crew_cadence',
-                    'no_usable_crew_tracks','no_usable_strokes') else 'invalid_crew_metrics'
-                with self.lock:self.phase='failed';self.error=error
+                    'invalid_crew_metrics', 'invalid_crew_rower', 'invalid_crew_cadence',
+                    'no_usable_crew_tracks', 'no_usable_strokes') else 'invalid_crew_metrics'
+                with self.lock:
+                    self.phase = 'failed'
+                    self.error = error
                 return
-            overlay=next((x for x in sorted(report.parent.glob('*_annotated.*')) if x.suffix.lower() in ('.mp4','.webm') and _safe_result(self.root,x)),None)
+            overlay = next((x for x in sorted(report.parent.glob('*_annotated.*'))
+                            if x.suffix.lower() in ('.mp4', '.webm') and _safe_result(self.root, x)), None)
             with self.lock:
-                self.report=report;self.overlay=overlay;self.crew_summary=crew_summary;self.phase='finished';self.error=''
-        except (OSError,ValueError,subprocess.SubprocessError):
-            with self.lock:self.phase='failed';self.error='analysis_failed'
+                if self.cancel_requested.is_set():
+                    return
+                self.report = report
+                self.overlay = overlay
+                self.crew_summary = crew_summary
+                self.phase = 'finished'
+                self.error = ''
+        except (OSError, ValueError, subprocess.SubprocessError):
+            with self.lock:
+                self.phase = 'failed'
+                self.error = 'analysis_failed'
+        finally:
+            with self.lock:
+                self.process = None
+                if self.cancel_requested.is_set():
+                    self.phase = 'failed'
+                    self.error = 'analysis_cancelled'
+                    self.report = self.overlay = self.crew_summary = None
 
 
 def create_server(video, *, output_dir=None, port=8768, command_factory=None):

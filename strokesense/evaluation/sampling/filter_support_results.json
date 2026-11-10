@@ -1,0 +1,2676 @@
+{
+  "scope": "Controlled synthetic localization RMSE plus real-data event diagnostics. Wider window experimental only.",
+  "synthetic": [
+    {
+      "rate": 20,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 0.13675906855657383,
+        "elbow": 0.4595418963628594,
+        "handle": 0.0038828893768135305
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 0.022215495074450642,
+        "elbow": 0.07508711416260869,
+        "handle": 0.0006817155153337662
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 0.1251635862689835,
+        "elbow": 0.4108049801372506,
+        "handle": 0.0031757323297913614
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5794442749299702,
+        "elbow": 4.464535850558118,
+        "handle": 0.030026563584416358
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5294224548102835,
+        "elbow": 4.39934081679686,
+        "handle": 0.02797385758041974
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1195777749134737,
+        "elbow": 3.5244072636390427,
+        "handle": 0.02147837992784209
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.4616468726478224,
+        "elbow": 4.374296940179018,
+        "handle": 0.02419994453012683
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5401406764555676,
+        "elbow": 4.267143969138048,
+        "handle": 0.026165466946258268
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1698251370891903,
+        "elbow": 3.478195863327374,
+        "handle": 0.018166099888959987
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5850494449837744,
+        "elbow": 4.054715468091714,
+        "handle": 0.028291621488819856
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5167389893751049,
+        "elbow": 3.9295369447315824,
+        "handle": 0.02709913520496762
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1052891823261386,
+        "elbow": 3.150632216923883,
+        "handle": 0.020321367785904567
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5869195854081584,
+        "elbow": 3.848795615879316,
+        "handle": 0.027545898376852652
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5345581829666035,
+        "elbow": 3.870761754236189,
+        "handle": 0.02547233097075247
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.107487202555776,
+        "elbow": 3.041666048932561,
+        "handle": 0.018258346970945343
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5422274764768535,
+        "elbow": 4.163068200123542,
+        "handle": 0.02656055237079603
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5379774112476785,
+        "elbow": 4.015411223016465,
+        "handle": 0.026451942558226058
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1069697833065086,
+        "elbow": 3.15683907988251,
+        "handle": 0.019021501833338967
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.221878612227225,
+        "elbow": 6.228970880141192,
+        "handle": 0.03811215599786738
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.261580004241591,
+        "elbow": 6.390177377467736,
+        "handle": 0.038573231324306595
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.1813154835077673,
+        "elbow": 6.222832626775832,
+        "handle": 0.03708456646598976
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.2025167683849918,
+        "elbow": 6.056228354351115,
+        "handle": 0.03310101661467195
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.302542733923702,
+        "elbow": 6.146858658743101,
+        "handle": 0.034803890105410316
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2228770739578647,
+        "elbow": 5.971810558020488,
+        "handle": 0.03413924512173333
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.1166558937071884,
+        "elbow": 4.534517919820386,
+        "handle": 0.04011634391396128
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.159742716923644,
+        "elbow": 4.702077749786671,
+        "handle": 0.04025823272132705
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.0795575960021027,
+        "elbow": 4.471174813177014,
+        "handle": 0.039087823903229624
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.991236349335579,
+        "elbow": 4.9092980585781385,
+        "handle": 0.034337802482924985
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.0510064166838875,
+        "elbow": 4.951976146900752,
+        "handle": 0.03513520173154409
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.960396191919812,
+        "elbow": 4.799322307801217,
+        "handle": 0.033914343332004646
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.2514212867018095,
+        "elbow": 5.051682777353514,
+        "handle": 0.03463621154980944
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.321225960857291,
+        "elbow": 5.240955285510564,
+        "handle": 0.035098749787853906
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2459869749337726,
+        "elbow": 5.032349630743011,
+        "handle": 0.03366406252764108
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.1584681516181936,
+        "elbow": 8.492117985616455,
+        "handle": 0.05956231289166009
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.054744299798624,
+        "elbow": 8.519304771169434,
+        "handle": 0.05595400938240776
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2327551531771177,
+        "elbow": 6.486480005801088,
+        "handle": 0.04262460442882879
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.918823928404551,
+        "elbow": 8.563435142220557,
+        "handle": 0.04797614980568668
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.0852512743649037,
+        "elbow": 8.401274025667304,
+        "handle": 0.05222077056675375
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.3326358839691297,
+        "elbow": 6.320659440204883,
+        "handle": 0.03597614481637633
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.161882729230419,
+        "elbow": 8.078237691155826,
+        "handle": 0.056493547583556264
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.038524425056247,
+        "elbow": 7.609614603451772,
+        "handle": 0.05409259052205601
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2069401566347913,
+        "elbow": 5.417062248028334,
+        "handle": 0.040537117512262494
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.167576872992112,
+        "elbow": 7.7904341354452695,
+        "handle": 0.05439302896729128
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.0597139054294833,
+        "elbow": 7.557573383210773,
+        "handle": 0.05088586287006329
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.198101003483079,
+        "elbow": 5.304599611362701,
+        "handle": 0.03607900408373639
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.06218542567522,
+        "elbow": 7.886200379017514,
+        "handle": 0.05245697527658262
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.0758553675056786,
+        "elbow": 7.766133810311716,
+        "handle": 0.052851874002772414
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.207245298251819,
+        "elbow": 5.613596720663049,
+        "handle": 0.037491516034256565
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.450300843620535,
+        "elbow": 12.807654312120773,
+        "handle": 0.07621191749884751
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.526306985335518,
+        "elbow": 13.159439279259116,
+        "handle": 0.07738232793353783
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.3642293197273805,
+        "elbow": 12.6956255660822,
+        "handle": 0.07418709681460435
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.433183716553477,
+        "elbow": 12.137930187023473,
+        "handle": 0.06569853710006347
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.639702404963858,
+        "elbow": 12.510422183246876,
+        "handle": 0.06914585562820043
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.478525077492829,
+        "elbow": 12.107358991769633,
+        "handle": 0.06781880262428742
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.253132917851321,
+        "elbow": 9.862831102842552,
+        "handle": 0.0796089246789364
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.354698961150824,
+        "elbow": 10.359242940214024,
+        "handle": 0.08023149391311783
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.186184260027612,
+        "elbow": 9.814796750175551,
+        "handle": 0.07772678855177056
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.946838373677638,
+        "elbow": 10.134695965712531,
+        "handle": 0.06796206973337802
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.061728960528065,
+        "elbow": 10.358420968555247,
+        "handle": 0.07019875990659787
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 3.8804520484938916,
+        "elbow": 9.909662272869209,
+        "handle": 0.06714310965767893
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.474440477545702,
+        "elbow": 10.463738908087139,
+        "handle": 0.06864553939138748
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.623651275577326,
+        "elbow": 10.798424733419504,
+        "handle": 0.07000076687368978
+      }
+    },
+    {
+      "rate": 20,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.463855597980015,
+        "elbow": 10.309620403304208,
+        "handle": 0.06681010283615822
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 0.2917969072745404,
+        "elbow": 0.8389478834768879,
+        "handle": 0.007922144511398572
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 0.048755417402264585,
+        "elbow": 0.11984625477621509,
+        "handle": 0.0011324997071486271
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 0.27514390235826575,
+        "elbow": 0.7737848030250297,
+        "handle": 0.007336817563661495
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5235631633150595,
+        "elbow": 4.743100778902086,
+        "handle": 0.031015595411739313
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5327080692760882,
+        "elbow": 4.435596644683271,
+        "handle": 0.028047468602936415
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1684016554400414,
+        "elbow": 3.787209251914478,
+        "handle": 0.022544255881974864
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5691703490422741,
+        "elbow": 4.493851416178893,
+        "handle": 0.024830874496137547
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5798724172636063,
+        "elbow": 4.575965830689105,
+        "handle": 0.027316880589840647
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.2026634237385052,
+        "elbow": 3.636779476665298,
+        "handle": 0.019877005387118375
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.7472671554163814,
+        "elbow": 4.388680246516694,
+        "handle": 0.02892583734214231
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5155352609888117,
+        "elbow": 4.346892314688986,
+        "handle": 0.027413011026781627
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1821888518774568,
+        "elbow": 3.529969533987612,
+        "handle": 0.02172114763098449
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.542100862647074,
+        "elbow": 4.159073700058391,
+        "handle": 0.02744906819483827
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5605637769290723,
+        "elbow": 3.9377292242498263,
+        "handle": 0.024979316012198004
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.101977484871099,
+        "elbow": 3.289568629238554,
+        "handle": 0.019008389045993734
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.469767732985479,
+        "elbow": 4.480735080847334,
+        "handle": 0.025394092767147748
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5518443185390367,
+        "elbow": 4.344816070357173,
+        "handle": 0.025829420685496703
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.0767936611015874,
+        "elbow": 3.415859925742789,
+        "handle": 0.018714686078133078
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.311321036282355,
+        "elbow": 6.439676956591829,
+        "handle": 0.0372717576282484
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.3438284829041893,
+        "elbow": 6.473002614064675,
+        "handle": 0.037401837061759785
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.283265348276147,
+        "elbow": 6.375306390805719,
+        "handle": 0.0362887869711541
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.2409750136878444,
+        "elbow": 6.511914034551569,
+        "handle": 0.03899637573744131
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.3092468854925654,
+        "elbow": 6.604410009958949,
+        "handle": 0.03713365508128559
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.235786761527701,
+        "elbow": 6.457607027748174,
+        "handle": 0.037231176736776665
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.241629714980513,
+        "elbow": 5.4152781516811075,
+        "handle": 0.03840030422660099
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.203350003872033,
+        "elbow": 5.560220079937401,
+        "handle": 0.038305062844519205
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.15776370687074,
+        "elbow": 5.349242459768199,
+        "handle": 0.0377138014000053
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.991969393579438,
+        "elbow": 5.068435781259489,
+        "handle": 0.03371191541501138
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.0282534476678116,
+        "elbow": 4.970524882529799,
+        "handle": 0.03368707012481031
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.957087700478891,
+        "elbow": 4.889898794153834,
+        "handle": 0.03294476210130744
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.1769848076216665,
+        "elbow": 5.420194954544422,
+        "handle": 0.03355558715753423
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.231680578026429,
+        "elbow": 5.693772262650049,
+        "handle": 0.033675186537379005
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.1498652183743756,
+        "elbow": 5.4933216332449,
+        "handle": 0.032681763507958324
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.024695824806738,
+        "elbow": 9.034783861895919,
+        "handle": 0.060635555833556815
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.055840575292024,
+        "elbow": 8.562138667541326,
+        "handle": 0.056050457452591754
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2872896503297255,
+        "elbow": 6.721870987929262,
+        "handle": 0.04338624920222664
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.1204820417713277,
+        "elbow": 8.722661647110433,
+        "handle": 0.0477800414092789
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.1685370335065546,
+        "elbow": 8.861722058244068,
+        "handle": 0.05450118714903245
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.382603191680835,
+        "elbow": 6.78176721424327,
+        "handle": 0.03778190173616856
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.4499297804678233,
+        "elbow": 8.5292312423343,
+        "handle": 0.05677894817866566
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.024573808407938,
+        "elbow": 8.48241940960513,
+        "handle": 0.054626225734778516
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.3096808281041645,
+        "elbow": 6.296190375245495,
+        "handle": 0.041034028904010436
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.01334945292085,
+        "elbow": 8.435720717017222,
+        "handle": 0.0529200218108127
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.124670315015594,
+        "elbow": 7.530482899906203,
+        "handle": 0.049889615530499094
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.1295264028715164,
+        "elbow": 5.654637744629325,
+        "handle": 0.03597251781087044
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.913674196757079,
+        "elbow": 8.519162458335105,
+        "handle": 0.048436211321903004
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.1074091836023756,
+        "elbow": 8.202419031230997,
+        "handle": 0.051607581531894584
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.125791156281417,
+        "elbow": 6.164416409494324,
+        "handle": 0.0357064179327675
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.582887837511048,
+        "elbow": 13.590345213102768,
+        "handle": 0.073995536288782
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.675371546656675,
+        "elbow": 13.701957955979964,
+        "handle": 0.07527467010575603
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.531164769869139,
+        "elbow": 13.3158564947931,
+        "handle": 0.07215447132815285
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.506088832500545,
+        "elbow": 13.145762489617345,
+        "handle": 0.07682619681340888
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.669716698974517,
+        "elbow": 13.389076461332031,
+        "handle": 0.07280472073304844
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.505400326104041,
+        "elbow": 12.943197732385476,
+        "handle": 0.07150740635268742
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.404464290531423,
+        "elbow": 10.668360659478465,
+        "handle": 0.07521517664781249
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.375413961661306,
+        "elbow": 11.240856315526933,
+        "handle": 0.07590063987164997
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.244842651676741,
+        "elbow": 10.696486929142246,
+        "handle": 0.07346935618008373
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.936372676346307,
+        "elbow": 10.213866190219893,
+        "handle": 0.06580355293400325
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.045101697658233,
+        "elbow": 10.212355849497527,
+        "handle": 0.06712192603690308
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 3.8689753775821325,
+        "elbow": 9.833340252702111,
+        "handle": 0.06456598766719548
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.337120018913211,
+        "elbow": 10.856475716464187,
+        "handle": 0.06538673268752729
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.469949615320514,
+        "elbow": 11.23037078597764,
+        "handle": 0.06716986373969895
+      }
+    },
+    {
+      "rate": 32,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.294382818583376,
+        "elbow": 10.85100360085573,
+        "handle": 0.06406379224147007
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 0.5517353742806578,
+        "elbow": 1.4722694347265703,
+        "handle": 0.015342512178429087
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 0.08551127528263461,
+        "elbow": 0.1987709064300482,
+        "handle": 0.0021389253149696427
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 0.5106775548739763,
+        "elbow": 1.351419913241545,
+        "handle": 0.014030254162164786
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.721101555881315,
+        "elbow": 5.528948873455538,
+        "handle": 0.03433138647532511
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.4839712227525226,
+        "elbow": 4.5723026957771635,
+        "handle": 0.027598932290090212
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.280169537665552,
+        "elbow": 4.152959321201356,
+        "handle": 0.02565273322299564
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.6419980786553514,
+        "elbow": 4.874566944529568,
+        "handle": 0.02946972654340287
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5851204229667506,
+        "elbow": 4.520374458702589,
+        "handle": 0.027977515894611553
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.2608297268614663,
+        "elbow": 3.8217209829731855,
+        "handle": 0.024124297779819757
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.8081539294639632,
+        "elbow": 4.441958155541887,
+        "handle": 0.03203895655588077
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.5371157805433444,
+        "elbow": 4.084745124426228,
+        "handle": 0.027091155359417522
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.2614697392397023,
+        "elbow": 3.423923357529672,
+        "handle": 0.024614272510482562
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.5913837305189444,
+        "elbow": 4.696819541915893,
+        "handle": 0.03054109202787542
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.506070260532915,
+        "elbow": 4.014070752434979,
+        "handle": 0.024726854431621197
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.1681674576118581,
+        "elbow": 3.504554617652429,
+        "handle": 0.022534556431200302
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 1.6574601320514795,
+        "elbow": 4.409526516651427,
+        "handle": 0.028004314228115584
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 1.6112698097073235,
+        "elbow": 4.256605425973299,
+        "handle": 0.02629439539668756
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 1.2898426630016067,
+        "elbow": 3.4993759283648322,
+        "handle": 0.023030503590982947
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.3057952020179333,
+        "elbow": 7.311672926822253,
+        "handle": 0.03706045742231369
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.258065380111559,
+        "elbow": 6.913030917613429,
+        "handle": 0.03388831360959941
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2712350238828427,
+        "elbow": 7.002100647242303,
+        "handle": 0.035077968725748775
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.3098888369420303,
+        "elbow": 7.148644428311534,
+        "handle": 0.040928486192496755
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.309089993884033,
+        "elbow": 6.99281252511152,
+        "handle": 0.039346899211366464
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.2821421106825,
+        "elbow": 6.974842263733921,
+        "handle": 0.040742399733304
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.519796493578355,
+        "elbow": 5.234105627617807,
+        "handle": 0.04292712028881887
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.447939929201611,
+        "elbow": 5.256026411880914,
+        "handle": 0.03949460724564178
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.415863752985958,
+        "elbow": 5.161107189064623,
+        "handle": 0.04160208932606735
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.150367389345424,
+        "elbow": 5.823449840599212,
+        "handle": 0.036240509750701866
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.1032475811123144,
+        "elbow": 5.3990068479806315,
+        "handle": 0.033184840028840874
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.0701625259707077,
+        "elbow": 5.553969168462385,
+        "handle": 0.03447549544378382
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.2656878494459303,
+        "elbow": 5.034467537461345,
+        "handle": 0.03528765705625153
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.2982745877337725,
+        "elbow": 5.494322540514302,
+        "handle": 0.03311979567894301
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 1.5,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.269362656018964,
+        "elbow": 5.261864088791325,
+        "handle": 0.034274344549166495
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.2552077560812385,
+        "elbow": 10.370975008062523,
+        "handle": 0.06211644898367423
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.969961856740546,
+        "elbow": 8.903770549615682,
+        "handle": 0.05510505353200007
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.352649106221711,
+        "elbow": 7.237470098478792,
+        "handle": 0.044605693839528934
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.145898005275686,
+        "elbow": 9.092683348619163,
+        "handle": 0.05207227958727377
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.190107147563195,
+        "elbow": 8.790613244442811,
+        "handle": 0.05586407556531571
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.3926504366597694,
+        "elbow": 6.925511544730328,
+        "handle": 0.04147688446003804
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.4868084048539365,
+        "elbow": 8.163052683350212,
+        "handle": 0.05766769570182563
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.0667753803639792,
+        "elbow": 8.020710183743303,
+        "handle": 0.05402729484657816
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.352494001234914,
+        "elbow": 6.001967498425289,
+        "handle": 0.041883886526207045
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 2.998197167090032,
+        "elbow": 9.180004430040698,
+        "handle": 0.054384849630939744
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 2.998843807641215,
+        "elbow": 7.8317945229768355,
+        "handle": 0.04916033528846596
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.133728997512038,
+        "elbow": 5.943275998562817,
+        "handle": 0.0375164584774159
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 3.142728776657393,
+        "elbow": 8.077085479086252,
+        "handle": 0.04923613403513335
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 3.2180558637088477,
+        "elbow": 8.028177827701857,
+        "handle": 0.05245029535411432
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "white",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 2.413667928830088,
+        "elbow": 6.103178040274724,
+        "handle": 0.03861014897039261
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.480883507868961,
+        "elbow": 14.336399208725137,
+        "handle": 0.06881567473957322
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.521857985130497,
+        "elbow": 14.11507862686117,
+        "handle": 0.06789850725167336
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 0,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.433139321286797,
+        "elbow": 13.913135242150517,
+        "handle": 0.06589800218099309
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.546700388656668,
+        "elbow": 14.056712477778747,
+        "handle": 0.07719874955146826
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.675192488818894,
+        "elbow": 13.978779470427083,
+        "handle": 0.0783780095179143
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 1,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.529615913379525,
+        "elbow": 13.680296904214792,
+        "handle": 0.07760648210026504
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.930172078442828,
+        "elbow": 10.503251196428499,
+        "handle": 0.08042869287812723
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.870256028137152,
+        "elbow": 10.938606704351043,
+        "handle": 0.07815929187865636
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 2,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.734973141790792,
+        "elbow": 10.618111312045896,
+        "handle": 0.07698030348375383
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.172651091395518,
+        "elbow": 11.46484153508793,
+        "handle": 0.06687809875338865
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.173489206847108,
+        "elbow": 11.119852175422139,
+        "handle": 0.06578616188462487
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 3,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.028317513237389,
+        "elbow": 10.974070883924496,
+        "handle": 0.06419041633856046
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "half_default",
+      "rmse": {
+        "trunk": 4.433707332338573,
+        "elbow": 10.262742696598801,
+        "handle": 0.06558595129871006
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_default",
+      "rmse": {
+        "trunk": 4.598675505389734,
+        "elbow": 10.8666063624582,
+        "handle": 0.06619832366644952
+      }
+    },
+    {
+      "rate": 40,
+      "noise_pixels": 3.0,
+      "noise_model": "correlated",
+      "seed": 4,
+      "variant": "full_wide",
+      "rmse": {
+        "trunk": 4.4586169594394445,
+        "elbow": 10.482176252051758,
+        "handle": 0.0641282101063007
+      }
+    }
+  ],
+  "real": [
+    {
+      "slot": 0,
+      "default": [
+        {
+          "catch": 1.4644877282191227,
+          "finish": 2.106689683218243,
+          "next_catch": 4.0465811328795125
+        },
+        {
+          "catch": 4.0465811328795125,
+          "finish": 5.021187620670489,
+          "next_catch": 6.782221554038008
+        },
+        {
+          "catch": 6.782221554038008,
+          "finish": 7.9229462735503144,
+          "next_catch": 9.446245061814878
+        },
+        {
+          "catch": 9.446245061814878,
+          "finish": 10.576539461562005,
+          "next_catch": 11.978775598458345
+        },
+        {
+          "catch": 11.978775598458345,
+          "finish": 13.08254380633579,
+          "next_catch": 14.73737066485312
+        },
+        {
+          "catch": 14.73737066485312,
+          "finish": 15.558565433620668,
+          "next_catch": 17.57716084822859
+        }
+      ],
+      "wide": [
+        {
+          "catch": 6.784343126940669,
+          "finish": 7.934799115219606,
+          "next_catch": 9.396754842975044
+        },
+        {
+          "catch": 9.396754842975044,
+          "finish": 10.531205772310889,
+          "next_catch": 11.94700919052401
+        },
+        {
+          "catch": 11.94700919052401,
+          "finish": 12.876539299548174,
+          "next_catch": 14.768347602209069
+        },
+        {
+          "catch": 14.768347602209069,
+          "finish": 15.56469472211109,
+          "next_catch": 17.550486457255264
+        }
+      ]
+    },
+    {
+      "slot": 1,
+      "default": [
+        {
+          "catch": 1.5205037427733916,
+          "finish": 2.5266183639574558,
+          "next_catch": 4.127768344139251
+        },
+        {
+          "catch": 4.127768344139251,
+          "finish": 5.132596969346612,
+          "next_catch": 6.88639925607984
+        },
+        {
+          "catch": 6.88639925607984,
+          "finish": 7.537301903977161,
+          "next_catch": 9.512330247324007
+        },
+        {
+          "catch": 9.512330247324007,
+          "finish": 10.219581634301532,
+          "next_catch": 12.34738597839131
+        },
+        {
+          "catch": 12.34738597839131,
+          "finish": 12.947922825045682,
+          "next_catch": 14.335670539569373
+        },
+        {
+          "catch": 14.335670539569373,
+          "finish": 15.679780157944592,
+          "next_catch": 17.67265868815482
+        },
+        {
+          "catch": 17.67265868815482,
+          "finish": 18.64419561543826,
+          "next_catch": 19.474609189605673
+        }
+      ],
+      "wide": [
+        {
+          "catch": 4.088320021027757,
+          "finish": 5.186271025823742,
+          "next_catch": 6.876656519931944
+        },
+        {
+          "catch": 6.876656519931944,
+          "finish": 7.582690008394237,
+          "next_catch": 9.504081199139712
+        },
+        {
+          "catch": 9.504081199139712,
+          "finish": 10.231142080308887,
+          "next_catch": 12.331695224089318
+        },
+        {
+          "catch": 12.331695224089318,
+          "finish": 12.944210054936617,
+          "next_catch": 14.287374594523666
+        },
+        {
+          "catch": 14.287374594523666,
+          "finish": 15.730327710871899,
+          "next_catch": 17.728129286696074
+        }
+      ]
+    },
+    {
+      "slot": 2,
+      "default": [
+        {
+          "catch": 3.9322844199268627,
+          "finish": 4.982733279796087,
+          "next_catch": 6.685788671453738
+        },
+        {
+          "catch": 9.263339951787685,
+          "finish": 10.321928614773613,
+          "next_catch": 12.10670181656108
+        },
+        {
+          "catch": 12.10670181656108,
+          "finish": 12.994994488256431,
+          "next_catch": 14.780010937660599
+        },
+        {
+          "catch": 14.780010937660599,
+          "finish": 15.73110902594606,
+          "next_catch": 17.551395019678278
+        }
+      ],
+      "wide": [
+        {
+          "catch": 1.0575248978444054,
+          "finish": 2.194024779782522,
+          "next_catch": 3.9537206392885618
+        },
+        {
+          "catch": 3.9537206392885618,
+          "finish": 4.821350906362377,
+          "next_catch": 6.6624372153144495
+        },
+        {
+          "catch": 9.226788133222565,
+          "finish": 10.267159241994097,
+          "next_catch": 12.071695226775777
+        },
+        {
+          "catch": 12.071695226775777,
+          "finish": 12.95541599902458,
+          "next_catch": 14.547778266519956
+        },
+        {
+          "catch": 14.547778266519956,
+          "finish": 15.73828357674808,
+          "next_catch": 17.53215823145396
+        }
+      ]
+    },
+    {
+      "slot": 3,
+      "default": [
+        {
+          "catch": 6.327384276401646,
+          "finish": 7.7289213478669225,
+          "next_catch": 9.431085546889205
+        },
+        {
+          "catch": 9.431085546889205,
+          "finish": 10.78423706686616,
+          "next_catch": 11.884338294827025
+        },
+        {
+          "catch": 11.884338294827025,
+          "finish": 13.256914998999656,
+          "next_catch": 14.544602256801191
+        },
+        {
+          "catch": 14.544602256801191,
+          "finish": 15.920283061650597,
+          "next_catch": 17.46868634829974
+        }
+      ],
+      "wide": [
+        {
+          "catch": 1.1788997816672842,
+          "finish": 2.035350136598089,
+          "next_catch": 4.1773300985875075
+        },
+        {
+          "catch": 4.1773300985875075,
+          "finish": 5.101188249491374,
+          "next_catch": 6.325279405035396
+        },
+        {
+          "catch": 6.325279405035396,
+          "finish": 8.004357941843537,
+          "next_catch": 9.386185161473168
+        },
+        {
+          "catch": 9.386185161473168,
+          "finish": 10.751866891993629,
+          "next_catch": 11.926946566251189
+        },
+        {
+          "catch": 11.926946566251189,
+          "finish": 13.22023830374821,
+          "next_catch": 14.58117996361132
+        },
+        {
+          "catch": 14.58117996361132,
+          "finish": 15.590140692852177,
+          "next_catch": 17.47533081490641
+        }
+      ]
+    },
+    {
+      "slot": 4,
+      "default": [
+        {
+          "catch": 3.956938948545297,
+          "finish": 4.81443973677464,
+          "next_catch": 6.5823004583783415
+        },
+        {
+          "catch": 6.5823004583783415,
+          "finish": 7.589150508139416,
+          "next_catch": 9.151357746669172
+        },
+        {
+          "catch": 9.151357746669172,
+          "finish": 10.260700831687636,
+          "next_catch": 12.020584391259991
+        },
+        {
+          "catch": 12.020584391259991,
+          "finish": 13.010753497510997,
+          "next_catch": 14.7350582334626
+        },
+        {
+          "catch": 14.7350582334626,
+          "finish": 15.77618189105068,
+          "next_catch": 17.530698171778344
+        }
+      ],
+      "wide": [
+        {
+          "catch": 1.4588418748498382,
+          "finish": 2.2309103702249082,
+          "next_catch": 3.994652396483998
+        },
+        {
+          "catch": 3.994652396483998,
+          "finish": 4.795884091132766,
+          "next_catch": 6.54812471450861
+        },
+        {
+          "catch": 6.54812471450861,
+          "finish": 7.585269149094515,
+          "next_catch": 9.172257995312263
+        },
+        {
+          "catch": 9.172257995312263,
+          "finish": 10.252258170409895,
+          "next_catch": 11.956208866939749
+        }
+      ]
+    },
+    {
+      "slot": 5,
+      "default": [
+        {
+          "catch": 9.247217090672697,
+          "finish": 10.52706026175749,
+          "next_catch": 12.252242469628252
+        },
+        {
+          "catch": 12.252242469628252,
+          "finish": 12.796279260059883,
+          "next_catch": 14.74766149251114
+        },
+        {
+          "catch": 14.74766149251114,
+          "finish": 15.97766750022358,
+          "next_catch": 17.138622563810493
+        }
+      ],
+      "wide": [
+        {
+          "catch": 1.1658539506137164,
+          "finish": 2.557122094709569,
+          "next_catch": 4.142361131601556
+        },
+        {
+          "catch": 4.142361131601556,
+          "finish": 5.001243058120473,
+          "next_catch": 6.859476706849141
+        },
+        {
+          "catch": 6.859476706849141,
+          "finish": 7.914981750523901,
+          "next_catch": 9.519320852846592
+        },
+        {
+          "catch": 9.519320852846592,
+          "finish": 10.50294707099219,
+          "next_catch": 12.22197348236793
+        },
+        {
+          "catch": 12.22197348236793,
+          "finish": 12.830585565274255,
+          "next_catch": 14.759007361345597
+        }
+      ]
+    },
+    {
+      "slot": 6,
+      "default": [
+        {
+          "catch": 0.8812940870993548,
+          "finish": 2.2850090761047896,
+          "next_catch": 3.9891234011562937
+        },
+        {
+          "catch": 6.679822985231474,
+          "finish": 7.670443276652854,
+          "next_catch": 9.277150179284215
+        },
+        {
+          "catch": 9.277150179284215,
+          "finish": 10.412122015378253,
+          "next_catch": 12.180603785802317
+        }
+      ],
+      "wide": [
+        {
+          "catch": 0.8896390479416038,
+          "finish": 2.3204050032270778,
+          "next_catch": 4.019097281451992
+        },
+        {
+          "catch": 4.019097281451992,
+          "finish": 4.985096480157965,
+          "next_catch": 6.696692314036169
+        },
+        {
+          "catch": 6.696692314036169,
+          "finish": 7.66637710416479,
+          "next_catch": 9.523581177232849
+        },
+        {
+          "catch": 9.523581177232849,
+          "finish": 10.255397274583421,
+          "next_catch": 12.132738870242493
+        }
+      ]
+    },
+    {
+      "slot": 7,
+      "default": [
+        {
+          "catch": 1.1715287475317253,
+          "finish": 2.246879669714396,
+          "next_catch": 3.7538135694903145
+        },
+        {
+          "catch": 6.716558568110372,
+          "finish": 7.447181165064508,
+          "next_catch": 9.376578951510998
+        }
+      ],
+      "wide": [
+        {
+          "catch": 1.3887976819108108,
+          "finish": 2.204002456280599,
+          "next_catch": 3.8125937366462295
+        },
+        {
+          "catch": 6.707951873110019,
+          "finish": 7.476137034692117,
+          "next_catch": 9.405072705000592
+        }
+      ]
+    }
+  ]
+}

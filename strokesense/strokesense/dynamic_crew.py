@@ -91,7 +91,7 @@ def rowers_from_selected(pose, *, workers=4):
             rower.handle[start:end] = handle
             for stroke in found:
                 stroke.idx = len(rower.strokes)
-                for name in ('catch', 'finish', 'next_catch', 'catch_t', 'next_catch_t'):
+                for name in ('catch', 'finish', 'next_catch', 'catch_t', 'next_catch_t', 'finish_t'):
                     setattr(stroke, name, getattr(stroke, name) + int(start))
                 rower.strokes.append(stroke)
         # Display gaps too; interpolated positions are not observations.

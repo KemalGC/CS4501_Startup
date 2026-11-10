@@ -23,10 +23,11 @@ from .dynamic_crew import EXTRACTION_VERSION, run_selected_video, rowers_from_se
 from .pose import (DEFAULT_MODEL, MODEL_URL, PoseDetector, PoseResult, run_video,
                    save_detections, load_detections, result_from_detections, crew_tracks)
 
+from .pose_merge import VERSION as DETECTION_POSTPROCESS_VERSION
 
 # Bump this when pose preprocessing or detector defaults change. Downstream
 # technique/report changes can reuse detections because they run again each time.
-POSE_CACHE_VERSION = 1
+POSE_CACHE_VERSION = 3
 
 
 def _file_identity(path, *, hash_content=False):
@@ -71,7 +72,7 @@ def _cache_identity(video, start, duration, tiles, fps, model, selection=None, d
             "start": float(start), "duration": None if duration is None else float(duration),
             "tiles": tiles if isinstance(tiles, (str, type(None))) else np.asarray(tiles).tolist(),
             "target_fps": None if fps is None else float(fps),
-            "detector_postprocess": "base-torso-landmarks-v2",
+            "detector_postprocess": DETECTION_POSTPROCESS_VERSION,
         },
         "model": model_id,
     }
@@ -82,7 +83,7 @@ def _cache_identity(video, start, duration, tiles, fps, model, selection=None, d
         identity["selection"] = validate_selection(selection)
         identity["settings"]["selected_extraction"] = EXTRACTION_VERSION
         if selection["version"] == 2:
-            identity["settings"]["refined_merge"] = "torso-landmarks-v1"
+            identity["settings"]["refined_merge"] = DETECTION_POSTPROCESS_VERSION
     return json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
@@ -100,7 +101,7 @@ def _result_directory(video, out_dir):
 
 
 def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="auto", fps=15.0,
-                  model=None, single=False, reuse=True, log=print, selection=None, dominant=False, threads=None):
+                  model=None, single=False, reuse=True, log=print, selection=None, dominant=False, threads=None, crew_size=None):
     if dominant and (selection is not None or single):
         raise ValueError('dominant mode cannot be combined with explicit selection or single')
     if selection is not None:
@@ -169,7 +170,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
             from .dominant import track_visible_window
             tracks, crew_dir, n_seats = track_visible_window(dets, meta['fps'])
         else:
-            tracks, crew_dir, n_seats = crew_tracks(dets, meta["fps"])
+            tracks, crew_dir, n_seats = crew_tracks(dets, meta["fps"], expected_seats=crew_size)
         pose = PoseResult(fps=float(meta["fps"]), n_frames=len(dets), width=int(meta["width"]),
                           height=int(meta["height"]), tracks=tracks, start=float(meta["start"]),
                           stride=int(meta["stride"]))
@@ -229,7 +230,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
     html_path = report.build_html(video.name, pose, rowers, sync, snaps, out / "report.html")
     report.build_json(
         rowers, sync, out / "metrics.json",
-        analysis_key=identity + f"|single={single}|app={PACKAGE_VERSION}",
+        analysis_key=identity + f"|single={single}|crew_size={crew_size}|app={PACKAGE_VERSION}",
         fps=pose.fps, start_seconds=pose.start,
     )
     if dominant:
@@ -279,13 +280,14 @@ def main(argv=None):
     ap.add_argument("--tiles", choices=("auto", "none"), default="auto",
                     help="'auto' (find the boat and tile it at full resolution) or 'none'")
     ap.add_argument("--fps", type=_fps_arg, default=15.0, help="analysis frame rate")
+    ap.add_argument("--crew-size", type=int, choices=(1,2,4,8), help="known number of rowers, excluding cox")
     ap.add_argument("--single", action="store_true", help="analyse only the clearest rower (erg / single scull)")
     ap.add_argument('--dominant-crew', action='store_true', help='isolate the largest clear crew; gaps never recruit a different boat')
     ap.add_argument('--threads', type=int, default=None, help='ONNX CPU threads, 1–64')
     ap.add_argument("--fresh", action="store_true", help="ignore cached pose results")
     a = ap.parse_args(argv)
     tiles = "auto" if a.tiles == "auto" else None
-    res = analyse_video(a.video, a.out, a.start, a.duration, tiles, a.fps, single=a.single, reuse=not a.fresh, dominant=a.dominant_crew, threads=a.threads)
+    res = analyse_video(a.video, a.out, a.start, a.duration, tiles, a.fps, single=a.single, reuse=not a.fresh, dominant=a.dominant_crew, threads=a.threads, crew_size=a.crew_size)
     return 0 if res else 1
 
 

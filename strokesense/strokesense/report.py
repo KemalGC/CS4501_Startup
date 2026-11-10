@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from . import cadence, measurement
+from . import cadence, measurement, body_motion, strokes
 from .kinematics import smooth  # noqa: E402
 
 INK, MUTED, GRID = "#1f2933", "#6b7785", "#e3e7ec"
@@ -342,6 +342,8 @@ perpendicular to the boat. Body angle: + = leaning toward the stern (body over),
 def build_json(rowers, sync, out_path, *, analysis_key=None, fps=None, start_seconds=0.0):
     data = {"measurement_policy": {
         "version": measurement.VERSION, "confidence_threshold": .35,
+        "body_motion_version": body_motion.VERSION,
+        "stroke_timing_version": strokes.VERSION,
         "max_internal_gap_seconds": .2, "minimum_cycle_observed_fraction": .9,
         "absolute_motion_floors": measurement.AMPLITUDE,
         "coordinates": "hip-relative displacement and projected 2D angles; not boat-relative travel",
@@ -356,6 +358,8 @@ def build_json(rowers, sync, out_path, *, analysis_key=None, fps=None, start_sec
                 joint: {'observed': int(mask.sum()), 'estimated': int(k.estimated[joint].sum()),
                         'unavailable': int(len(mask)-mask.sum()-k.estimated[joint].sum())}
                 for joint, mask in k.observed.items()}
+            item['joint_rejection_counts'] = {
+                joint: int(mask.sum()) for joint, mask in getattr(k, 'rejected', {}).items()}
             item['sequencing'] = {
                 name: {key: value.tolist() if isinstance(value, np.ndarray) else value
                        for key, value in stats.items() if key != 'curves'}

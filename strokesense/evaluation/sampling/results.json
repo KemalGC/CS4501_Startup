@@ -1,0 +1,231 @@
+{
+  "scope": "Same source window, default model, fixed CLI settings except analysis fps. Diagnostic agreement only; neither sampling rate is independent ground truth.",
+  "summary": {
+    "half": {
+      "fps": 14.822702587583857,
+      "source_frames": 296,
+      "cycles": 36,
+      "crew_cadence": 22.465110802916016,
+      "supported_crew_events": 6
+    },
+    "full": {
+      "fps": 29.645405175167713,
+      "source_frames": 592,
+      "cycles": 34,
+      "crew_cadence": 22.077363680696838,
+      "supported_crew_events": 6
+    },
+    "shared_detection_frames": {
+      "compared": 296,
+      "exactly_equal": 296
+    }
+  },
+  "paired_cycles": [
+    {
+      "seat": "Stroke",
+      "half_cycles": 2,
+      "full_cycles": 2,
+      "pairs": [
+        {
+          "half_catch_s": 1.1487932693095937,
+          "full_catch_s": 1.1715287475317253,
+          "finish_delta_s": 0.034828140997896995,
+          "rate_delta_spm": 0.0719194889309911
+        },
+        {
+          "half_catch_s": 6.776991164138559,
+          "full_catch_s": 6.716558568110372,
+          "finish_delta_s": -0.0008451500066293249,
+          "rate_delta_spm": -0.3537400300921085
+        }
+      ]
+    },
+    {
+      "seat": "7",
+      "half_cycles": 4,
+      "full_cycles": 3,
+      "pairs": [
+        {
+          "half_catch_s": 6.696921102976801,
+          "full_catch_s": 6.679822985231474,
+          "finish_delta_s": -0.00454011508537544,
+          "rate_delta_spm": 1.8461229663544145
+        },
+        {
+          "half_catch_s": 9.519846388431155,
+          "full_catch_s": 9.277150179284215,
+          "finish_delta_s": 0.1393211302292503,
+          "rate_delta_spm": -2.1065523999885762
+        }
+      ]
+    },
+    {
+      "seat": "6",
+      "half_cycles": 5,
+      "full_cycles": 3,
+      "pairs": [
+        {
+          "half_catch_s": 9.304969337128924,
+          "full_catch_s": 9.247217090672697,
+          "finish_delta_s": 0.002582332433638257,
+          "rate_delta_spm": -0.6463101982145361
+        },
+        {
+          "half_catch_s": 12.21577304088799,
+          "full_catch_s": 12.252242469628252,
+          "finish_delta_s": -0.021358591451543063,
+          "rate_delta_spm": 0.4749517345264138
+        }
+      ]
+    },
+    {
+      "seat": "5",
+      "half_cycles": 6,
+      "full_cycles": 5,
+      "pairs": [
+        {
+          "half_catch_s": 3.9429186023681955,
+          "full_catch_s": 3.956938948545297,
+          "finish_delta_s": -0.003974320500753414,
+          "rate_delta_spm": 0.0186142000202274
+        },
+        {
+          "half_catch_s": 6.570420168622227,
+          "full_catch_s": 6.5823004583783415,
+          "finish_delta_s": 0.015328421552208482,
+          "rate_delta_spm": 0.3207329707338218
+        },
+        {
+          "half_catch_s": 9.175249639780453,
+          "full_catch_s": 9.151357746669172,
+          "finish_delta_s": 0.010505825660176882,
+          "rate_delta_spm": 0.03567617604261031
+        },
+        {
+          "half_catch_s": 12.049379695623804,
+          "full_catch_s": 12.020584391259991,
+          "finish_delta_s": 0.023382534089700258,
+          "rate_delta_spm": 0.04951958509134613
+        },
+        {
+          "half_catch_s": 14.769948501505365,
+          "full_catch_s": 14.7350582334626,
+          "finish_delta_s": -0.03383354844797992,
+          "rate_delta_spm": -0.22163096939157612
+        }
+      ]
+    },
+    {
+      "seat": "4",
+      "half_cycles": 4,
+      "full_cycles": 4,
+      "pairs": [
+        {
+          "half_catch_s": 6.3008894800646695,
+          "full_catch_s": 6.327384276401646,
+          "finish_delta_s": -0.032067476551984164,
+          "rate_delta_spm": 1.2586150265100962
+        },
+        {
+          "half_catch_s": 9.62073274602406,
+          "full_catch_s": 9.431085546889205,
+          "finish_delta_s": 0.0636262449171312,
+          "rate_delta_spm": 1.0432191859923954
+        },
+        {
+          "half_catch_s": 14.549926835706037,
+          "full_catch_s": 14.544602256801191,
+          "finish_delta_s": 0.32048697499122447,
+          "rate_delta_spm": -0.039373462426226524
+        }
+      ]
+    },
+    {
+      "seat": "3",
+      "half_cycles": 6,
+      "full_cycles": 4,
+      "pairs": [
+        {
+          "half_catch_s": 4.040497177779267,
+          "full_catch_s": 3.9322844199268627,
+          "finish_delta_s": 0.14699613108140053,
+          "rate_delta_spm": -1.336914685920604
+        },
+        {
+          "half_catch_s": 9.260157663052835,
+          "full_catch_s": 9.263339951787685,
+          "finish_delta_s": 0.05942290990441812,
+          "rate_delta_spm": 0.09452868033925199
+        },
+        {
+          "half_catch_s": 12.116314120755282,
+          "full_catch_s": 12.10670181656108,
+          "finish_delta_s": 0.038217031067679486,
+          "rate_delta_spm": -2.2330591791668795
+        },
+        {
+          "half_catch_s": 14.547712939749756,
+          "full_catch_s": 14.780010937660599,
+          "finish_delta_s": 0.0003643158770678667,
+          "rate_delta_spm": 1.5625816492290845
+        }
+      ]
+    },
+    {
+      "seat": "2",
+      "half_cycles": 5,
+      "full_cycles": 7,
+      "pairs": [
+        {
+          "half_catch_s": 6.9543506800435715,
+          "full_catch_s": 6.88639925607984,
+          "finish_delta_s": -0.23865288006422247,
+          "rate_delta_spm": -1.0771649474025011
+        },
+        {
+          "half_catch_s": 9.462061463534022,
+          "full_catch_s": 9.512330247324007,
+          "finish_delta_s": -0.05029078622347072,
+          "rate_delta_spm": -5.114351464580686
+        },
+        {
+          "half_catch_s": 14.21067622936602,
+          "full_catch_s": 14.335670539569373,
+          "finish_delta_s": -0.047640433252265524,
+          "rate_delta_spm": -4.034246606218641
+        }
+      ]
+    },
+    {
+      "seat": "Bow",
+      "half_cycles": 4,
+      "full_cycles": 6,
+      "pairs": [
+        {
+          "half_catch_s": 6.780945285665086,
+          "full_catch_s": 6.782221554038008,
+          "finish_delta_s": -0.034000369902146055,
+          "rate_delta_spm": -0.7390372616466436
+        },
+        {
+          "half_catch_s": 9.360330038443282,
+          "full_catch_s": 9.446245061814878,
+          "finish_delta_s": 0.027352983969363365,
+          "rate_delta_spm": 0.6299324735057681
+        },
+        {
+          "half_catch_s": 11.96203662410682,
+          "full_catch_s": 11.978775598458345,
+          "finish_delta_s": 0.189137233307191,
+          "rate_delta_spm": 0.12968660629338657
+        },
+        {
+          "half_catch_s": 14.737178605566553,
+          "full_catch_s": 14.73737066485312,
+          "finish_delta_s": -0.012861167663803741,
+          "rate_delta_spm": -0.18256909110627362
+        }
+      ]
+    }
+  ]
+}

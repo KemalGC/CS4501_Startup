@@ -1,13 +1,32 @@
 """Shared-landmark duplicate suppression for local pose crops."""
 import numpy as np
 
+VERSION = "torso-landmarks-v4-crop-edges"
 
-def merge_refined_detections(boxes, scores, keypoints, *, conf=.25, iou=.5):
+
+def crop_edge_flags(boxes, crop, frame_width, frame_height):
+    """Mark internal crop boundaries, never the actual source-image boundary.
+
+    Input boxes are local to the crop. This records possible truncation; it is
+    not grounds to discard a detection without a stronger matching alternative.
+    """
+    boxes = np.asarray(boxes)
+    x0, y0, x1, y1 = crop
+    width, height = x1-x0, y1-y0
+    margin = max(2., .01*min(width, height))
+    return (((boxes[:, 0] <= margin) & (x0 > 0))
+            | ((boxes[:, 1] <= margin) & (y0 > 0))
+            | ((boxes[:, 2] >= width-margin) & (x1 < frame_width))
+            | ((boxes[:, 3] >= height-margin) & (y1 < frame_height)))
+
+
+def merge_refined_detections(boxes, scores, keypoints, *, conf=.25, iou=.5,
+                             crop_truncated=None):
     """Merge crop duplicates using shared confident torso landmarks.
 
     Box-only NMS can keep a small torso crop and a full-body box for the same
     person, while dropping two genuinely overlapping people. Prefer agreement
-    on at least three core landmarks when available; otherwise keep the
+    on three core landmarks or a visible shoulder–hip pair when available; otherwise keep the
     established IoU fallback. This is duplicate suppression, not re-identification.
     """
     boxes = np.asarray(boxes, float)
@@ -15,22 +34,30 @@ def merge_refined_detections(boxes, scores, keypoints, *, conf=.25, iou=.5):
     keypoints = np.asarray(keypoints, float)
     if scores.ndim != 1 or boxes.shape != (len(scores), 4) or keypoints.shape != (len(scores), 17, 3):
         raise ValueError('invalid_detections')
+    if crop_truncated is None:
+        crop_truncated = np.zeros(len(scores), dtype=bool)
+    crop_truncated = np.asarray(crop_truncated)
+    if crop_truncated.shape != scores.shape or crop_truncated.dtype != np.bool_:
+        raise ValueError('invalid_crop_truncation')
     valid = (np.isfinite(boxes).all(1) & np.isfinite(scores)
              & np.isfinite(keypoints).all((1, 2))
              & (boxes[:, 2:] > boxes[:, :2]).all(1) & (scores > conf))
     boxes, scores, keypoints = boxes[valid], scores[valid], keypoints[valid]
+    crop_truncated = crop_truncated[valid]
+    torso_quality = keypoints[:, [5, 6, 11, 12], 2].mean(1)
     area = np.prod(boxes[:, 2:] - boxes[:, :2], axis=1)
     core = keypoints[:, [0, 5, 6, 11, 12]]
     keep = []
     for i in np.argsort(-scores, kind='stable'):
         duplicate = False
-        for j in keep:
+        for position, j in enumerate(keep):
             inter = float(np.prod(np.maximum(0, np.minimum(boxes[i, 2:], boxes[j, 2:])
                                             - np.maximum(boxes[i, :2], boxes[j, :2]))))
             if inter == 0:
                 continue
             shared = (core[i, :, 2] >= .35) & (core[j, :, 2] >= .35)
-            if shared.sum() >= 3:
+            anatomical = shared.sum() >= 3 or (shared[1:3].any() and shared[3:5].any())
+            if anatomical:
                 # Torso lengths normalize the tolerance without using long oars,
                 # limbs or full-box heights as identity evidence.
                 scales = []
@@ -49,6 +76,13 @@ def merge_refined_detections(boxes, scores, keypoints, *, conf=.25, iou=.5):
             else:
                 duplicate = inter/(area[i]+area[j]-inter) > iou
             if duplicate:
+                # Only an anatomically matched, materially stronger complete
+                # torso may replace a truncated winner. Keep original scores
+                # and a whole pose; never fuse unrelated joints or drop partials.
+                if (anatomical and crop_truncated[j] and not crop_truncated[i]
+                        and scores[i] >= .8*scores[j]
+                        and torso_quality[i] >= torso_quality[j]+.1):
+                    keep[position] = int(i)
                 break
         if not duplicate:
             keep.append(int(i))

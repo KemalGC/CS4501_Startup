@@ -1,0 +1,89 @@
+{
+  "scope": "Analytic sinusoidal body motion with exact period; timing quantization only, not real catch/contact accuracy.",
+  "cases": [
+    {
+      "fps": 10,
+      "true_rate": 18.7,
+      "cycles": 8,
+      "frame_rate_rmse": 0.18908080174035813,
+      "fractional_rate_rmse": 0.00014013629892631522
+    },
+    {
+      "fps": 10,
+      "true_rate": 22.3,
+      "cycles": 9,
+      "frame_rate_rmse": 0.26915599136395413,
+      "fractional_rate_rmse": 0.0003051648235660885
+    },
+    {
+      "fps": 10,
+      "true_rate": 31.1,
+      "cycles": 14,
+      "frame_rate_rmse": 0.7138380076927467,
+      "fractional_rate_rmse": 0.003133483791224258
+    },
+    {
+      "fps": 10,
+      "true_rate": 43.7,
+      "cycles": 20,
+      "frame_rate_rmse": 1.4276366341388738,
+      "fractional_rate_rmse": 0.011635526692371707
+    },
+    {
+      "fps": 15,
+      "true_rate": 18.7,
+      "cycles": 8,
+      "frame_rate_rmse": 0.12656918026420522,
+      "fractional_rate_rmse": 6.0542348938171174e-05
+    },
+    {
+      "fps": 15,
+      "true_rate": 22.3,
+      "cycles": 10,
+      "frame_rate_rmse": 0.2695535781052869,
+      "fractional_rate_rmse": 0.0002835222188827736
+    },
+    {
+      "fps": 15,
+      "true_rate": 31.1,
+      "cycles": 14,
+      "frame_rate_rmse": 0.2857763406609117,
+      "fractional_rate_rmse": 0.000245490352225953
+    },
+    {
+      "fps": 15,
+      "true_rate": 43.7,
+      "cycles": 20,
+      "frame_rate_rmse": 1.0498785158098944,
+      "fractional_rate_rmse": 0.004281408217542004
+    },
+    {
+      "fps": 30,
+      "true_rate": 18.7,
+      "cycles": 8,
+      "frame_rate_rmse": 0.0837176721743158,
+      "fractional_rate_rmse": 1.4260734241436354e-05
+    },
+    {
+      "fps": 30,
+      "true_rate": 22.3,
+      "cycles": 10,
+      "frame_rate_rmse": 0.12741494379088603,
+      "fractional_rate_rmse": 2.9827956375058436e-05
+    },
+    {
+      "fps": 30,
+      "true_rate": 31.1,
+      "cycles": 14,
+      "frame_rate_rmse": 0.1427268113892668,
+      "fractional_rate_rmse": 5.325270781560675e-05
+    },
+    {
+      "fps": 30,
+      "true_rate": 43.7,
+      "cycles": 20,
+      "frame_rate_rmse": 0.4181708736030314,
+      "fractional_rate_rmse": 0.00033042320888643483
+    }
+  ]
+}

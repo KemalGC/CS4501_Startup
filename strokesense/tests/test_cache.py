@@ -71,7 +71,7 @@ class PoseCacheTests(unittest.TestCase):
         self.assertTrue(any("Loaded cached pose" in m for m in self.messages))
         dets, meta = load_detections(self.cache)
         self.assertEqual(len(dets), 1)
-        self.assertIn('"version":1', meta["cache_identity"])
+        self.assertIn(f'"version":{cli.POSE_CACHE_VERSION}', meta["cache_identity"])
 
     def test_changed_extraction_settings_recompute(self):
         for changes in ({"start": 5.0}, {"duration": 20.0}, {"fps": 30.0},
@@ -115,7 +115,7 @@ class PoseCacheTests(unittest.TestCase):
         self.cache.parent.mkdir(parents=True)
         save_detections(self.cache, self.dets, self.meta)
         self.analyse()
-        with patch.object(cli, "POSE_CACHE_VERSION", 2):
+        with patch.object(cli, "POSE_CACHE_VERSION", cli.POSE_CACHE_VERSION + 1):
             self.analyse()
         self.assertEqual(self.infer.call_count, 2)
         self.assertTrue(any("outdated" in m for m in self.messages))

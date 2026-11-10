@@ -4,7 +4,7 @@
 
 ## Live public website
 
-**[Visit the StrokeSense public website](https://strokesense-review.vercel.app/)** — a Vercel-hosted introduction with links to the [live analyzer on Render](https://strokesense-real-analysis-demo.onrender.com/demo) and the [existing reviewer feedback study](https://strokesense-review.kemalgcortuk.chatgpt.site/).
+**[Visit the StrokeSense public website](https://strokesense-review.vercel.app/)** — a Vercel-hosted public dashboard with links to the [live analyzer on Render](https://strokesense-real-analysis-demo.onrender.com/demo) and the [existing reviewer feedback study](https://strokesense-review.kemalgcortuk.chatgpt.site/).
 
 The Vercel website is public-only. Analysis runs on Render, while private study participation and results stay on the original study site. These hosted experiences are maintained separately from the command-line analyzer documented below.
 

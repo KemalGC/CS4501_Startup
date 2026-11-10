@@ -34,9 +34,10 @@ from .media import plausible_container
 from .oneclick_demo import PAGE, _safe_media, _safe_result, MAX_MEDIA_BYTES
 from .hosted_demo_state import HostedDemoState
 from .hosted_video_tabs import add_video_tabs
+from .hosted_demo_ui import bridge_page, redesign_hosted_demo, restyle_report
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
-              "style-src 'nonce-{nonce}'; media-src 'self'; connect-src 'self'; "
+              "style-src 'nonce-{nonce}'; frame-src 'self'; media-src 'self'; connect-src 'self'; "
               "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
@@ -147,7 +148,7 @@ def _page(csrf: str, nonce: str):
     page = page.replace("fetch('/api/status'", "fetch('/api/demo/status'")
     page = page.replace("fetch('/api/analyze'", "fetch('/api/demo/analyze'")
     page = page.replace("'x-csrf-token':token", "'x-demo-csrf':token")
-    page = add_video_tabs(page)
+    page = redesign_hosted_demo(add_video_tabs(page))
     page = page.replace('__CSRF_JSON__',json.dumps(csrf))
     return page.replace('__NONCE__',nonce)
 
@@ -429,6 +430,9 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             return reply(405,"method_not_allowed")
         if route == "/" and request.method in ("GET","HEAD"):
             return RedirectResponse("/demo",status_code=307)
+        if route == "/demo/bridge" and request.method in ("GET","HEAD"):
+            return HTMLResponse(bridge_page(csrf, nonce) if request.method == "GET" else "",
+                headers={"Content-Security-Policy": PUBLIC_CSP.format(nonce=nonce)})
         if route == "/demo" and request.method in ("GET","HEAD"):
             if data["demo"] is None:
                 return HTMLResponse(
@@ -470,7 +474,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return video_response(request, path)
             if path.stat().st_size > 16 * 1024 * 1024:
                 return reply(503, "report_too_large")
-            return Response(path.read_bytes() if request.method == "GET" else b"",
+            return Response(restyle_report(path.read_bytes(), dark=request.query_params.get("theme") == "dark")
+                if request.method == "GET" else b"",
                 media_type="text/html; charset=utf-8",
                 headers={"Content-Security-Policy": REPORT_CSP})
         if route == "/demo/video" and request.method in ("GET","HEAD"):
@@ -488,7 +493,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return video_response(request,path)
             if path.stat().st_size > 16 * 1024 * 1024:
                 return reply(503,"report_too_large")
-            return Response(path.read_bytes() if request.method == "GET" else b"",
+            return Response(restyle_report(path.read_bytes(), dark=request.query_params.get("theme") == "dark")
+                if request.method == "GET" else b"",
                 media_type="text/html; charset=utf-8",
                 headers={"Content-Security-Policy":REPORT_CSP})
         if route == "/api/demo/analyze" and request.method == "POST":

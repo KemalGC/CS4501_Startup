@@ -9,6 +9,7 @@ reviewer study and the owner's survey are separate apps and storage trees.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -22,6 +23,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import unicodedata
 from urllib.parse import unquote, urlsplit
 
 from starlette.applications import Starlette
@@ -49,7 +51,7 @@ REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
 DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
-VISITOR_UPLOAD_BYTES = 50 * 1024 * 1024
+VISITOR_UPLOAD_BYTES = 100 * 1024 * 1024
 VISITOR_UPLOAD_COUNT = 3
 VISITOR_UPLOAD_TTL = 60 * 60 * 2
 VISITOR_GLOBAL_HOURLY_LIMIT = 24
@@ -70,6 +72,24 @@ def _visitor_name(value, *, encoded=True):
         return None
     ext = Path(name).suffix.lower()
     return (name, ext) if ext in VISITOR_MEDIA_TYPES else None
+
+def _visitor_display_name(value, *, encoded=True):
+    """Display-only label: never used as a file path or analysis input."""
+    if not isinstance(value, str):
+        return None
+    try:
+        name = unquote(value, encoding="utf-8", errors="strict") if encoded else value
+    except (UnicodeDecodeError, ValueError):
+        return None
+    name = name.strip()
+    if not 1 <= len(name) <= 120 or any(
+            c in ("/", chr(92)) or unicodedata.category(c)[0] == "C"
+            or unicodedata.category(c) in ("Zl", "Zp")
+            or ord(c) in (0x034F, 0xFE0E, 0xFE0F)
+            for c in name):
+        return None
+    return name
+
 
 
 def _install_demo_video(source_url, sha256, video_path, upper):
@@ -238,8 +258,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
 
     def analysis_busy():
         prepared = data["demo"]
-        return (prepared is not None and prepared.snapshot()["state"] == "running"
-                or any(entry["state"].snapshot()["state"] == "running"
+        return (prepared is not None and prepared.snapshot()["state"] in ("running", "stopping")
+                or any(entry["state"].snapshot()["state"] in ("running", "stopping")
                        for entry in data["uploads"].values()))
 
     def queue_pending():
@@ -252,13 +272,20 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 "progress": 0, "has_report": False, "has_overlay": False,
                 "elapsed_seconds": None, "crew_summary": None,
                 "llm_feedback": {"state": "pending"}, "can_rerun": False}
-        return entry["state"].snapshot()
+        status = entry["state"].snapshot()
+        if entry.get("cancelled") and status["state"] != "stopping":
+            return {"state": "cancelled", "label": "Analysis cancelled",
+                "detail": "Analysis stopped. Your video is still available.",
+                "progress": 0, "has_report": False, "has_overlay": False,
+                "elapsed_seconds": None, "crew_summary": None,
+                "llm_feedback": {"state": "cancelled"}, "can_rerun": True}
+        return status
 
     def visitor_entry(job_id):
         """Enforce temporary-upload expiration on every read or rerun."""
         entry = data["uploads"].get(job_id)
         if (entry is not None and time.time() - entry["created"] > VISITOR_UPLOAD_TTL
-                and entry["state"].snapshot()["state"] != "running"):
+                and entry["state"].snapshot()["state"] not in ("running", "stopping")):
             return None
         return entry
 
@@ -283,12 +310,14 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     continue
                 meta = json.loads(meta_path.read_text())
                 name = _visitor_name(meta["name"], encoded=False)
+                display = (_visitor_display_name(meta.get("display_name"), encoded=False)
+                           if "display_name" in meta else name[0] if name else None)
                 created = meta["created"]
                 delete_token = meta.get("delete_token")
                 if delete_token is not None and (not isinstance(delete_token, str)
                         or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", delete_token)):
                     continue
-                if (not name or type(created) not in (int, float) or created > now + 60
+                if (not name or not display or type(created) not in (int, float) or created > now + 60
                         or now - created > VISITOR_UPLOAD_TTL):
                     shutil.rmtree(folder)
                     continue
@@ -296,25 +325,41 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 if media_path.is_symlink() or not media_path.is_file():
                     continue
                 state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
-                data["uploads"][folder.name] = {"name": name[0], "created": created,
-                                                 "state": state, "video": media_path, "root": folder,
-                                                 "delete_token": delete_token,
-                                                 "queued": bool(meta.get("auto_start")) and
-                                                     state.snapshot()["state"] == "ready"}
+                cancelled = meta.get("cancelled") is True
+                data["uploads"][folder.name] = {"name": display, "filename": name[0],
+                    "created": created, "state": state, "video": media_path, "root": folder,
+                    "delete_token": delete_token, "cancelled": cancelled,
+                    "queued": not cancelled and bool(meta.get("auto_start")) and
+                        state.snapshot()["state"] == "ready"}
             except (OSError, ValueError, KeyError, TypeError):
                 continue
+
+    def persist_upload_state(entry, *, cancelled):
+        """Atomically update resumability without deleting the visitor's source video."""
+        metadata = {
+            "name": entry["filename"], "display_name": entry["name"],
+            "created": entry["created"], "delete_token": entry["delete_token"],
+            "auto_start": False, "cancelled": cancelled,
+        }
+        pending = entry["root"] / (".upload-" + secrets.token_hex(10) + ".tmp")
+        try:
+            with pending.open("x", encoding="utf-8") as output:
+                output.write(json.dumps(metadata))
+            os.replace(pending, entry["root"] / "upload.json")
+        finally:
+            pending.unlink(missing_ok=True)
 
     def free_upload_slot():
         now = time.time()
         for job_id, entry in list(data["uploads"].items()):
             if (now - entry["created"] > VISITOR_UPLOAD_TTL and
-                    entry["state"].snapshot()["state"] != "running"):
+                    entry["state"].snapshot()["state"] not in ("running", "stopping")):
                 data["uploads"].pop(job_id)
                 shutil.rmtree(entry["root"])
         if len(data["uploads"]) >= VISITOR_UPLOAD_COUNT:
             # Preserve active analysis jobs; completed reports are temporary.
             reusable = [(job_id, entry) for job_id, entry in data["uploads"].items()
-                        if not entry.get("queued") and entry["state"].snapshot()["state"] != "running"]
+                        if not entry.get("queued") and entry["state"].snapshot()["state"] not in ("running", "stopping")]
             if not reusable:
                 return False
             job_id, entry = min(reusable, key=lambda item: item[1]["created"])
@@ -471,7 +516,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             entry = visitor_entry(visitor_dashboard.group(1))
             if entry is None:
                 return reply(404, "video_not_found")
-            if entry.get("queued") or entry["state"].snapshot()["state"] != "finished":
+            if entry.get("queued") or entry.get("cancelled") or entry["state"].snapshot()["state"] != "finished":
                 return reply(404, "report_not_ready")
             try:
                 result = build_dashboard(entry["state"], entry["name"])
@@ -487,7 +532,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if kind == "video":
                 return video_response(request, entry["video"])
             state = entry["state"]
-            if state.snapshot()["state"] != "finished":
+            if entry.get("cancelled") or state.snapshot()["state"] != "finished":
                 return reply(404, "report_not_ready")
             path = state.report if kind == "report" else state.overlay
             if path is None or not _safe_result(state.output_root, path):
@@ -553,9 +598,77 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if entry is None:
                 return reply(404, "video_not_found")
             with analysis_gate:
-                if entry.get("queued") or analysis_busy() or queue_pending() or not entry["state"].begin():
+                if entry.get("queued") or analysis_busy() or queue_pending():
                     return reply(409, "analysis_in_progress")
+                if entry.get("cancelled"):
+                    try:
+                        persist_upload_state(entry, cancelled=False)
+                    except OSError:
+                        return reply(503, "unable_to_restart_analysis")
+                if not entry["state"].begin():
+                    return reply(409, "analysis_in_progress")
+                entry["cancelled"] = False
             return JSONResponse({"started": True}, status_code=202)
+        visitor_cancel = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/cancel", route)
+        if visitor_cancel and request.method == "POST":
+            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+                return reply(403, "csrf_required")
+            if request.headers.get("content-type") != "application/json":
+                return reply(415, "json_required")
+            try:
+                raw = await bounded_body(request, 2)
+            except OverflowError:
+                return reply(400, "expected_empty_json")
+            if raw != b"{}":
+                return reply(400, "expected_empty_json")
+            acquired = False
+            for attempt in range(20):
+                if lock.acquire(blocking=False):
+                    acquired = True
+                    break
+                await asyncio.sleep(0.05)
+            if not acquired:
+                return reply(409, "upload_in_progress")
+            try:
+                with analysis_gate:
+                    entry = visitor_entry(visitor_cancel.group(1))
+                    if entry is None:
+                        return reply(404, "video_not_found")
+                    delete_token = entry.get("delete_token")
+                    if delete_token and not hmac.compare_digest(
+                            request.headers.get("x-demo-delete-token", ""), delete_token):
+                        return reply(403, "delete_token_required")
+                    if entry.get("cancelled"):
+                        status = visitor_snapshot(entry)
+                        return JSONResponse({"cancellation_requested": True,
+                            "state": status["state"]})
+                    if entry.get("queued"):
+                        try:
+                            persist_upload_state(entry, cancelled=True)
+                        except OSError:
+                            return reply(503, "cancel_not_saved")
+                        entry["queued"] = False
+                        entry["cancelled"] = True
+                        queue_wake.set()
+                        return JSONResponse({"cancellation_requested": True, "state": "cancelled"})
+                    status = entry["state"].snapshot()
+                    if status["state"] not in ("running", "stopping"):
+                        return reply(409, "analysis_not_running")
+                    if not entry["state"].cancel():
+                        return reply(409, "analysis_not_running")
+                    entry["cancelled"] = True
+                    persisted = True
+                    try:
+                        persist_upload_state(entry, cancelled=True)
+                    except OSError:
+                        persisted = False
+                    # The worker may still be terminating; status polling confirms completion.
+                    status = visitor_snapshot(entry)
+                    return JSONResponse({"cancellation_requested": True, "state": status["state"],
+                        "persisted": persisted}, status_code=202 if status["state"] == "stopping" else 200)
+            finally:
+                lock.release()
+
         visitor_delete = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})", route)
         if visitor_delete and request.method == "DELETE":
             if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
@@ -592,6 +705,11 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             name = _visitor_name(request.headers.get("x-demo-filename", ""))
             if not name or request.headers.get("content-type") != VISITOR_MEDIA_TYPES[name[1]]:
                 return reply(415, "supported_video_required")
+            display_header = request.headers.get("x-demo-display-name")
+            display_name = (_visitor_display_name(display_header) if display_header is not None
+                            else name[0])
+            if not display_name:
+                return reply(422, "invalid_display_name")
             limit = min(upper, VISITOR_UPLOAD_BYTES)
             lengths = request.headers.getlist("content-length")
             if len(lengths) > 1 or (lengths and not lengths[0].isdigit()):
@@ -632,22 +750,24 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 created = time.time()
                 delete_token = secrets.token_urlsafe(32)
                 (folder / "upload.json").write_text(json.dumps({
-                    "name": name[0], "created": created, "delete_token": delete_token,
-                    "auto_start": True,
+                    "name": name[0], "display_name": display_name, "created": created,
+                    "delete_token": delete_token, "auto_start": True, "cancelled": False,
                 }))
                 state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
                 with analysis_gate:
                     queued = analysis_busy() or queue_pending()
                     if not queued and not state.begin():
                         return reply(503, "unable_to_start_analysis")
-                    data["uploads"][job_id] = {"name": name[0], "created": created,
-                                                "state": state, "video": media_path, "root": folder,
-                                                "delete_token": delete_token, "queued": queued}
+                    data["uploads"][job_id] = {"name": display_name, "filename": name[0],
+                                                "created": created, "state": state,
+                                                "video": media_path, "root": folder,
+                                                "delete_token": delete_token, "queued": queued,
+                                                "cancelled": False}
                     upload_history.append((created, request.client.host if request.client else "unknown"))
                 if queued:
                     ensure_queue_worker()
                 folder = None
-                return JSONResponse({"id": job_id, "name": name[0],
+                return JSONResponse({"id": job_id, "name": display_name,
                     "started": not queued, "queued": queued,
                     "delete_token": delete_token,
                     "status_url": f"/api/demo/videos/{job_id}/status",

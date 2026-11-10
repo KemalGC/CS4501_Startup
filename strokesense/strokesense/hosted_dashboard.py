@@ -73,6 +73,41 @@ def _verified_feedback(report: Path, root: Path):
         return {}
 
 
+def _verified_seat_mapping(raw, rower_ids):
+    """Only display complete, self-consistent eight-seat mappings from the CLI."""
+    uncertain = {
+        "status": "uncertain", "travel_direction": None, "confidence": None,
+        "assignments": {}, "reason": "Boat direction could not be verified from this clip.",
+        "source": None,
+    }
+    if not isinstance(raw, dict):
+        return uncertain
+    if raw.get("status") != "auto":
+        return {**uncertain, "reason": _text(raw.get("reason"), 240) or uncertain["reason"],
+                "confidence": _number(raw.get("confidence"), 0, 1)}
+    direction = raw.get("travel_direction")
+    confidence = _number(raw.get("confidence"), .82, 1)
+    assignments = raw.get("assignments")
+    expected_ids = {f"R{i}" for i in range(1, 9)}
+    labels = ["Bow seat"] + [f"Seat {i}" for i in range(2, 8)] + ["Stroke seat"]
+    if (direction not in ("left", "right") or confidence is None
+            or set(rower_ids) != expected_ids or not isinstance(assignments, dict)
+            or set(assignments) != expected_ids):
+        return uncertain
+    expected = {
+        f"R{i+1}": labels[i if direction == "left" else 7-i] for i in range(8)
+    }
+    if any(assignments[k] != label for k, label in expected.items()):
+        return uncertain
+    return {
+        "status": "auto", "travel_direction": direction, "confidence": confidence,
+        "assignments": expected,
+        "reason": _text(raw.get("reason"), 240) or
+            "Estimated from rower-facing pose and stable left-to-right tracking.",
+        "source": "pose_orientation_and_spatial_order",
+    }
+
+
 def build_dashboard(state, clip_name: str):
     """Return a finite, bounded subset of a completed run's measured report."""
     if state.snapshot().get("state") != "finished":
@@ -171,5 +206,6 @@ def build_dashboard(state, clip_name: str):
             "catch_offset_ms": _number(sync.get("crew_spread_ms"), 0, 10000),
         },
         "rowers": rowers,
+        "seat_mapping": _verified_seat_mapping(sync.get("seat_mapping"), [r["id"] for r in rowers]),
         "limits": "Model candidate tracks and projected 2D measurements; findings require coach review.",
     }

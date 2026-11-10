@@ -38,15 +38,15 @@ from .hosted_demo_ui import bridge_page, redesign_hosted_demo, restyle_report
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; frame-src 'self'; media-src 'self'; connect-src 'self'; "
-              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app; "
+              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
-               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
+               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app")
 MEDIA_CSP = ("default-src 'none'; media-src 'self'; frame-ancestors 'self' "
-             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
+             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
-              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
+              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app")
 DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
 VISITOR_UPLOAD_BYTES = 50 * 1024 * 1024
 VISITOR_UPLOAD_COUNT = 3

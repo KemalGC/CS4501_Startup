@@ -28,6 +28,7 @@ class HostedDemoState(DemoState):
         self.feedback_enabled = os.environ.get("STROKESENSE_LLM_FEEDBACK") == "1"
         self.feedback = {"state": "pending" if self.feedback_enabled else "disabled"}
         self.pipeline_pending = False
+        self.feedback_process = None
         super().__init__(video, self.output_root / self.run_id, command_factory=command_factory)
         self._restore()
         if self.feedback_enabled and self.report is not None:
@@ -76,6 +77,8 @@ class HostedDemoState(DemoState):
             self.run_id = secrets.token_hex(16)
             self.root = self.output_root / self.run_id
             self.root.mkdir(mode=0o700)
+            self.cancel_requested.clear()
+            self.feedback_process = None
             self.phase = "running"
             self.pipeline_pending = True
             self.feedback = {"state": "pending" if self.feedback_enabled else "disabled"}
@@ -90,13 +93,30 @@ class HostedDemoState(DemoState):
     def _run(self):
         super()._run()
         try:
+            if self.cancel_requested.is_set():
+                return
             if self.phase == "finished" and self.feedback_enabled:
                 self._enrich_feedback(self.report)
+            if self.cancel_requested.is_set():
+                return
             if self.phase == "finished":
                 self._persist()
         finally:
             with self.lock:
                 self.pipeline_pending = False
+                if self.cancel_requested.is_set():
+                    self.phase = "failed"
+                    self.error = "analysis_cancelled"
+                    self.report = self.overlay = self.crew_summary = None
+
+    def cancel(self):
+        """Stop this visitor's active inference or coaching subprocess, keeping files intact."""
+        requested = super().cancel()
+        if requested:
+            with self.lock:
+                feedback_proc = self.feedback_process
+            self._stop_process(feedback_proc)
+        return requested
 
     def _upgrade_saved_feedback(self):
         # This upgrades the written feedback only. Saved measured results stay
@@ -109,18 +129,30 @@ class HostedDemoState(DemoState):
             self.feedback = {"state": "running"}
         log = report.parent / ".llm-feedback.log"
         try:
+            if self.cancel_requested.is_set():
+                raise RuntimeError("analysis_cancelled")
             with log.open("wb") as stream:
                 proc = subprocess.Popen(
                     [sys.executable, "-u", "-m", "strokesense.llm_feedback", str(report)],
                     cwd=str(Path(__file__).resolve().parents[1]), stdin=subprocess.DEVNULL,
                     stdout=stream, stderr=subprocess.STDOUT, start_new_session=True,
                 )
+                with self.lock:
+                    self.feedback_process = proc
+                if self.cancel_requested.is_set():
+                    self._stop_process(proc)
                 try:
                     code = proc.wait(timeout=600)
                 except subprocess.TimeoutExpired:
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait(timeout=10)
                     raise RuntimeError("feedback_timeout")
+                finally:
+                    with self.lock:
+                        if self.feedback_process is proc:
+                            self.feedback_process = None
+            if self.cancel_requested.is_set():
+                raise RuntimeError("analysis_cancelled")
             if code != 0:
                 raise RuntimeError("feedback_generation_failed")
             from .llm_feedback import feedback_status
@@ -130,12 +162,13 @@ class HostedDemoState(DemoState):
             with self.lock:
                 self.feedback = result
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-            # HTML and its provenance are separate atomic writes. If the child
-            # died between them, never serve unverified prose as current output.
+            # Never show an interrupted or unverifiable LLM completion as current feedback.
             from .llm_feedback import restore_measured_report
             restore_measured_report(report)
             with self.lock:
-                self.feedback = {"state": "failed", "detail": "LLM feedback could not be generated. The measured report remains available."}
+                self.feedback = ({"state": "cancelled"} if self.cancel_requested.is_set()
+                                 else {"state": "failed", "detail": "LLM feedback could not be generated. The measured report remains available."})
+
 
     def _persist(self):
         with self.lock:
@@ -181,7 +214,16 @@ class HostedDemoState(DemoState):
         elif result["state"] == "finished" and feedback.get("state") == "failed":
             result["detail"] = feedback["detail"]
         result["run_id"] = self.run_id
-        result["can_rerun"] = result["state"] != "running" and not (self.worker is not None and self.worker.is_alive())
+        worker_active = self.worker is not None and self.worker.is_alive()
+        result["can_rerun"] = result["state"] != "running" and not worker_active
+        if self.cancel_requested.is_set():
+            result.update(
+                state="stopping" if worker_active else "cancelled",
+                label="Stopping analysis" if worker_active else "Analysis cancelled",
+                detail="Stopping the active analysis process…" if worker_active else "Analysis stopped. Your video is still available.",
+                progress=0, has_report=False, has_overlay=False, crew_summary=None,
+                llm_feedback={"state": "cancelled"}, can_rerun=not worker_active,
+            )
         if result["state"] == "failed":
             result["detail"] = result["detail"].replace("private terminal", "Render service logs").replace("local environment", "analysis service")
         return result

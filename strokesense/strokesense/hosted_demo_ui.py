@@ -166,6 +166,18 @@ async function ssBridgeRequest(action,payload){
     if(!response.ok)throw Error(result.error||'dashboard_failed');
     return result;
   }
+  if(action==='cancel'){
+    if(!suffix)throw Error('cannot_cancel_prepared_video');
+    const deleteToken=payload.deleteToken;
+    if(typeof deleteToken!=='string'||!/^[a-zA-Z0-9_-]{32,128}$/.test(deleteToken))
+      throw Error('invalid_delete_token');
+    const response=await fetch('/api/demo'+suffix+'/cancel',{method:'POST',credentials:'same-origin',
+      headers:{'content-type':'application/json','x-demo-csrf':token,
+        'x-demo-delete-token':deleteToken},body:'{}'});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'cancel_failed');
+    return result;
+  }
   if(action==='analyze'){
     const path=suffix?'/api/demo'+suffix+'/analyze':'/api/demo/analyze';
     const response=await fetch(path,{method:'POST',credentials:'same-origin',
@@ -177,14 +189,20 @@ async function ssBridgeRequest(action,payload){
   if(action==='upload'){
     if(payload.clipId!==undefined&&payload.clipId!==null)throw Error('invalid_upload_request');
     const file=payload.file;
-    if(!(file instanceof File)||file.size<1||file.size>50*1024*1024)throw Error('invalid_video_size');
+    if(!(file instanceof File)||file.size<1||file.size>100*1024*1024)throw Error('invalid_video_size');
     if(file.name.length<1||file.name.length>120)throw Error('invalid_video_name');
     const ext=(file.name.split('.').pop()||'').toLowerCase();
     const allowed={mp4:'video/mp4',mov:'video/quicktime',webm:'video/webm'};
     if(!allowed[ext])throw Error('unsupported_video_format');
+    const displayName=payload.displayName;
+    if(displayName!==undefined&&displayName!==null&&
+       (typeof displayName!=='string'||displayName.trim().length<1||displayName.length>120))
+      throw Error('invalid_display_name');
+    const headers={'content-type':allowed[ext],'x-demo-filename':encodeURIComponent(file.name),
+      'x-demo-csrf':token};
+    if(typeof displayName==='string')headers['x-demo-display-name']=encodeURIComponent(displayName.trim());
     const response=await fetch('/api/demo/videos',{method:'POST',credentials:'same-origin',
-      headers:{'content-type':allowed[ext],'x-demo-filename':encodeURIComponent(file.name),
-        'x-demo-csrf':token},body:file});
+      headers,body:file});
     const result=await response.json();
     if(!response.ok)throw Error(result.error||'upload_failed');
     return result;

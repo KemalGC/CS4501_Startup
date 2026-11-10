@@ -1,0 +1,145 @@
+{
+  "provenance": "Assistant visual review of source-video contact sheets with raw detection indices. Not independently human labeled; development audit, not held-out accuracy certification.",
+  "segments": {
+    "0185-boat1": {
+      "cache_sha256": "7cc8c0c31b9f83d4dc7b3d618b5c7b3579cac89f351c9bbee7901b464675650b",
+      "sampled_frames": 193,
+      "fps": 14.82213438735178,
+      "start": 0.0,
+      "baseline": {
+        "seconds": 0.3709971249991213,
+        "observed_seat_frames": 963,
+        "audit": {
+          "correct": 16,
+          "wrong": 3,
+          "missing": 13,
+          "detectable_seat_frames": 28,
+          "total_seat_frames": 32
+        }
+      },
+      "candidate": {
+        "seconds": 1.2486838749973685,
+        "observed_seat_frames": 1489,
+        "audit": {
+          "correct": 28,
+          "wrong": 0,
+          "missing": 4,
+          "detectable_seat_frames": 28,
+          "total_seat_frames": 32
+        }
+      }
+    },
+    "0185-boat2": {
+      "cache_sha256": "24200dcc347dfc3670d0c9bb0d48bffcdde0bba3dcc6074dc1bf7af469ea5322",
+      "sampled_frames": 148,
+      "fps": 14.82213438735178,
+      "start": 14.0,
+      "baseline": {
+        "seconds": 3.63365329199587,
+        "observed_seat_frames": 1089,
+        "audit": {
+          "correct": 30,
+          "wrong": 0,
+          "missing": 2,
+          "detectable_seat_frames": 32,
+          "total_seat_frames": 32
+        }
+      },
+      "candidate": {
+        "seconds": 5.952628500002902,
+        "observed_seat_frames": 1115,
+        "audit": {
+          "correct": 32,
+          "wrong": 0,
+          "missing": 0,
+          "detectable_seat_frames": 32,
+          "total_seat_frames": 32
+        }
+      }
+    },
+    "9673-boat1": {
+      "cache_sha256": "d477d09a148e9bbd31714b101922555bff1feae8b38207a791cc2523b5c276d9",
+      "sampled_frames": 464,
+      "fps": 14.822702587583857,
+      "start": 0.0,
+      "baseline": {
+        "seconds": 1.2662913339954684,
+        "observed_seat_frames": 3401,
+        "audit": {
+          "correct": 31,
+          "wrong": 0,
+          "missing": 1,
+          "detectable_seat_frames": 31,
+          "total_seat_frames": 32
+        }
+      },
+      "candidate": {
+        "seconds": 3.224162750004325,
+        "observed_seat_frames": 3494,
+        "audit": {
+          "correct": 31,
+          "wrong": 0,
+          "missing": 1,
+          "detectable_seat_frames": 31,
+          "total_seat_frames": 32
+        }
+      }
+    },
+    "9674-boat1": {
+      "cache_sha256": "a79a41d7964022fdee00e38f681411ee2cacb5994d4e1506ee15ffb1fb72dc4c",
+      "sampled_frames": 311,
+      "fps": 14.822538088347944,
+      "start": 0.0,
+      "baseline": {
+        "seconds": 0.5042089589987881,
+        "observed_seat_frames": 2425,
+        "audit": {
+          "correct": 32,
+          "wrong": 0,
+          "missing": 0,
+          "detectable_seat_frames": 32,
+          "total_seat_frames": 32
+        }
+      },
+      "candidate": {
+        "seconds": 1.1011837499972899,
+        "observed_seat_frames": 2430,
+        "audit": {
+          "correct": 30,
+          "wrong": 0,
+          "missing": 2,
+          "detectable_seat_frames": 32,
+          "total_seat_frames": 32
+        }
+      }
+    },
+    "9674-boat2": {
+      "cache_sha256": "5df530d7a7aa0653bd82b75498c9c62f000bff177ea787b5d670c31ef6ce0427",
+      "sampled_frames": 222,
+      "fps": 14.822538088347944,
+      "start": 24.0,
+      "baseline": {
+        "seconds": 0.10812954099674243,
+        "observed_seat_frames": 1775,
+        "audit": {
+          "correct": 32,
+          "wrong": 0,
+          "missing": 0,
+          "detectable_seat_frames": 32,
+          "total_seat_frames": 32
+        }
+      },
+      "candidate": {
+        "seconds": 0.3246269579976797,
+        "observed_seat_frames": 1744,
+        "audit": {
+          "correct": 32,
+          "wrong": 0,
+          "missing": 0,
+          "detectable_seat_frames": 32,
+          "total_seat_frames": 32
+        }
+      }
+    }
+  }
+}

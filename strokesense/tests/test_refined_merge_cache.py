@@ -14,7 +14,7 @@ class RefinedMergeCacheTests(unittest.TestCase):
             selected=dict(selection(),version=2,reference_seconds=0.)
             identity=json.loads(cli._cache_identity(video,0,None,'auto',15,None,selection=selected))
             legacy=json.loads(cli._cache_identity(video,0,None,'auto',15,None))
-        self.assertEqual(identity['settings'].get('refined_merge'),'torso-landmarks-v1')
+        self.assertEqual(identity['settings'].get('refined_merge'),'torso-landmarks-v4-crop-edges')
         self.assertNotIn('refined_merge',legacy['settings'])
 
 

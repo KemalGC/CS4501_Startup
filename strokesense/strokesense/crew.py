@@ -24,14 +24,8 @@ class Rower:
 
 
 def _periodicity(sig, fps):
-    """Strength of the dominant rhythm in the 12-50 spm band (0..1)."""
-    x = sig - np.mean(sig)
-    if np.std(x) < 1e-9 or len(x) < fps * 4:
-        return 0.0
-    ac = np.correlate(x, x, "full")[len(x) - 1:]
-    ac /= ac[0]
-    lo, hi = int(fps * 60 / 50), min(len(ac) - 1, int(fps * 60 / 12))
-    return float(ac[lo:hi].max()) if hi > lo else 0.0
+    """Use the same source-clock rhythm evidence as stroke segmentation."""
+    return strokes.periodicity(sig, fps)
 
 
 def rowers_from_slots(pose: PoseResult, crew_dir: int, n_seats: int) -> list[Rower]:
@@ -61,7 +55,7 @@ def find_rowers(pose: PoseResult, min_periodicity=0.3, max_rowers=9) -> list[Row
         k = kinematics.build(kp, pose.fps)
         if k.visible.mean() < 0.4:
             continue
-        per = _periodicity(np.where(k.visible, k.handle, np.median(k.handle)), pose.fps)
+        per = _periodicity(np.where(k.visible, k.handle, np.nan), pose.fps)
         if per < min_periodicity:
             continue                     # coach in the launch, cox, spectators...
         cands.append((tid, k, per))
@@ -127,38 +121,24 @@ def _assign_seats(rowers: list[Rower], facing: int):
 
 
 def crew_sync(rowers: list[Rower], fps: float) -> dict:
-    """Catch timing of each rower relative to the crew, from per-stroke catch times.
-
-    For every crew catch (median across rowers) we take each rower's nearest catch and
-    record the offset. Positive = late (catching after the crew), negative = early."""
+    """Timing relative to independently supported crew catches, in milliseconds."""
+    from .synchrony import match_events, VERSION
+    for r in rowers:
+        r.sync_ms = r.sync_sd_ms = None
     if len(rowers) < 2:
         return {}
-    catches = {r.tid: np.array([s.catch_t for s in r.strokes] +
-                               ([r.strokes[-1].next_catch_t] if r.strokes else []), float)
-               for r in rowers}
-    ref = max(catches.values(), key=len)
-    if len(ref) == 0:
-        return {}
-    win = 0.25 * np.median(np.diff(ref)) if len(ref) > 1 else fps
+    groups = match_events(rowers, fps)
     offsets = {r.tid: [] for r in rowers}
-    for c in ref:
-        near = {}
-        for tid, cs in catches.items():
-            if len(cs) == 0:
-                continue
-            j = int(np.argmin(np.abs(cs - c)))
-            if abs(cs[j] - c) <= win:
-                near[tid] = cs[j]
-        if len(near) < max(2, len(rowers) // 2):
-            continue
-        crew_t = np.median(list(near.values()))
-        for tid, t in near.items():
-            offsets[tid].append((t - crew_t) / fps * 1000)
+    for group in groups:
+        for observation in group['observations']:
+            offsets[observation['rower']].append((observation['frame']-group['frame'])/fps*1000)
     out = {}
     for r in rowers:
-        o = np.array(offsets[r.tid])
-        if len(o) >= 2:
-            r.sync_ms, r.sync_sd_ms = float(np.mean(o)), float(np.std(o))
-            out[r.seat] = {"mean_ms": r.sync_ms, "sd_ms": r.sync_sd_ms, "n": len(o)}
-    spread = [abs(v["mean_ms"]) for v in out.values()]
-    return {"per_seat": out, "crew_spread_ms": float(np.mean(spread)) if spread else None}
+        values = np.asarray(offsets[r.tid])
+        if len(values) >= 2:
+            r.sync_ms, r.sync_sd_ms = float(values.mean()), float(values.std())
+            out[r.seat] = {'mean_ms': r.sync_ms, 'sd_ms': r.sync_sd_ms, 'n': len(values)}
+    spread = [abs(v['mean_ms']) for v in out.values()]
+    return {'per_seat': out, 'crew_spread_ms': float(np.mean(spread)) if spread else None,
+            'timing_method': VERSION, 'matched_events': groups,
+            'event_time_basis': 'analysis_frame_indices'}

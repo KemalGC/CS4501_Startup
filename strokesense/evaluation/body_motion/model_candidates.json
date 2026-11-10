@@ -1,0 +1,16 @@
+[
+  {
+    "name": "yolo11s-pose.onnx",
+    "source": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11s-pose.onnx",
+    "sha256": "4b3abb8c4057465a3e2b9b4651de4018f16d642c9c4981cd7a54edf922c06f79",
+    "bytes": 39999691,
+    "release_digest": "sha256:4b3abb8c4057465a3e2b9b4651de4018f16d642c9c4981cd7a54edf922c06f79"
+  },
+  {
+    "name": "yolo11m-pose.onnx",
+    "source": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11m-pose.onnx",
+    "sha256": "83bbd232abd824b52afa3747629605e88afb080c25641c6d03e7c736210c44dc",
+    "bytes": 83974039,
+    "release_digest": "sha256:83bbd232abd824b52afa3747629605e88afb080c25641c6d03e7c736210c44dc"
+  }
+]

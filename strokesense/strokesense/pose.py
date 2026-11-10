@@ -100,10 +100,12 @@ class PoseDetector:
     def __call__(self, frame, tiles=None):
         """Detect people. tiles: None = whole frame only; otherwise a list of (x0,y0,x1,y1) crops."""
         H, W = frame.shape[:2]
-        all_b, all_s, all_k = [], [], []
+        all_b, all_s, all_k, all_edges = [], [], [], []
+        from .pose_merge import crop_edge_flags
         crops = [(0, 0, W, H)] + list(tiles or [])
         for x0, y0, x1, y1 in crops:
             b, s, k = self._infer(frame[y0:y1, x0:x1])
+            all_edges.append(crop_edge_flags(b, (x0,y0,x1,y1), W, H))
             b[:, [0, 2]] += x0; b[:, [1, 3]] += y0
             k[..., 0] += x0; k[..., 1] += y0
             all_b.append(b); all_s.append(s); all_k.append(k)
@@ -111,7 +113,8 @@ class PoseDetector:
         if len(boxes) == 0:
             return boxes, scores, kpts
         from .pose_merge import merge_refined_detections
-        return merge_refined_detections(boxes, scores, kpts, conf=self.conf, iou=self.iou)
+        return merge_refined_detections(boxes, scores, kpts, conf=self.conf, iou=self.iou,
+                                        crop_truncated=np.concatenate(all_edges))
 
 
 # ----------------------------------------------------------------------------- tracking
@@ -274,34 +277,19 @@ class PoseResult:
 
 
 def clean_detections(boxes, kpts, min_kconf=0.25):
-    """Drop junk: low-confidence skeletons, and slivers / partial boxes lying mostly inside a
-    bigger box (tile-edge fragments, a person detected twice)."""
-    if len(boxes) == 0:
-        return boxes, kpts
-    kc = kpts[:, 5:13, 2].mean(1)                     # shoulders, elbows, wrists, hips
-    ok = kc >= min_kconf
-    area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-    order = np.argsort(-area)
-    keep = []
-    for i in order:
-        if not ok[i]:
-            continue
-        bi = boxes[i]
-        frag = False
-        for j in keep:
-            bj = boxes[j]
-            iw = max(0, min(bi[2], bj[2]) - max(bi[0], bj[0]))
-            ih = max(0, min(bi[3], bj[3]) - max(bi[1], bj[1]))
-            if iw * ih / (area[i] + 1e-9) > 0.55:
-                frag = True
-                # the smaller box is the better skeleton when it is the confident one
-                if kc[i] > kc[j] + 0.15 and area[i] > 0.5 * area[j]:
-                    keep[keep.index(j)] = i
-                break
-        if not frag:
-            keep.append(i)
-    keep = np.array(sorted(keep), int)
-    return boxes[keep], kpts[keep]
+    """Remove invalid poses and anatomical duplicates, preserving overlap.
+
+    Rowers and their neighbours often have overlapping limb boxes. Containment
+    is not identity evidence when their confident torso landmarks disagree.
+    """
+    from .pose_merge import merge_refined_detections
+    boxes, kpts = np.asarray(boxes, float), np.asarray(kpts, float)
+    if not len(boxes):
+        return boxes.reshape(-1, 4), kpts.reshape(-1, 17, 3)
+    scores = kpts[:, 5:13, 2].mean(1)
+    b, _, k = merge_refined_detections(boxes, scores, kpts,
+                                      conf=np.nextafter(min_kconf, -np.inf))
+    return b, k
 
 
 def build_tracks(dets, fps, n_frames, min_track_frac=0.3):
@@ -379,11 +367,13 @@ def result_from_detections(dets, meta, min_track_frac=0.3) -> PoseResult:
                       tracks=tracks, start=float(meta["start"]), stride=int(meta["stride"]))
 
 
-def auto_tiles(video_path, detector, start, src_fps, max_width, samples=8):
+def auto_tiles(video_path, detector, start, src_fps, max_width, samples=8, duration=None):
     """Find the horizontal band where people are and cover it with native-resolution tiles."""
     cap = cv2.VideoCapture(str(video_path))
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     s0 = int(start * src_fps)
+    if duration is not None:
+        n = min(n, s0 + int(duration * src_fps))
     ys, hs = [], []
     W = H = None
     for f in np.linspace(s0, max(s0, n - 1), samples + 2)[1:-1].astype(int):
@@ -395,7 +385,7 @@ def auto_tiles(video_path, detector, start, src_fps, max_width, samples=8):
             s = max_width / fr.shape[1]
             fr = cv2.resize(fr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
         H, W = fr.shape[:2]
-        coarse = PoseDetector.tile_grid(W, H, None, tile=min(W, H), overlap=0.3)
+        coarse = PoseDetector.tile_grid(W, H, None, tile=min(480, W, H), overlap=0.3)
         b, sc, _ = detector(fr, tiles=coarse)
         for bb in b:
             ys.append((bb[1] + bb[3]) / 2); hs.append(bb[3] - bb[1])
@@ -407,7 +397,7 @@ def auto_tiles(video_path, detector, start, src_fps, max_width, samples=8):
     lo, hi = np.percentile(ys, [10, 90])
     h = np.median(hs)
     roi = (max(0, lo - 1.2 * h), min(H, hi + 1.2 * h))
-    tile = int(np.clip(h * 4, 320, 640))          # people ~1/4 of tile height suits the network
+    tile = int(np.clip(h * 4, 192, 640))          # people ~1/4 of tile height suits the network
     return PoseDetector.tile_grid(W, H, roi, tile=tile)
 
 
@@ -463,7 +453,7 @@ def run_video(video_path, detector: PoseDetector | None = None, tiles: int | str
             kpts[..., 1] += y0
         else:
             if tiles == "auto":
-                tiles = auto_tiles(video_path, detector, start, src_fps, max_width)
+                tiles = auto_tiles(video_path, detector, start, src_fps, max_width, duration=duration)
             boxes, _, kpts = detector(frame, tiles=tiles)
         dets.append((boxes, kpts))
         fi += 1
@@ -486,13 +476,15 @@ def _facing(kpts: np.ndarray) -> int:
     return int(np.sign(np.mean(knee[ok, 0] - hip[ok, 0])))
 
 
-def crew_tracks(dets, fps, min_frac=0.3):
-    """Seat-slot tracking for a crew shot side-on.
+def crew_tracks(dets, fps, min_frac=0.3, expected_seats=None):
+    """Bidirectional seat tracking for side-on/oblique single-shell footage.
 
-    Rowers sit in a fixed left-to-right order, so on frames where the whole crew is detected the
-    order alone tells us who is who; on other frames each seat slot is matched to the nearest
-    detection after compensating for camera pan. The cox (facing the other way) is removed using
-    the generic tracker first."""
+    Initialize at a clear full-crew observation, then preserve seat order with
+    shared camera motion, zoom, perspective-aware local gates and explicit gaps.
+    Returned boxes and joints are original detections, never predictions.
+    """
+    if expected_seats is not None and expected_seats not in (1, 2, 4, 8):
+        raise ValueError("unsupported crew size")
     n_frames = len(dets)
     clean = [clean_detections(b, k) for b, k in dets]
 
@@ -515,60 +507,53 @@ def crew_tracks(dets, fps, min_frac=0.3):
         keep = [i for i in range(len(b)) if (fi, tuple(np.round(b[i], 1))) not in exclude]
         b, k = b[keep], k[keep]
         o = np.argsort((b[:, 0] + b[:, 2]) / 2) if len(b) else np.array([], int)
-        rowers.append((b[o], k[o]))
+        b, k = b[o], k[o]
+        # An extra proposal may be a crop duplicate, not the coxswain.
+        # Never discard a real end rower solely to force the declared count.
+        if expected_seats is not None and len(b) == expected_seats + 1:
+            end = -1 if crew_dir > 0 else 0
+            if _facing(k[end]) == -crew_dir:
+                keep = slice(0, -1) if end == -1 else slice(1, None)
+                b, k = b[keep], k[keep]
+        rowers.append((b, k))
 
     counts = np.array([len(b) for b, _ in rowers])
     if counts.max(initial=0) == 0:
         return {}, 1, 0
-    n_seats = int(min(9, np.bincount(counts).argmax()))
+    n_seats = expected_seats or int(min(9, np.bincount(counts[counts > 0]).argmax()))
     if n_seats == 0:
         return {}, 1, 0
 
-    # 2) slot tracking
-    slots = None
+    from .rowing_tracker import centres, SeatTracker
+
+    complete = np.flatnonzero(counts == n_seats)
+    if not len(complete):
+        return {}, int(crew_dir), n_seats
+    def anchor_quality(fi):
+        b, k = rowers[fi]
+        c = centres(b, k)
+        gaps = np.diff(c[:, 0])
+        if len(gaps) and gaps.min() <= 0:
+            return -np.inf
+        regularity = np.std(gaps) / max(np.mean(gaps), 1) if len(gaps) else 0
+        facing = np.array([_facing(person) for person in k])
+        facing_penalty = np.mean(facing != crew_dir)
+        return float(k[:, [5, 6, 11, 12], 2].mean()) - regularity - 2 * facing_penalty
+    anchor = int(max(complete, key=anchor_quality))
     out = {s: {"frames": [], "boxes": [], "kpts": []} for s in range(n_seats)}
-    for fi, (b, k) in enumerate(rowers):
-        if len(b) == 0:
-            continue
-        dc = (b[:, :2] + b[:, 2:]) / 2
-        if slots is None:
-            if len(b) != n_seats:
-                continue
-            slots = b.copy()
-            assign = list(range(n_seats))
-        else:
-            sc = (slots[:, :2] + slots[:, 2:]) / 2
-            w = np.maximum(slots[:, 2] - slots[:, 0], 1)
-            shift = Tracker._global_shift(sc, dc, w)
-            slots = slots + np.r_[shift, shift]
-            sc = sc + shift
-            if len(b) == n_seats:
-                assign = list(range(n_seats))
-                # reject an order-based assignment that disagrees badly with the motion model
-                err = np.linalg.norm(sc - dc, axis=1) / w
-                if np.median(err) > 0.6:
-                    assign = None
-            else:
-                assign = None
-            if assign is None:
-                cost = np.linalg.norm(sc[:, None] - dc[None], axis=2) / w[:, None]
-                r, c = linear_sum_assignment(cost)
-                assign = [None] * n_seats
-                for si, di in zip(r, c):
-                    if cost[si, di] <= 0.6:
-                        assign[si] = di
-                # keep left-to-right order consistent
-                got = [(si, di) for si, di in enumerate(assign) if di is not None]
-                if any(d2 <= d1 for (_, d1), (_, d2) in zip(got, got[1:])):
-                    continue
-                assign = [assign[s] for s in range(n_seats)]
-        for si, di in enumerate(assign):
-            if di is None:
-                continue
-            slots[si] = b[di]
-            out[si]["frames"].append(fi); out[si]["boxes"].append(b[di]); out[si]["kpts"].append(k[di])
+    for indices in (range(anchor, n_frames), range(anchor, -1, -1)):
+        ab, ak = rowers[anchor]
+        tracker = SeatTracker(ab, ak, fps)
+        for fi in indices:
+            b, k = rowers[fi]
+            accepted = list(enumerate(range(n_seats))) if fi == anchor else tracker.update(b, k)
+            for si, di in accepted:
+                out[si]["frames"].append(fi)
+                out[si]["boxes"].append(b[di])
+                out[si]["kpts"].append(k[di])
     tracks = {}
     for si, t in out.items():
-        if len(t["frames"]) >= min_frac * n_frames:
-            tracks[si] = {kk: np.array(v) for kk, v in t.items()}
+        _, order = np.unique(t["frames"], return_index=True)
+        if len(order) >= min_frac * n_frames:
+            tracks[si] = {kk: np.array(v)[order] for kk, v in t.items()}
     return tracks, int(crew_dir), n_seats

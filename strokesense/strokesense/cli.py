@@ -159,6 +159,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
             log("[1/4] Source or model changed during pose estimation; cache was not saved.")
     log("[2/4] Finding rowers and analysing strokes ...")
     rowers = []
+    seat_mapping = None
     if selection is not None:
         tracks = locked_tracks(dets, meta, selection)
         pose = PoseResult(fps=float(meta['fps']), n_frames=len(dets), width=int(meta['width']),
@@ -178,6 +179,9 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
             log(f"      crew of {n_seats} found, {len(tracks)} seats tracked")
             rowers = rowers_from_selected(pose) if dominant else crew.rowers_from_slots(pose, crew_dir, n_seats)
             if dominant:
+                from .seat_orientation import infer_dominant_seats
+                seat_mapping = infer_dominant_seats(
+                    tracks, crew_facing=crew_dir, n_seats=n_seats)
                 for rower in rowers:
                     rower.seat = f'R{rower.tid + 1}'
     if not rowers and selection is None and not dominant:
@@ -191,6 +195,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
     sync["cadence"] = cadence.estimate(rowers)
     if dominant:
         sync['crew_selection'] = dominant_audit
+        sync['seat_mapping'] = seat_mapping
     if len(rowers) > 1:
         log("      " + cadence.description(sync["cadence"]))
     for r in rowers:

@@ -4,9 +4,9 @@
 
 ## Live public website
 
-**[Visit the StrokeSense public website](https://strokesense-review.vercel.app/)** — a Vercel-hosted public dashboard with links to the [live analyzer on Render](https://strokesense-real-analysis-demo.onrender.com/demo) and the [existing reviewer feedback study](https://strokesense-review.kemalgcortuk.chatgpt.site/).
+**[StrokeSense website](https://strokesense-review.vercel.app/)** · **[Live video analyzer and dashboard](https://strokesense-review.vercel.app/demos/)** · **[Reviewer feedback study](https://strokesense-review.kemalgcortuk.chatgpt.site/)**
 
-The Vercel website is public-only. Analysis runs on Render, while private study participation and results stay on the original study site. These hosted experiences are maintained separately from the command-line analyzer documented below.
+The Vercel website provides the full visible analyzer: choose the prepared rowing clip or upload an MP4, MOV, or WebM video (up to 50 MB), follow analysis progress, play the annotated result, and read the built-in coaching dashboard. The report supports **By technique** and **By rower** views, with sorting for numeric technique comparisons. Render performs the processing and generates model-assisted coaching feedback in the background; visitors do not need to open a separate Render page. The original study site continues to hold private reviewer participation and results. The hosted backend is maintained on the `strokesense-render-live` branch.
 
 ## Report preview
 
@@ -36,7 +36,7 @@ A coach could review the highlighted frames and sequencing chart, investigate ea
 - Estimates crew catch timing per seat relative to the crew median.
 - Creates an **annotated video**, an **HTML coaching report**, and **JSON metrics**.
 
-The current report can be opened in a browser, but **the application is currently a Python command-line analyzer—not a hosted upload website or an LLM coach**.
+The default local workflow documented below is a Python command-line analyzer that writes report files. The separately deployed **Vercel + Render demo** adds a hosted upload workflow, native browser dashboard, and LLM-assisted coaching.
 
 ## Run locally
 
@@ -72,11 +72,11 @@ python tests\test_analysis.py
 
 These tests inject known technique patterns into **synthetic pose sequences**. They do **not** establish diagnostic accuracy on real rowing videos.
 
-## Proposed generative-AI extension for CS 4501
+## Hosted LLM coaching and planned safeguards
 
-The current pose pipeline provides measured findings. The planned startup product would add an **LLM coaching layer** that converts supported findings into a concise, tailored explanation and drill using a coach-approved cue library. An **independent validator** would check its cited seat/stroke IDs, measurements, and allowed cue IDs before publication. A failed candidate would return to the LLM for a bounded retry, with unresolved cases withheld.
+The hosted Render pipeline can generate coaching observations from its measured stroke metrics and expose them in the Vercel dashboard. The dashboard shows LLM feedback only when its report sidecar passes the backend's provenance checks; estimated measurements and machine-generated guidance still require coach review.
 
-**These LLM generation, validation, and retry features are planned, not present in the current code.** See the [selected startup proposal](README-startups/readme-startupSelected.md) for the eight project criteria and delivery plan.
+A future enhancement would add a coach-approved cue library and an **independent content validator** to check cited seat/stroke IDs, measurements, and cue IDs before publication, with bounded retries for invalid candidates. That separate semantic-validation and retry workflow remains **planned**, not a claim about the deployed service. See the [selected startup proposal](README-startups/readme-startupSelected.md) for the eight project criteria and delivery plan.
 
 ## Accuracy and privacy limits
 

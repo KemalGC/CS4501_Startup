@@ -37,15 +37,15 @@ from .hosted_video_tabs import add_video_tabs
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; media-src 'self'; connect-src 'self'; "
-              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site; "
+              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
-               "https://strokesense-review.kemalgcortuk.chatgpt.site")
+               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 MEDIA_CSP = ("default-src 'none'; media-src 'self'; frame-ancestors 'self' "
-             "https://strokesense-review.kemalgcortuk.chatgpt.site")
+             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
-              "https://strokesense-review.kemalgcortuk.chatgpt.site")
+              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
 VISITOR_UPLOAD_BYTES = 50 * 1024 * 1024
 VISITOR_UPLOAD_COUNT = 3

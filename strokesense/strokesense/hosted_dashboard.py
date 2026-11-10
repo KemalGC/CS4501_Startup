@@ -154,6 +154,8 @@ def build_dashboard(state, clip_name: str):
         generated_at = datetime.fromtimestamp(completed, timezone.utc).isoformat()
     return {
         "clip_name": _text(clip_name, 120) or "Rowing clip",
+        "run_id": state.run_id if isinstance(getattr(state, "run_id", None), str)
+            and re.fullmatch(r"[0-9a-f]{32}", state.run_id) else None,
         "generated_at": generated_at,
         "summary": {
             "candidate_rowers": crew["candidate_rowers"],

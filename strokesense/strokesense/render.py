@@ -29,6 +29,44 @@ def _txt(img, s, org, scale=0.6, color=(255, 255, 255), thick=1, bg=(0, 0, 0)):
     cv2.putText(img, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
 
 
+def draw_track_badge(img, label, box, color):
+    """Keep a tracked rower's R# visible even when its pose joints are missing.
+
+    The caller supplies the *observed* box for the current frame, never a
+    guessed physical seat. All coordinates are clamped to the output frame.
+    """
+    if not isinstance(label, str) or not label.startswith('R') or not label[1:].isdigit():
+        return False
+    bounds = np.asarray(box, dtype=float)
+    if bounds.shape != (4,) or not np.isfinite(bounds).all():
+        return False
+    x0, y0, x1, y1 = (int(v) for v in bounds)
+    height, width = img.shape[:2]
+    if width < 36 or height < 28 or x1 <= x0 or y1 <= y0:
+        return False
+    if x1 <= 0 or y1 <= 0 or x0 >= width or y0 >= height:
+        return False
+    x0, x1 = max(0, x0), min(width - 1, x1)
+    y0, y1 = max(0, y0), min(height - 1, y1)
+    color = tuple(int(c) for c in color)
+    cv2.rectangle(img, (x0, y0), (x1, y1), color, 2, cv2.LINE_AA)
+
+    scale = max(.48, min(.8, width / 1500 * .72))
+    weight = 2
+    (text_w, text_h), base = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, weight)
+    badge_w, badge_h = text_w + 14, text_h + base + 12
+    x = int(np.clip((x0 + x1 - badge_w) / 2, 1, max(1, width - badge_w - 2)))
+    y = y0 - badge_h - 5
+    if y < 2:
+        y = min(y0 + 5, height - badge_h - 2)
+    y = max(1, y)
+    cv2.rectangle(img, (x, y), (x + badge_w, y + badge_h), (16, 25, 36), -1)
+    cv2.rectangle(img, (x, y), (x + badge_w, y + badge_h), color, 2, cv2.LINE_AA)
+    cv2.putText(img, label, (x + 7, y + 6 + text_h), cv2.FONT_HERSHEY_SIMPLEX,
+                scale, (255, 255, 255), weight, cv2.LINE_AA)
+    return True
+
+
 def _phase(rower, fi):
     for s in rower.strokes:
         if s.catch <= fi < s.finish:
@@ -196,10 +234,14 @@ def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
             if sync and sync.get('crew_selection'):
                 hs = fr.shape[1] / 1280
                 actual = []
+                badges = []
                 for rower in rowers:
                     track = pose.tracks[rower.tid]
                     hits = np.flatnonzero(track['frames'] == fi)
-                    if len(hits): actual.append(track['boxes'][hits[0]])
+                    if len(hits):
+                        box = track['boxes'][hits[0]]
+                        actual.append(box)
+                        badges.append((rower.seat, np.asarray(box) * scale, colors[rower.tid]))
                 if actual:
                     b = np.asarray(actual) * scale
                     x0, y0 = np.floor(b[:, :2].min(0)).astype(int)
@@ -209,6 +251,10 @@ def render_video(video_path, pose, rowers, out_path, sync=None, max_width=1920):
                      (int(14*hs), fr.shape[0]-int(48*hs)), .55*hs, (110,230,180))
                 _txt(fr, 'Pose-model estimates | body-motion phases, not verified blade entries | other crews excluded',
                      (int(14*hs), fr.shape[0]-int(18*hs)), .42*hs)
+                # Labels are tied to the tracked boxes, not a pose shoulder
+                # that may be missing or outside the image on this frame.
+                for identity, box, color in badges:
+                    draw_track_badge(fr, identity, box, color)
             writer.write(fr)
     except (cv2.error, OSError):
         raise RenderingUnavailable('video_render_failed') from None

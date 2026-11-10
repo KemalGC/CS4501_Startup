@@ -33,13 +33,13 @@ from .oneclick_demo import DemoState, PAGE, _safe_media, _safe_result, MAX_MEDIA
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; media-src 'self'; connect-src 'self'; "
-              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site; "
+              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
-               "https://strokesense-review.kemalgcortuk.chatgpt.site")
+               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
-              "https://strokesense-review.kemalgcortuk.chatgpt.site")
+              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 
 def _safe_origin(value: str):
     u = urlsplit(value)

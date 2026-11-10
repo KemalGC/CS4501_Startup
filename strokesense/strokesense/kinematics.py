@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.signal import savgol_filter
+from .body_motion import isolated_joint_spikes, confidence_smooth
 
 LEFT = {"shoulder": 5, "elbow": 7, "wrist": 9, "hip": 11, "knee": 13, "ankle": 15}
 RIGHT = {"shoulder": 6, "elbow": 8, "wrist": 10, "hip": 12, "knee": 14, "ankle": 16}
@@ -39,6 +40,8 @@ class Kinematics:
 
     observed: dict = field(default_factory=dict)   # directly detected at the chosen confidence
     estimated: dict = field(default_factory=dict)  # bounded internal interpolation, never observations
+
+    rejected: dict = field(default_factory=dict)    # confident but temporally inconsistent detector points
 
     @property
     def n(self) -> int:
@@ -90,14 +93,23 @@ def smooth(arr: np.ndarray, fps: float, seconds: float = 0.2) -> np.ndarray:
 def angle_at(a, b, c) -> np.ndarray:
     """Interior angle ABC in degrees for (N,2) arrays."""
     ba, bc = a - b, c - b
-    cos = (ba * bc).sum(1) / (np.linalg.norm(ba, axis=1) * np.linalg.norm(bc, axis=1) + 1e-9)
+    # Coincident endpoints have no direction; epsilon denominators would
+    # manufacture a 90-degree joint angle. Normalize separately for scale invariance.
+    def unit(v):
+        length = np.hypot(v[:, 0], v[:, 1])
+        good = np.isfinite(v).all(1) & np.isfinite(length) & (length > 0)
+        return np.divide(v, length[:, None], out=np.full_like(v, np.nan, dtype=float),
+                         where=good[:, None])
+    cos = (unit(ba) * unit(bc)).sum(1)
     return np.degrees(np.arccos(np.clip(cos, -1, 1)))
 
 
 def tilt_from_vertical(lower, upper) -> np.ndarray:
     """Angle of segment lower->upper from vertical; + means the top leans toward the feet."""
     d = upper - lower
-    return np.degrees(np.arctan2(d[:, 0], d[:, 1]))
+    result = np.degrees(np.arctan2(d[:, 0], d[:, 1]))
+    result[~np.isfinite(d).all(1) | (np.hypot(d[:, 0], d[:, 1]) == 0)] = np.nan
+    return result
 
 
 def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinematics:
@@ -111,20 +123,44 @@ def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinemati
     # Select one anatomical chain for this track. Never splice opposite-side
     # joints into it on individual frames; missing near-side data remains missing.
     confidence = np.where(np.isfinite(kp[:, :, 2]), kp[:, :, 2], 0.)
-    lc = confidence[:, list(LEFT.values())].mean()
-    rc = confidence[:, list(RIGHT.values())].mean()
+    # Hidden feet must not decide which torso/arm chain is measured.
+    body = ['shoulder', 'elbow', 'wrist', 'hip', 'knee']
+    lc = confidence[:, [LEFT[j] for j in body]].mean()
+    rc = confidence[:, [RIGHT[j] for j in body]].mean()
     near, side = (LEFT, 'left') if lc >= rc else (RIGHT, 'right')
-    px, conf, reliable, observed, estimated = {}, {}, {}, {}, {}
+    px, conf, reliable, observed, estimated, rejected = {}, {}, {}, {}, {}, {}
+    selected_points = kp[:, [near[j] for j in JOINTS], :2]
+    selected_valid = ((confidence[:, [near[j] for j in JOINTS]] >= min_conf)
+                      & np.isfinite(selected_points).all(2))
+    raw_torso = np.linalg.norm(kp[:, near['shoulder'], :2] - kp[:, near['hip'], :2], axis=1)
+    good_torso = selected_valid[:, 0] & selected_valid[:, 3] & (raw_torso > 1e-6)
+    gate_scale = float(np.median(raw_torso[good_torso])) if good_torso.any() else 1.
+    rejected_points = isolated_joint_spikes(selected_points, selected_valid, gate_scale)
     for j in JOINTS:
         a = kp[:, near[j]]
         c = confidence[:, near[j]].copy()
-        good = (c >= min_conf) & np.isfinite(a[:, :2]).all(axis=1)
+        rejected[j] = rejected_points[:, JOINTS.index(j)]
+        good = (c >= min_conf) & np.isfinite(a[:, :2]).all(axis=1) & ~rejected[j]
         xy = _interp_gaps(a[:, :2], good, int(np.floor(fps * .2)))
         observed[j] = good
         estimated[j] = ~good & np.isfinite(xy).all(axis=1)
         reliable[j] = bool(good.mean() >= .5)
-        px[j] = smooth(xy, fps, .15)
+        px[j] = xy
         conf[j] = c
+    # Filter body shape in hip-relative coordinates. Different confidence
+    # weights must not transform a shared camera pan into apparent joint motion.
+    root = px['hip'].copy()
+    root_weight = np.where(observed['hip'], conf['hip'], .1)
+    filtered_root = confidence_smooth(root, root_weight, fps, .15)
+    no_root = ~np.isfinite(root).all(1)
+    for j in JOINTS:
+        weight = np.minimum(np.where(observed[j], conf[j], .1), root_weight)
+        relative = confidence_smooth(px[j] - root, weight, fps, .15)
+        absolute = (confidence_smooth(px[j], np.where(observed[j], conf[j], .1), fps, .15)
+                    if no_root.any() else None)
+        px[j] = relative + filtered_root
+        if absolute is not None:
+            px[j][no_root] = absolute[no_root]
     core = ['shoulder', 'hip', 'wrist']
     visible = np.all([observed[j] for j in core], axis=0)
     torso = np.linalg.norm(px['shoulder'] - px['hip'], axis=1)
@@ -142,13 +178,15 @@ def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinemati
         uv[j] = np.stack([d[:, 0] * facing, -d[:, 1]], axis=1) / scale
 
     trunk = tilt_from_vertical(uv["hip"], uv["shoulder"])
+    visible &= np.isfinite(trunk)
     # Physical projected angles are not detrended: camera motion and real posture
     # cannot be distinguished from a low-frequency angle trend alone.
     angles = {
         "trunk": trunk,                                              # + body over, - layback
         "elbow": angle_at(uv["shoulder"], uv["elbow"], uv["wrist"]),  # 180 = arms straight
         # thigh elevation above horizontal: high at the catch (knees up), ~flat at the finish
-        "thigh": np.degrees(np.arctan2(uv["knee"][:, 1], np.abs(uv["knee"][:, 0]) + 1e-9)),
+        "thigh": tilt_from_vertical(np.zeros_like(uv["knee"]),
+                                    np.c_[uv["knee"][:, 1], np.abs(uv["knee"][:, 0])]),
     }
     if reliable["ankle"] and reliable["knee"]:
         angles["knee"] = angle_at(uv["hip"], uv["knee"], uv["ankle"])
@@ -156,12 +194,12 @@ def build(keypoints: np.ndarray, fps: float, min_conf: float = 0.35) -> Kinemati
 
     return Kinematics(fps=fps, side=side, facing=facing, scale_px=scale, px=px, uv=uv,
                       conf=conf, reliable=reliable, visible=visible, angles=angles,
-                      observed=observed, estimated=estimated)
+                      observed=observed, estimated=estimated, rejected=rejected)
 
 
 def sliced(k: Kinematics, start: int, stop: int) -> Kinematics:
     """Slice canonical signals without selecting a new body side or filtering twice."""
     from dataclasses import replace
     mappings = {name: {joint: values[start:stop].copy() for joint, values in getattr(k, name).items()}
-                for name in ('px', 'uv', 'conf', 'angles', 'observed', 'estimated')}
+                for name in ('px', 'uv', 'conf', 'angles', 'observed', 'estimated', 'rejected')}
     return replace(k, visible=k.visible[start:stop].copy(), reliable=k.reliable.copy(), **mappings)

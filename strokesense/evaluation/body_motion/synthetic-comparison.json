@@ -1,0 +1,510 @@
+{
+  "scope": "Synthetic known-motion benchmark; no independent real-video accuracy claim.",
+  "assumptions": "Low-confidence estimates have more simulated noise; isolated high-confidence joint jumps and shared camera translation are injected.",
+  "cases": [
+    {
+      "fps": 15,
+      "rate": 20,
+      "condition": "clean",
+      "baseline": {
+        "trunk_rmse": 0.13565370305057936,
+        "elbow_rmse": 0.459970325728973,
+        "handle_rmse": 0.0038768988741020613,
+        "thigh_rmse": 0.12047589454418639,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.13565370305057736,
+        "elbow_rmse": 0.4599703257289903,
+        "handle_rmse": 0.0038768988741020604,
+        "thigh_rmse": 0.12047589454419369,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 20,
+      "condition": "variable_noise",
+      "baseline": {
+        "trunk_rmse": 3.47707317132691,
+        "elbow_rmse": 9.504487739469292,
+        "handle_rmse": 0.06129694321967679,
+        "thigh_rmse": 4.463624660642092,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.331636826212022,
+        "elbow_rmse": 5.698106725369673,
+        "handle_rmse": 0.046708633098953435,
+        "thigh_rmse": 3.043770144333472,
+        "rejected": 6,
+        "visible_fraction": 0.9820143884892086
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 20,
+      "condition": "joint_spikes",
+      "baseline": {
+        "trunk_rmse": 3.6097929772807547,
+        "elbow_rmse": 8.437070125957078,
+        "handle_rmse": 0.07795510901726797,
+        "thigh_rmse": 2.5153462205949415,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.1378875771261001,
+        "elbow_rmse": 0.4733015791340512,
+        "handle_rmse": 0.004092787702799627,
+        "thigh_rmse": 0.1213233243146244,
+        "rejected": 9,
+        "visible_fraction": 0.9676258992805755
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 20,
+      "condition": "camera_and_noise",
+      "baseline": {
+        "trunk_rmse": 3.4770731713269125,
+        "elbow_rmse": 9.504487739469308,
+        "handle_rmse": 0.0612969432196769,
+        "thigh_rmse": 4.46362466064209,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.3336608877107565,
+        "elbow_rmse": 5.700633995677336,
+        "handle_rmse": 0.0467198950210563,
+        "thigh_rmse": 3.048113955781396,
+        "rejected": 6,
+        "visible_fraction": 0.9820143884892086
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 32,
+      "condition": "clean",
+      "baseline": {
+        "trunk_rmse": 0.29304280472288835,
+        "elbow_rmse": 0.8334003264727896,
+        "handle_rmse": 0.008084328008121982,
+        "thigh_rmse": 0.25662950174307375,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.293042804722892,
+        "elbow_rmse": 0.8334003264727826,
+        "handle_rmse": 0.008084328008122109,
+        "thigh_rmse": 0.25662950174307286,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 32,
+      "condition": "variable_noise",
+      "baseline": {
+        "trunk_rmse": 3.4219029152504925,
+        "elbow_rmse": 8.763421387481904,
+        "handle_rmse": 0.061801511052731316,
+        "thigh_rmse": 3.8359661311302795,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.2941938710066,
+        "elbow_rmse": 7.002542778579703,
+        "handle_rmse": 0.03658332376347598,
+        "thigh_rmse": 2.624706769696879,
+        "rejected": 1,
+        "visible_fraction": 0.9943502824858758
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 32,
+      "condition": "joint_spikes",
+      "baseline": {
+        "trunk_rmse": 2.9477603682329305,
+        "elbow_rmse": 9.06787239752439,
+        "handle_rmse": 0.07600573260301628,
+        "thigh_rmse": 2.673985810270542,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.3305408898025199,
+        "elbow_rmse": 0.8456489718467134,
+        "handle_rmse": 0.008851380427736212,
+        "thigh_rmse": 0.2567025819548294,
+        "rejected": 5,
+        "visible_fraction": 0.9717514124293786
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 32,
+      "condition": "camera_and_noise",
+      "baseline": {
+        "trunk_rmse": 3.4219029152504947,
+        "elbow_rmse": 8.763421387481923,
+        "handle_rmse": 0.0618015110527311,
+        "thigh_rmse": 3.8359661311302813,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.2941249131728383,
+        "elbow_rmse": 7.005976256219293,
+        "handle_rmse": 0.036574013489627966,
+        "thigh_rmse": 2.6244324862719646,
+        "rejected": 1,
+        "visible_fraction": 0.9943502824858758
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 40,
+      "condition": "clean",
+      "baseline": {
+        "trunk_rmse": 0.552168093701081,
+        "elbow_rmse": 1.4750333574507792,
+        "handle_rmse": 0.015366638133834211,
+        "thigh_rmse": 0.3200852482926692,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.5521680937010842,
+        "elbow_rmse": 1.4750333574507601,
+        "handle_rmse": 0.01536663813383432,
+        "thigh_rmse": 0.32008524829267715,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 40,
+      "condition": "variable_noise",
+      "baseline": {
+        "trunk_rmse": 2.80927349836458,
+        "elbow_rmse": 7.57276765597301,
+        "handle_rmse": 0.046922019260690125,
+        "thigh_rmse": 3.6439966100810874,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 1.8894905081796893,
+        "elbow_rmse": 5.267195569888855,
+        "handle_rmse": 0.03427210550917485,
+        "thigh_rmse": 2.2362200732150095,
+        "rejected": 1,
+        "visible_fraction": 0.993006993006993
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 40,
+      "condition": "joint_spikes",
+      "baseline": {
+        "trunk_rmse": 3.6552790249332157,
+        "elbow_rmse": 8.244167095589823,
+        "handle_rmse": 0.08359272648756086,
+        "thigh_rmse": 2.5486713214023173,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.6989234803551972,
+        "elbow_rmse": 1.7200802131056143,
+        "handle_rmse": 0.016085365952430507,
+        "thigh_rmse": 0.3252846364065584,
+        "rejected": 4,
+        "visible_fraction": 0.972027972027972
+      }
+    },
+    {
+      "fps": 15,
+      "rate": 40,
+      "condition": "camera_and_noise",
+      "baseline": {
+        "trunk_rmse": 2.8092734983645737,
+        "elbow_rmse": 7.5727676559729655,
+        "handle_rmse": 0.04692201926069016,
+        "thigh_rmse": 3.6439966100810812,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 1.8894905081796907,
+        "elbow_rmse": 5.2671187874899825,
+        "handle_rmse": 0.034274955979314646,
+        "thigh_rmse": 2.2362200732150077,
+        "rejected": 1,
+        "visible_fraction": 0.993006993006993
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 20,
+      "condition": "clean",
+      "baseline": {
+        "trunk_rmse": 0.022397123949389842,
+        "elbow_rmse": 0.07500095495022743,
+        "handle_rmse": 0.0006824717313426931,
+        "thigh_rmse": 0.02954140359310327,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.022397123949393007,
+        "elbow_rmse": 0.07500095495022269,
+        "handle_rmse": 0.0006824717313427451,
+        "thigh_rmse": 0.029541403593102734,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 20,
+      "condition": "variable_noise",
+      "baseline": {
+        "trunk_rmse": 3.1789017327206395,
+        "elbow_rmse": 9.508586537042623,
+        "handle_rmse": 0.05438626799776439,
+        "thigh_rmse": 4.100202614140089,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.0438468000776875,
+        "elbow_rmse": 5.846139177964803,
+        "handle_rmse": 0.03176531504789016,
+        "thigh_rmse": 2.4736996827056554,
+        "rejected": 5,
+        "visible_fraction": 0.9927927927927928
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 20,
+      "condition": "joint_spikes",
+      "baseline": {
+        "trunk_rmse": 3.419280187426481,
+        "elbow_rmse": 9.004175981327146,
+        "handle_rmse": 0.08101727887197016,
+        "thigh_rmse": 2.6585570116347914,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.026602818316359262,
+        "elbow_rmse": 0.08351583496327607,
+        "handle_rmse": 0.0007094972012979852,
+        "thigh_rmse": 0.031916385480796075,
+        "rejected": 17,
+        "visible_fraction": 0.9693693693693693
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 20,
+      "condition": "camera_and_noise",
+      "baseline": {
+        "trunk_rmse": 3.17890173272064,
+        "elbow_rmse": 9.508586537042625,
+        "handle_rmse": 0.054386267997764394,
+        "thigh_rmse": 4.10020261414009,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.043817289051666,
+        "elbow_rmse": 5.846050647416009,
+        "handle_rmse": 0.03176440482734484,
+        "thigh_rmse": 2.473699682705656,
+        "rejected": 5,
+        "visible_fraction": 0.9927927927927928
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 32,
+      "condition": "clean",
+      "baseline": {
+        "trunk_rmse": 0.048477431789400845,
+        "elbow_rmse": 0.11852537953288327,
+        "handle_rmse": 0.0011244000059835479,
+        "thigh_rmse": 0.05177883787968391,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.048477431789400276,
+        "elbow_rmse": 0.11852537953288597,
+        "handle_rmse": 0.0011244000059835754,
+        "thigh_rmse": 0.05177883787967737,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 32,
+      "condition": "variable_noise",
+      "baseline": {
+        "trunk_rmse": 3.337010902318028,
+        "elbow_rmse": 8.21895386489181,
+        "handle_rmse": 0.04693680419173149,
+        "thigh_rmse": 3.902843107621959,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 1.930765071212613,
+        "elbow_rmse": 4.4402608606633205,
+        "handle_rmse": 0.026294714389706302,
+        "thigh_rmse": 2.318308000170676,
+        "rejected": 5,
+        "visible_fraction": 0.9971671388101983
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 32,
+      "condition": "joint_spikes",
+      "baseline": {
+        "trunk_rmse": 3.6754739143744932,
+        "elbow_rmse": 8.248217364381693,
+        "handle_rmse": 0.08149138866810288,
+        "thigh_rmse": 2.6363615802205382,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.05380861525852917,
+        "elbow_rmse": 0.12295432016384225,
+        "handle_rmse": 0.0012513434043240604,
+        "thigh_rmse": 0.05199745256657236,
+        "rejected": 10,
+        "visible_fraction": 0.9716713881019831
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 32,
+      "condition": "camera_and_noise",
+      "baseline": {
+        "trunk_rmse": 3.3370109023180303,
+        "elbow_rmse": 8.218953864891768,
+        "handle_rmse": 0.046936804191731504,
+        "thigh_rmse": 3.9028431076219436,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 1.931458625560482,
+        "elbow_rmse": 4.440272702892125,
+        "handle_rmse": 0.02629471438970629,
+        "thigh_rmse": 2.318484594489592,
+        "rejected": 5,
+        "visible_fraction": 0.9971671388101983
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 40,
+      "condition": "clean",
+      "baseline": {
+        "trunk_rmse": 0.08548387424483156,
+        "elbow_rmse": 0.19831861982267746,
+        "handle_rmse": 0.0021355607914010782,
+        "thigh_rmse": 0.06990061526852198,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.08548387424483948,
+        "elbow_rmse": 0.19831861982266755,
+        "handle_rmse": 0.002135560791401165,
+        "thigh_rmse": 0.06990061526851807,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 40,
+      "condition": "variable_noise",
+      "baseline": {
+        "trunk_rmse": 3.5290827185764027,
+        "elbow_rmse": 8.74266370662745,
+        "handle_rmse": 0.05807550960513958,
+        "thigh_rmse": 3.7360422771757866,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.3628939196068535,
+        "elbow_rmse": 6.259693456849604,
+        "handle_rmse": 0.03390897194385853,
+        "thigh_rmse": 2.1778912760781806,
+        "rejected": 2,
+        "visible_fraction": 0.9964912280701754
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 40,
+      "condition": "joint_spikes",
+      "baseline": {
+        "trunk_rmse": 4.250644446495344,
+        "elbow_rmse": 8.162450359083042,
+        "handle_rmse": 0.08422322220284838,
+        "thigh_rmse": 2.9644167105638712,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 0.09536382523286595,
+        "elbow_rmse": 0.20712452364963763,
+        "handle_rmse": 0.0021497172801603634,
+        "thigh_rmse": 0.07009611110986377,
+        "rejected": 9,
+        "visible_fraction": 0.968421052631579
+      }
+    },
+    {
+      "fps": 30,
+      "rate": 40,
+      "condition": "camera_and_noise",
+      "baseline": {
+        "trunk_rmse": 3.5290827185764067,
+        "elbow_rmse": 8.742663706627352,
+        "handle_rmse": 0.05807550960513964,
+        "thigh_rmse": 3.73604227717579,
+        "rejected": 0,
+        "visible_fraction": 1.0
+      },
+      "candidate": {
+        "trunk_rmse": 2.3626122658548283,
+        "elbow_rmse": 6.259643828161359,
+        "handle_rmse": 0.03390897194385853,
+        "thigh_rmse": 2.1778912760781846,
+        "rejected": 2,
+        "visible_fraction": 0.9964912280701754
+      }
+    }
+  ]
+}

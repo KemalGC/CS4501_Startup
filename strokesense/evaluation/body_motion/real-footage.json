@@ -1,0 +1,975 @@
+{
+  "scope": "Same real detections/identities, old versus revised body conditioning. No independent joint-position labels. Jitter diagnostics are not accuracy metrics.",
+  "segments": {
+    "0185-boat1": [
+      {
+        "seat": 1,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 163,
+          "cycles": 1,
+          "rejected": {},
+          "median_rate": 32.93807641633729
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 162,
+          "cycles": 2,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 1,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 34.20492550927334
+        }
+      },
+      {
+        "seat": 2,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 172,
+          "cycles": 3,
+          "rejected": {},
+          "median_rate": 34.20492550927334
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 172,
+          "cycles": 3,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 1,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 34.20492550927334
+        }
+      },
+      {
+        "seat": 3,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 182,
+          "cycles": 4,
+          "rejected": {},
+          "median_rate": 35.630130738826395
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 182,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 35.630130738826395
+        }
+      },
+      {
+        "seat": 4,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 190,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 34.20492550927334
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 187,
+          "cycles": 3,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 2,
+            "hip": 1,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 34.20492550927334
+        }
+      },
+      {
+        "seat": 5,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 186,
+          "cycles": 6,
+          "rejected": {},
+          "median_rate": 37.055335968379445
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 183,
+          "cycles": 6,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 1,
+            "wrist": 2,
+            "hip": 1,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 37.055335968379445
+        }
+      },
+      {
+        "seat": 6,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 163,
+          "cycles": 1,
+          "rejected": {},
+          "median_rate": 31.76171654432524
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 161,
+          "cycles": 1,
+          "rejected": {
+            "shoulder": 1,
+            "elbow": 0,
+            "wrist": 2,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 31.76171654432524
+        }
+      },
+      {
+        "seat": 7,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 188,
+          "cycles": 6,
+          "rejected": {},
+          "median_rate": 36.31422924901186
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 187,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 1,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 35.57312252964427
+        }
+      },
+      {
+        "seat": 8,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 188,
+          "cycles": 4,
+          "rejected": {},
+          "median_rate": 36.31422924901186
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 187,
+          "cycles": 6,
+          "rejected": {
+            "shoulder": 1,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 1,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 37.055335968379445
+        }
+      }
+    ],
+    "0185-boat2": [
+      {
+        "seat": 1,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 132,
+          "cycles": 2,
+          "rejected": {},
+          "median_rate": 36.0928597094605
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 130,
+          "cycles": 2,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 2,
+            "wrist": 1,
+            "hip": 1,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 36.0928597094605
+        }
+      },
+      {
+        "seat": 2,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 139,
+          "cycles": 1,
+          "rejected": {},
+          "median_rate": 40.424002874595764
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 136,
+          "cycles": 1,
+          "rejected": {
+            "shoulder": 1,
+            "elbow": 0,
+            "wrist": 2,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 38.666437532222034
+        }
+      },
+      {
+        "seat": 3,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 142,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 35.57312252964427
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 142,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 1,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 35.57312252964427
+        }
+      },
+      {
+        "seat": 4,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 140,
+          "cycles": 2,
+          "rejected": {},
+          "median_rate": 30.155376857026035
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 139,
+          "cycles": 1,
+          "rejected": {
+            "shoulder": 1,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 29.64426877470356
+        }
+      },
+      {
+        "seat": 5,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 138,
+          "cycles": 4,
+          "rejected": {},
+          "median_rate": 37.055335968379445
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 137,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 1,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 37.055335968379445
+        }
+      },
+      {
+        "seat": 6,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 130,
+          "cycles": 0,
+          "rejected": {},
+          "median_rate": null
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 130,
+          "cycles": 1,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 38.666437532222034
+        }
+      },
+      {
+        "seat": 7,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 136,
+          "cycles": 2,
+          "rejected": {},
+          "median_rate": 37.055335968379445
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 135,
+          "cycles": 2,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 37.055335968379445
+        }
+      },
+      {
+        "seat": 8,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 126,
+          "cycles": 1,
+          "rejected": {},
+          "median_rate": 40.424002874595764
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 126,
+          "cycles": 0,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": null
+        }
+      }
+    ],
+    "9673-boat1": [
+      {
+        "seat": 1,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 454,
+          "cycles": 9,
+          "rejected": {},
+          "median_rate": 22.234053881375786
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 451,
+          "cycles": 9,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 3,
+            "wrist": 2,
+            "hip": 2,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 22.234053881375786
+        }
+      },
+      {
+        "seat": 2,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 455,
+          "cycles": 10,
+          "rejected": {},
+          "median_rate": 31.925820957872922
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 454,
+          "cycles": 10,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 27.283545971651606
+        }
+      },
+      {
+        "seat": 3,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 452,
+          "cycles": 8,
+          "rejected": {},
+          "median_rate": 21.962906882822423
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 452,
+          "cycles": 7,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 21.691759884269057
+        }
+      },
+      {
+        "seat": 4,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 459,
+          "cycles": 11,
+          "rejected": {},
+          "median_rate": 22.804157827052087
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 456,
+          "cycles": 8,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 2,
+            "hip": 2,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 21.98972361894308
+        }
+      },
+      {
+        "seat": 5,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 455,
+          "cycles": 10,
+          "rejected": {},
+          "median_rate": 22.234053881375786
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 453,
+          "cycles": 10,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 2,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 21.962906882822423
+        }
+      },
+      {
+        "seat": 6,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 453,
+          "cycles": 10,
+          "rejected": {},
+          "median_rate": 21.17528941083408
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 450,
+          "cycles": 10,
+          "rejected": {
+            "shoulder": 2,
+            "elbow": 1,
+            "wrist": 0,
+            "hip": 1,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 21.691759884269057
+        }
+      },
+      {
+        "seat": 7,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 442,
+          "cycles": 6,
+          "rejected": {},
+          "median_rate": 22.819160562464624
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 442,
+          "cycles": 6,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 22.819160562464624
+        }
+      },
+      {
+        "seat": 8,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 296,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 23.40426724355346
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 295,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 1,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 22.811561774398534
+        }
+      }
+    ],
+    "9674-boat1": [
+      {
+        "seat": 1,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 308,
+          "cycles": 8,
+          "rejected": {},
+          "median_rate": 25.057147720778666
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 304,
+          "cycles": 8,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 4,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 25.057147720778666
+        }
+      },
+      {
+        "seat": 2,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 304,
+          "cycles": 6,
+          "rejected": {},
+          "median_rate": 25.410065294310762
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 303,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 24.70423014724657
+        }
+      },
+      {
+        "seat": 3,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 303,
+          "cycles": 8,
+          "rejected": {},
+          "median_rate": 24.723306772842903
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 303,
+          "cycles": 8,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 1
+          },
+          "median_rate": 24.723306772842903
+        }
+      },
+      {
+        "seat": 4,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 303,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 25.410065294310762
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 303,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 25.49330875145838
+        }
+      },
+      {
+        "seat": 5,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 303,
+          "cycles": 8,
+          "rejected": {},
+          "median_rate": 24.70423014724657
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 302,
+          "cycles": 8,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 1,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 1
+          },
+          "median_rate": 25.057147720778666
+        }
+      },
+      {
+        "seat": 6,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 308,
+          "cycles": 7,
+          "rejected": {},
+          "median_rate": 24.70423014724657
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 308,
+          "cycles": 7,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 24.70423014724657
+        }
+      },
+      {
+        "seat": 7,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 308,
+          "cycles": 7,
+          "rejected": {},
+          "median_rate": 24.70423014724657
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 307,
+          "cycles": 8,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 3,
+            "ankle": 0
+          },
+          "median_rate": 24.70423014724657
+        }
+      },
+      {
+        "seat": 8,
+        "baseline": {
+          "side": "right",
+          "visible_frames": 288,
+          "cycles": 4,
+          "rejected": {},
+          "median_rate": 25.09698420364159
+        },
+        "candidate": {
+          "side": "right",
+          "visible_frames": 286,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 1,
+            "wrist": 0,
+            "hip": 2,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 25.09698420364159
+        }
+      }
+    ],
+    "9674-boat2": [
+      {
+        "seat": 1,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 215,
+          "cycles": 3,
+          "rejected": {},
+          "median_rate": 24.036548251375045
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 214,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 24.370389199310807
+        }
+      },
+      {
+        "seat": 2,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 219,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 24.70423014724657
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 219,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 24.70423014724657
+        }
+      },
+      {
+        "seat": 3,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 221,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 24.036548251375045
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 220,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 1,
+            "ankle": 0
+          },
+          "median_rate": 24.036548251375045
+        }
+      },
+      {
+        "seat": 4,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 222,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 22.80390475130453
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 222,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 24.036548251375045
+        }
+      },
+      {
+        "seat": 5,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 222,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 24.036548251375045
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 220,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 1,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 24.70423014724657
+        }
+      },
+      {
+        "seat": 6,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 222,
+          "cycles": 4,
+          "rejected": {},
+          "median_rate": 41.387606350581926
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 222,
+          "cycles": 4,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 42.44635907117821
+        }
+      },
+      {
+        "seat": 7,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 222,
+          "cycles": 5,
+          "rejected": {},
+          "median_rate": 22.233807132521918
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 221,
+          "cycles": 5,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 1,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": 27.792258915652393
+        }
+      },
+      {
+        "seat": 8,
+        "baseline": {
+          "side": "left",
+          "visible_frames": 190,
+          "cycles": 3,
+          "rejected": {},
+          "median_rate": 42.35010882385127
+        },
+        "candidate": {
+          "side": "left",
+          "visible_frames": 190,
+          "cycles": 0,
+          "rejected": {
+            "shoulder": 0,
+            "elbow": 0,
+            "wrist": 0,
+            "hip": 0,
+            "knee": 0,
+            "ankle": 0
+          },
+          "median_rate": null
+        }
+      }
+    ]
+  }
+}

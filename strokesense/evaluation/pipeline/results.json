@@ -1,0 +1,30 @@
+{
+  "scope": "Fresh inference, tracking, measurements, annotated-video rendering and report serialization. Numerical/provenance invariants; not independent real-video accuracy.",
+  "metrics_sha256": "c56182fb198a66a95dd5fd27bbcf3cef9f82cbb2cfc7d925ed10e019c8a1acf9",
+  "rowers": 8,
+  "cycles": 36,
+  "frames_per_joint": 296,
+  "fps": 14.822702587583857,
+  "supported_crew_events": 6,
+  "crew_cadence": 22.465110802916016,
+  "measurement_policy": {
+    "version": "observed-motion-v1",
+    "confidence_threshold": 0.35,
+    "body_motion_version": "camera-relative-joint-quality-v1",
+    "stroke_timing_version": "supported-hand-finish-v1",
+    "max_internal_gap_seconds": 0.2,
+    "minimum_cycle_observed_fraction": 0.9,
+    "absolute_motion_floors": {
+      "handle": 0.12,
+      "trunk": 5.0,
+      "thigh": 5.0,
+      "elbow": 8.0,
+      "shin": 5.0,
+      "knee": 8.0
+    },
+    "coordinates": "hip-relative displacement and projected 2D angles; not boat-relative travel",
+    "camera_detrending": false,
+    "thresholds_coach_validated": false
+  },
+  "checks": "passed"
+}

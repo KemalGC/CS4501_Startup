@@ -1,0 +1,192 @@
+{
+  "provenance": "Approximate assistant visual labels of the visible arm chain in six source crops. Not blinded or independently human validated. Anatomical-side ambiguity and image blur limit precision; use only as a development diagnostic.",
+  "uncertainty_source_pixels": 6.0,
+  "cases": [
+    {
+      "case": 0,
+      "source": "IMG_9673",
+      "source_frame": 104,
+      "seat": 4,
+      "crop_xyxy": [
+        531,
+        237,
+        690,
+        353
+      ],
+      "display_wh": [
+        480,
+        360
+      ],
+      "source_sha256": "471dcde4a17f36c887fd29a5f6c08649bb37e9ba5209c1e82da401ca67f4b245",
+      "joints": {
+        "shoulder": [
+          580.025,
+          289.2
+        ],
+        "elbow": [
+          593.275,
+          308.2111111111111
+        ],
+        "wrist": [
+          622.425,
+          308.2111111111111
+        ]
+      }
+    },
+    {
+      "case": 1,
+      "source": "IMG_9673",
+      "source_frame": 178,
+      "seat": 4,
+      "crop_xyxy": [
+        631,
+        281,
+        768,
+        401
+      ],
+      "display_wh": [
+        480,
+        360
+      ],
+      "source_sha256": "14a5b42076ba47b7f36b5cfeef24313d3093718985d7e543bf2e0482d098a1f3",
+      "joints": {
+        "shoulder": [
+          682.9458333333333,
+          337.3333333333333
+        ],
+        "elbow": [
+          699.5,
+          355.66666666666663
+        ],
+        "wrist": [
+          715.4833333333333,
+          361.66666666666663
+        ]
+      }
+    },
+    {
+      "case": 2,
+      "source": "IMG_9673",
+      "source_frame": 296,
+      "seat": 5,
+      "crop_xyxy": [
+        707,
+        319,
+        859,
+        440
+      ],
+      "display_wh": [
+        480,
+        360
+      ],
+      "source_sha256": "64e807c21165b434c079e4a71367895a952f9720c3ad7d94911ec6e1bb2f4bee",
+      "joints": {
+        "shoulder": [
+          757.9833333333333,
+          368.40833333333336
+        ],
+        "elbow": [
+          778.8833333333333,
+          384.8777777777778
+        ],
+        "wrist": [
+          796.9333333333333,
+          380.84444444444443
+        ]
+      }
+    },
+    {
+      "case": 3,
+      "source": "IMG_9674",
+      "source_frame": 104,
+      "seat": 4,
+      "crop_xyxy": [
+        781,
+        565,
+        967,
+        700
+      ],
+      "display_wh": [
+        480,
+        360
+      ],
+      "source_sha256": "897269f4cf558a0af0a84473ed86a9cf350e8c5ec2a62b25dccbe93a7d3ee871",
+      "joints": {
+        "shoulder": [
+          835.6375,
+          625.375
+        ],
+        "elbow": [
+          854.2375,
+          651.25
+        ],
+        "wrist": [
+          878.2625,
+          665.5
+        ]
+      }
+    },
+    {
+      "case": 4,
+      "source": "IMG_9674",
+      "source_frame": 296,
+      "seat": 4,
+      "crop_xyxy": [
+        821,
+        435,
+        971,
+        574
+      ],
+      "display_wh": [
+        480,
+        360
+      ],
+      "source_sha256": "ec703523f4bff4c5410d28fa60e7df47459d445b600ec88c2a93fbeec24ba1da",
+      "joints": {
+        "shoulder": [
+          866.9375,
+          493.3027777777778
+        ],
+        "elbow": [
+          884.125,
+          520.7166666666667
+        ],
+        "wrist": [
+          915.375,
+          528.0527777777778
+        ]
+      }
+    },
+    {
+      "case": 5,
+      "source": "IMG_9674",
+      "source_frame": 474,
+      "seat": 4,
+      "crop_xyxy": [
+        789,
+        474,
+        995,
+        619
+      ],
+      "display_wh": [
+        480,
+        360
+      ],
+      "source_sha256": "4be886058a943d21cfc21b37a1bbb5a40d9649bc1dac5c85c3420fefced26f98",
+      "joints": {
+        "shoulder": [
+          842.6458333333334,
+          537.6388888888889
+        ],
+        "elbow": [
+          867.9666666666667,
+          556.5694444444445
+        ],
+        "wrist": [
+          908.3083333333333,
+          560.1944444444445
+        ]
+      }
+    }
+  ]
+}

@@ -10,6 +10,8 @@ from scipy.signal import find_peaks
 from .kinematics import Kinematics, smooth
 from . import measurement
 
+VERSION = "supported-hand-finish-v1"
+
 # --------------------------------------------------------------------------- fault catalogue
 # Thresholds are coaching heuristics for side-on 2D video; they are deliberately conservative
 # and live in one place so a coach can tune them.
@@ -82,6 +84,7 @@ class Stroke:
     faults: list = field(default_factory=list)
     observed_frames: int = 0
     gap_frames: int = 0
+    finish_t: float = 0.0   # sub-frame finish time (frames), same clock as catch_t
 
     def to_dict(self):
         return asdict(self)
@@ -98,14 +101,37 @@ def _refine_peak(y, i):
 
 
 def periodicity(sig, fps, min_rate=12, max_rate=50):
-    """Strength (0..1) of the dominant rhythm in the rowing band."""
-    x = np.asarray(sig, float) - np.mean(sig)
-    if np.std(x) < 1e-9 or len(x) < fps * 4:
+    """Rhythm strength on the source-frame clock, with missing-pair support.
+
+    Missing samples are excluded from lag products, never concatenated away.
+    Pair-count correction avoids penalizing random observation gaps; complete
+    finite inputs retain the original autocorrelation and lag taper exactly.
+    """
+    values = np.asarray(sig, float)
+    if values.ndim != 1 or not np.isfinite(fps) or fps <= 0:
+        raise ValueError('invalid rhythm signal or frame rate')
+    if not (np.isfinite([min_rate, max_rate]).all() and 0 < min_rate < max_rate):
+        raise ValueError('invalid rhythm rate bounds')
+    valid = np.isfinite(values)
+    if valid.sum() < fps * 4:
         return 0.0
-    ac = np.correlate(x, x, "full")[len(x) - 1:]
-    ac /= ac[0]
-    lo, hi = int(fps * 60 / max_rate), min(len(ac) - 1, int(fps * 60 / min_rate))
-    return float(ac[lo:hi].max()) if hi > lo else 0.0
+    first, last = np.flatnonzero(valid)[[0, -1]]
+    values, valid = values[first:last+1], valid[first:last+1]
+    n = len(values)
+    x = np.where(valid, values - values[valid].mean(), 0.)
+    energy = float(np.dot(x, x))
+    if np.std(values[valid]) < 1e-9 or energy <= 0:
+        return 0.0
+    lo, hi = max(1, int(fps * 60 / max_rate)), min(n-1, int(fps * 60 / min_rate))
+    best = 0.
+    for lag in range(lo, hi):
+        pairs = int(np.count_nonzero(valid[:-lag] & valid[lag:]))
+        if pairs < max(5, fps, .25*(n-lag)):
+            continue
+        numerator = float(np.dot(x[:-lag], x[lag:]))
+        correction = valid.sum() * (n-lag) / (n*pairs)
+        best = max(best, numerator/energy*correction)
+    return float(np.clip(best, 0., 1.))
 
 
 def find_strokes(k: Kinematics, min_rate=12, max_rate=50):
@@ -123,7 +149,7 @@ def find_strokes(k: Kinematics, min_rate=12, max_rate=50):
         mask = measurement.observed_mask(k, name) & np.isfinite(values)
         lo, hi = np.percentile(values[mask], [5, 95])
         normalized = (values-lo)/(hi-lo)
-        strength = periodicity(normalized[np.isfinite(normalized)], k.fps)
+        strength = periodicity(np.where(mask, normalized, np.nan), k.fps, min_rate, max_rate)
         if strength < .15:
             continue
         cues.append(normalized)
@@ -146,6 +172,7 @@ def find_strokes(k: Kinematics, min_rate=12, max_rate=50):
         candidates.extend((peaks+start).tolist())
     catches = np.asarray(candidates, dtype=int)
     out = []
+    finish_refined = {}
     for c0, c1 in zip(catches[:-1], catches[1:]):
         period_s = (c1 - c0) / k.fps
         if not (60 / max_rate <= period_s <= 60 / min_rate):
@@ -154,14 +181,24 @@ def find_strokes(k: Kinematics, min_rate=12, max_rate=50):
                 or not np.isfinite(c_sig[c0:c1+1]).all()
                 or not np.isfinite(h[c0:c1+1]).all()):
             continue
-        f = c0 + int(np.argmin(c_sig[c0:c1 + 1]))
+        finish_signal = c_sig
+        # A knee-extension plateau does not locate the end of the arm draw.
+        # Prefer the observed hand reversal when the cycle supports it.
+        if measurement.segment_supported(k, 'handle', c0, c1+1):
+            hand_finish = c0 + int(np.argmin(h[c0:c1 + 1]))
+            neighbours = measurement.observed_mask(k, 'handle')[max(c0,hand_finish-1):min(c1+1,hand_finish+2)]
+            if neighbours.all():
+                finish_signal = h
+        f = c0 + int(np.argmin(finish_signal[c0:c1 + 1]))
         if f in (c0, c1) or not k.visible[[c0, f, c1]].all():
             continue
         # the drive is ~25-60% of the stroke cycle; outside that the segmentation is unreliable
         if not (0.2 <= (f - c0) / (c1 - c0) <= 0.65):
             continue
         out.append((int(c0), int(f), int(c1)))
+        finish_refined[int(f)] = _refine_peak(-finish_signal, int(f))
     refined = {int(c): _refine_peak(c_sig, int(c)) for c in catches}
+    refined.update(finish_refined)
     return out, h, refined
 
 
@@ -215,11 +252,17 @@ def analyse(k: Kinematics, *, workers: int = 1, max_gap_frames: int | None = Non
     legs_ok = k.reliable.get("knee", False)
     def measure(item):
         i, (c, f, n) = item
-        drive = (f - c) / k.fps
-        rec = (n - f) / k.fps
+        ct, ft, nt = (refined.get(index, float(index)) for index in (c, f, n))
+        # Discrete landmarks still select measured poses. Durations and rate
+        # must use the same fractional event clock as crew synchronization.
+        if not (np.isfinite([ct, ft, nt]).all() and c-.5 <= ct <= c+.5
+                and f-.5 <= ft <= f+.5 and n-.5 <= nt <= n+.5 and ct < ft < nt):
+            ct, ft, nt = float(c), float(f), float(n)
+        drive = (ft - ct) / k.fps
+        rec = (nt - ft) / k.fps
         s = Stroke(
-            idx=i, catch=c, catch_t=refined.get(c, float(c)), finish=f, next_catch=n,
-            rate=60.0 / ((n - c) / k.fps), drive_s=drive, recovery_s=rec, ratio=rec / max(drive, 1e-6),
+            idx=i, catch=c, catch_t=ct, finish=f, finish_t=ft, next_catch=n,
+            rate=60.0 / ((nt - ct) / k.fps), drive_s=drive, recovery_s=rec, ratio=rec / max(drive, 1e-6),
             length=float(h[c] - h[f]),
             trunk_catch=float(A["trunk"][c]), trunk_finish=float(A["trunk"][f]),
             thigh_catch=float(A["thigh"][c]) if np.isfinite(A["thigh"][c]) else None,
@@ -227,7 +270,7 @@ def analyse(k: Kinematics, *, workers: int = 1, max_gap_frames: int | None = Non
             shin_catch=(float(A["shin"][c]) if shins_ok
                         and measurement.observed_mask(k, 'shin')[c]
                         and np.isfinite(A['shin'][c]) else None),
-            next_catch_t=refined.get(n, float(n)),
+            next_catch_t=nt,
             observed_frames=int(k.visible[c:n+1].sum()),
             gap_frames=int((~k.visible[c:n+1]).sum()),
         )

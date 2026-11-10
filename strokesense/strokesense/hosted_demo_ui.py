@@ -139,7 +139,10 @@ for(const [kind,link] of [['report',reportLink],['annotated',overlay]]){
 BRIDGE_SCRIPT = r"""
 /* Only StrokeSense's Vercel frontend may drive the hosted API through this frame.
    All analysis, uploads and status calls remain same-origin requests to Render. */
-const ssBridgeClientOrigin='https://strokesense-review.vercel.app';
+const ssBridgeClientOrigins=[
+  'https://strokesense-review.vercel.app',
+  'https://strokesense-review-buh688zsc-stroke-sense.vercel.app'
+];
 function ssBridgeClip(id){
   if(id===null)return '';
   if(typeof id==='string'&&/^[a-f0-9]{48}$/.test(id))return '/videos/'+id;
@@ -191,20 +194,21 @@ async function ssBridgeRequest(action,payload){
   throw Error('unsupported_action');
 }
 window.addEventListener('message',async(event)=>{
-  if(event.origin!==ssBridgeClientOrigin||event.source!==window.parent||
+  if(!ssBridgeClientOrigins.includes(event.origin)||event.source!==window.parent||
      !event.data||event.data.type!=='strokesense:bridge-request')return;
   const requestId=event.data.id;
   if(!Number.isSafeInteger(requestId)||requestId<1)return;
   try{
     const result=await ssBridgeRequest(event.data.action,event.data);
     window.parent.postMessage({type:'strokesense:bridge-response',id:requestId,ok:true,result},
-      ssBridgeClientOrigin);
+      event.origin);
   }catch(error){
     window.parent.postMessage({type:'strokesense:bridge-response',id:requestId,ok:false,
-      error:String(error.message||'render_request_failed')},ssBridgeClientOrigin);
+      error:String(error.message||'render_request_failed')},event.origin);
   }
 });
-if(window.parent!==window)window.parent.postMessage({type:'strokesense:bridge-ready'},ssBridgeClientOrigin);
+if(window.parent!==window)for(const origin of ssBridgeClientOrigins)
+  window.parent.postMessage({type:'strokesense:bridge-ready'},origin);
 """
 
 REPORT_STYLE_LIGHT = """

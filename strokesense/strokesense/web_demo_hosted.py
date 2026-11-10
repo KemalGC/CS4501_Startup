@@ -35,18 +35,19 @@ from .oneclick_demo import PAGE, _safe_media, _safe_result, MAX_MEDIA_BYTES
 from .hosted_demo_state import HostedDemoState
 from .hosted_video_tabs import add_video_tabs
 from .hosted_demo_ui import bridge_page, redesign_hosted_demo, restyle_report
+from .hosted_dashboard import build_dashboard
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; frame-src 'self'; media-src 'self'; connect-src 'self'; "
-              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app; "
+              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
-               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app")
+               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app")
 MEDIA_CSP = ("default-src 'none'; media-src 'self'; frame-ancestors 'self' "
-             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app")
+             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
-              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app")
+              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app")
 DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
 VISITOR_UPLOAD_BYTES = 50 * 1024 * 1024
 VISITOR_UPLOAD_COUNT = 3
@@ -456,6 +457,27 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         if visitor_status and request.method in ("GET", "HEAD"):
             entry = visitor_entry(visitor_status.group(1))
             return JSONResponse(visitor_snapshot(entry)) if entry else reply(404, "video_not_found")
+        if route == "/api/demo/dashboard" and request.method in ("GET", "HEAD"):
+            demo = data["demo"]
+            if demo is None or demo.snapshot()["state"] != "finished":
+                return reply(404, "report_not_ready")
+            try:
+                result = build_dashboard(demo, "Prepared rowing clip")
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                return reply(503, "report_data_unavailable")
+            return JSONResponse(result)
+        visitor_dashboard = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/dashboard", route)
+        if visitor_dashboard and request.method in ("GET", "HEAD"):
+            entry = visitor_entry(visitor_dashboard.group(1))
+            if entry is None:
+                return reply(404, "video_not_found")
+            if entry.get("queued") or entry["state"].snapshot()["state"] != "finished":
+                return reply(404, "report_not_ready")
+            try:
+                result = build_dashboard(entry["state"], entry["name"])
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                return reply(503, "report_data_unavailable")
+            return JSONResponse(result)
         visitor_media = re.fullmatch(r"/demo/videos/([0-9a-f]{48})/(video|report|annotated)", route)
         if visitor_media and request.method in ("GET", "HEAD"):
             entry = visitor_entry(visitor_media.group(1))

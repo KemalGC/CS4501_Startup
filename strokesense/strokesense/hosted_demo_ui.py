@@ -142,7 +142,8 @@ BRIDGE_SCRIPT = r"""
 const ssBridgeClientOrigins=[
   'https://strokesense-review.vercel.app',
   'https://strokesense-review-buh688zsc-stroke-sense.vercel.app',
-  'https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app'
+  'https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app',
+  'https://strokesense-review-qa-stroke-sense.vercel.app'
 ];
 function ssBridgeClip(id){
   if(id===null)return '';

@@ -141,7 +141,8 @@ BRIDGE_SCRIPT = r"""
    All analysis, uploads and status calls remain same-origin requests to Render. */
 const ssBridgeClientOrigins=[
   'https://strokesense-review.vercel.app',
-  'https://strokesense-review-buh688zsc-stroke-sense.vercel.app'
+  'https://strokesense-review-buh688zsc-stroke-sense.vercel.app',
+  'https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app'
 ];
 function ssBridgeClip(id){
   if(id===null)return '';
@@ -155,6 +156,13 @@ async function ssBridgeRequest(action,payload){
     const response=await fetch(path,{cache:'no-store',credentials:'same-origin'});
     const result=await response.json();
     if(!response.ok)throw Error(result.error||'status_failed');
+    return result;
+  }
+  if(action==='dashboard'){
+    const path=suffix?'/api/demo'+suffix+'/dashboard':'/api/demo/dashboard';
+    const response=await fetch(path,{cache:'no-store',credentials:'same-origin'});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'dashboard_failed');
     return result;
   }
   if(action==='analyze'){

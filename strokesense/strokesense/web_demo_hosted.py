@@ -507,7 +507,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if demo is None or demo.snapshot()["state"] != "finished":
                 return reply(404, "report_not_ready")
             try:
-                result = build_dashboard(demo, "Prepared rowing clip")
+                result = build_dashboard(demo, "Prepared rowing clip", prepared=True)
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 return reply(503, "report_data_unavailable")
             return JSONResponse(result)

@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from strokesense.seat_orientation import infer_dominant_seats
-from strokesense.hosted_dashboard import _verified_seat_mapping
+from strokesense.hosted_dashboard import _verified_seat_mapping, _report_seat_mapping, build_dashboard
 
 
 def tracks(*, facing=1, pan_per_frame=0., frames=60):
@@ -90,6 +93,57 @@ class SeatOrientationTests(unittest.TestCase):
         tampered = {**proposed, "assignments": {**proposed["assignments"],
                     "R1": "Stroke seat"}}
         self.assertEqual(_verified_seat_mapping(tampered, ids)["status"], "uncertain")
+
+    def test_prepared_report_uses_confirmed_stroke_to_bow_seats(self):
+        ids = [f"R{i}" for i in range(1, 9)]
+        mapping = _report_seat_mapping(None, ids, prepared=True)
+        self.assertEqual(mapping["status"], "prepared")
+        self.assertEqual(mapping["travel_direction"], "right")
+        self.assertEqual([mapping["assignments"][i] for i in ids], [
+            "Stroke seat", "Seat 7", "Seat 6", "Seat 5", "Seat 4",
+            "Seat 3", "Seat 2", "Bow seat",
+        ])
+
+    def test_prepared_report_never_relabels_partial_crew(self):
+        ids = [f"R{i}" for i in range(1, 9) if i != 4]
+        mapping = _report_seat_mapping(None, ids, prepared=True)
+        self.assertEqual(mapping["status"], "uncertain")
+        self.assertEqual(mapping["assignments"], {})
+
+    def test_uploaded_report_respects_verified_reverse_orientation(self):
+        ids = [f"R{i}" for i in range(1, 9)]
+        mapping = infer_dominant_seats(tracks(facing=1), crew_facing=1, n_seats=8)
+        verified = _report_seat_mapping(mapping, ids, prepared=False)
+        self.assertEqual(verified["status"], "auto")
+        self.assertEqual(verified["assignments"]["R1"], "Bow seat")
+        self.assertEqual(verified["assignments"]["R8"], "Stroke seat")
+
+    def test_dashboard_exposes_presentation_seats_without_changing_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "report.html"
+            report.write_text("<h1>Fixture</h1>", encoding="utf-8")
+            metrics = {
+                "crew_cadence": {"rate_spm": 31.5},
+                "rowers": [
+                    {"seat": f"R{i}", "strokes": [{"catch": 0}],
+                     "summary": {"n_strokes": 1, "score": 75}, "sync_ms": 5}
+                    for i in range(1, 9)
+                ],
+                "sync": {},
+            }
+            (root / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+            state = SimpleNamespace(snapshot=lambda: {"state": "finished"},
+                                    report=report, output_root=root,
+                                    run_id="a" * 32, last_end=None)
+            prepared = build_dashboard(state, "Prepared rowing clip", prepared=True)
+            self.assertEqual([r["id"] for r in prepared["rowers"]],
+                             [f"R{i}" for i in range(1, 9)])
+            self.assertEqual(prepared["rowers"][0]["seat_label"], "Stroke seat")
+            self.assertEqual(prepared["rowers"][7]["seat_label"], "Bow seat")
+            uploaded = build_dashboard(state, "Uploaded rowing clip")
+            self.assertTrue(all(r["seat_label"] is None for r in uploaded["rowers"]))
+            self.assertEqual(uploaded["seat_mapping"]["status"], "uncertain")
 
 
 if __name__ == "__main__":

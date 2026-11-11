@@ -15,6 +15,15 @@ import re
 from .oneclick_demo import MAX_METRICS_BYTES, _safe_result, summarize_crew_metrics
 
 _SEAT = re.compile(r"R(?:[1-9]|1[0-6])\Z")
+_EIGHT_TRACK_IDS = {f"R{i}" for i in range(1, 9)}
+# The known prepared eights clip was visually checked: its tracked rowers run
+# from stroke (R1, left of frame) to bow (R8, right of frame).  This is NOT a
+# general rule for uploaded videos, where tracking IDs are screen-order IDs.
+_PREPARED_EIGHT_SEATS = {
+    f"R{i}": ("Stroke seat" if i == 1 else "Bow seat" if i == 8
+               else f"Seat {9 - i}")
+    for i in range(1, 9)
+}
 
 
 def _number(value, minimum=-1e9, maximum=1e9):
@@ -88,7 +97,7 @@ def _verified_seat_mapping(raw, rower_ids):
     direction = raw.get("travel_direction")
     confidence = _number(raw.get("confidence"), .82, 1)
     assignments = raw.get("assignments")
-    expected_ids = {f"R{i}" for i in range(1, 9)}
+    expected_ids = _EIGHT_TRACK_IDS
     labels = ["Bow seat"] + [f"Seat {i}" for i in range(2, 8)] + ["Stroke seat"]
     if (direction not in ("left", "right") or confidence is None
             or set(rower_ids) != expected_ids or not isinstance(assignments, dict)
@@ -108,7 +117,24 @@ def _verified_seat_mapping(raw, rower_ids):
     }
 
 
-def build_dashboard(state, clip_name: str):
+def _report_seat_mapping(raw, rower_ids, *, prepared: bool = False):
+    """Present seats only with eight intact identities and verified orientation.
+
+    The prepared reference's orientation was confirmed from the supplied image;
+    visitor uploads instead use the conservative pose-based mapping and may
+    remain unassigned.  The model's R-numbers are never changed.
+    """
+    if prepared and len(rower_ids) == 8 and set(rower_ids) == _EIGHT_TRACK_IDS:
+        return {
+            "status": "prepared", "travel_direction": "right", "confidence": None,
+            "assignments": dict(_PREPARED_EIGHT_SEATS),
+            "reason": "Visual seat order for this prepared eight: R1 is Stroke seat, R8 is Bow seat.",
+            "source": "prepared_reference_visual_order",
+        }
+    return _verified_seat_mapping(raw, rower_ids)
+
+
+def build_dashboard(state, clip_name: str, *, prepared: bool = False):
     """Return a finite, bounded subset of a completed run's measured report."""
     if state.snapshot().get("state") != "finished":
         raise ValueError("report_not_ready")
@@ -183,6 +209,11 @@ def build_dashboard(state, clip_name: str):
         })
     if not rowers:
         raise ValueError("invalid_report_data")
+    seat_mapping = _report_seat_mapping(
+        sync.get("seat_mapping"), [r["id"] for r in rowers], prepared=prepared)
+    assignments = seat_mapping["assignments"]
+    for rower in rowers:
+        rower["seat_label"] = assignments.get(rower["id"])
     completed = _number(getattr(state, "last_end", None), 0, 32503680000)
     generated_at = feedback.get("generated_at")
     if generated_at is None and completed is not None:
@@ -206,6 +237,6 @@ def build_dashboard(state, clip_name: str):
             "catch_offset_ms": _number(sync.get("crew_spread_ms"), 0, 10000),
         },
         "rowers": rowers,
-        "seat_mapping": _verified_seat_mapping(sync.get("seat_mapping"), [r["id"] for r in rowers]),
+        "seat_mapping": seat_mapping,
         "limits": "Model candidate tracks and projected 2D measurements; findings require coach review.",
     }

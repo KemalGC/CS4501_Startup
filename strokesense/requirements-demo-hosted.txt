@@ -6,3 +6,8 @@ scipy>=1.10
 opencv-python-headless>=4.8
 onnxruntime>=1.16
 matplotlib>=3.7
+imageio-ffmpeg>=0.5
+beautifulsoup4>=4.12,<5
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+--only-binary=llama-cpp-python
+llama-cpp-python==0.3.36

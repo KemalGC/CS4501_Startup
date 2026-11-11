@@ -15,7 +15,7 @@ The Vercel website provides the full visible analyzer: choose the prepared rowin
 | `dev-consolidated` | `strokesense-alpha` | Reviewer feedback study; retains the study's persistent data and settings. |
 | `strokesense-render-live` | `strokesense-real-analysis-demo` | Paid compute-backed video uploads, cancellation, tracking, and coaching reports for the Vercel site. |
 
-The application code and related tests are kept aligned across these branches, while their active Render Blueprints stay separate. To deploy a **second** compute service from `dev-consolidated`, review the optional [`render-demo.yaml`](render-demo.yaml) and approve any paid resource changes in Render yourself. Merging code does not switch either running service or migrate stored videos, reports, or study data.
+The application code and related tests are kept aligned across these branches, while their active Render Blueprints stay separate. To deploy a **second** compute service from `dev-consolidated`, review the optional [`render-demo.yaml`](render-demo.yaml), which uses its own `strokesense-dev-analysis-demo` service and `strokesense-dev-demo` disk names, and approve any paid resource changes in Render yourself. Merging code does not switch either running service or migrate stored videos, reports, or study data.
 
 ## Report preview
 

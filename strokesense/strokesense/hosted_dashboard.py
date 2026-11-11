@@ -185,6 +185,8 @@ def build_dashboard(state, clip_name: str, *, prepared: bool = False):
                 flags.append({"label": label, "percentage": round(frac * 100)})
         llm_row = coaching_rows.get(seat, {})
         llm_row = llm_row if isinstance(llm_row, dict) else {}
+        observation = _text(llm_row.get("observation"), 500)
+        cue = _text(llm_row.get("cue"), 500)
         offset = _number(row.get("sync_ms"), -10000, 10000)
         rowers.append({
             "id": seat,
@@ -202,8 +204,11 @@ def build_dashboard(state, clip_name: str, *, prepared: bool = False):
                     "on time" if offset == 0 else None)),
             "flags": flags,
             "coaching": {
-                "finding": _text(llm_row.get("observation"), 500),
-                "action": _text(llm_row.get("cue"), 500),
+                "finding": observation,
+                "action": cue,
+                # Flags and metric scores are measured heuristics, not a generated
+                # coaching narrative. Let the UI distinguish the two states.
+                "source": "verified_llm" if observation or cue else "not_generated",
             },
             "snapshots": [],
         })

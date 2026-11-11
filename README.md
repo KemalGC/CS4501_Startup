@@ -6,7 +6,16 @@
 
 **[StrokeSense website](https://strokesense-review.vercel.app/)** · **[Live video analyzer and dashboard](https://strokesense-review.vercel.app/demos/)** · **[Reviewer feedback study](https://strokesense-review.kemalgcortuk.chatgpt.site/)**
 
-The Vercel website provides the full visible analyzer: choose the prepared rowing clip or upload an MP4, MOV, or WebM video (up to 50 MB), follow analysis progress, play the annotated result, and read the built-in coaching dashboard. The report supports **By technique** and **By rower** views, with sorting for numeric technique comparisons. Render performs the processing and generates model-assisted coaching feedback in the background; visitors do not need to open a separate Render page. The original study site continues to hold private reviewer participation and results. The hosted backend is maintained on the `strokesense-render-live` branch.
+The Vercel website provides the full visible analyzer: choose the prepared rowing clip or upload an MP4, MOV, or WebM video (up to 100 MB), follow analysis progress, play the annotated result, and read the built-in coaching dashboard. The report supports **By technique** and **By rower** views, with sorting for numeric technique comparisons. Render performs the processing and generates model-assisted coaching feedback in the background; visitors do not need to open a separate Render page. The original study site continues to hold private reviewer participation and results. Both deployment branches retain the shared analyzer, dashboard API, and LLM report code.
+
+### Deployment branches
+
+| Branch | Active `render.yaml` | Responsibility |
+| --- | --- | --- |
+| `dev-consolidated` | `strokesense-alpha` | Reviewer feedback study; retains the study's persistent data and settings. |
+| `strokesense-render-live` | `strokesense-real-analysis-demo` | Paid compute-backed video uploads, cancellation, tracking, and coaching reports for the Vercel site. |
+
+The application code and related tests are kept aligned across these branches, while their active Render Blueprints stay separate. To deploy a **second** compute service from `dev-consolidated`, review the optional [`render-demo.yaml`](render-demo.yaml) and approve any paid resource changes in Render yourself. Merging code does not switch either running service or migrate stored videos, reports, or study data.
 
 ## Report preview
 

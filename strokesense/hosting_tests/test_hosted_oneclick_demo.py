@@ -30,7 +30,7 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
         )
         self.app = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
                               max_upload_bytes=1024,
-                              command_factory=lambda: [sys.executable,"-c",fixture,str(self.root/"demo"/"outputs")])
+                              command_factory=lambda: [sys.executable,"-c",fixture,str(self.app.state.demo_data['demo'].root)])
         self.transport = httpx.ASGITransport(app=self.app)
     def tearDown(self):
         self.tmp.cleanup()
@@ -89,6 +89,7 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(video.status_code,206)
         self.assertEqual(video.content,VALID_MP4[:10])
         self.assertEqual(video.headers.get("Content-Range"),"bytes 0-9/"+str(len(VALID_MP4)))
+        self.assertIn("media-src 'self'",video.headers["Content-Security-Policy"])
         self.assertEqual((await self.req("HEAD","/demo/video",headers={"Range":"bytes=0-3"})).status_code,206)
         self.assertEqual((await self.req("GET","/demo/video",headers={"Range":"bytes=4-1"})).status_code,416)
         self.assertEqual((await self.req("GET","/demo/video",headers={"Range":"bytes=1-2,3-4"})).status_code,416)
@@ -120,9 +121,22 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(doc.status_code,200)
         self.assertIn("TEST FIXTURE ONLY",doc.text)
         self.assertIn("sandbox",doc.headers.get("Content-Security-Policy",""))
-        self.assertEqual((await self.req("GET","/demo/annotated")).content,b"FAKE VIDEO")
+        annotated=await self.req("GET","/demo/annotated")
+        self.assertEqual(annotated.content,b"FAKE VIDEO")
+        self.assertEqual(annotated.headers["Content-Type"],"video/mp4")
+        self.assertIn("media-src 'self'",annotated.headers["Content-Security-Policy"])
+        for method in ("GET","HEAD"):
+            ranged=await self.req(method,"/demo/annotated",headers={"Range":"bytes=0-3"})
+            self.assertEqual(ranged.status_code,206)
+            self.assertEqual(ranged.headers["Content-Range"],"bytes 0-3/10")
+            self.assertIn("media-src 'self'",ranged.headers["Content-Security-Policy"])
         self.assertEqual((await self.req("POST","/api/demo/analyze",origin=ORIGIN,csrf=True,
-                     body=b"{}",headers={"Content-Type":"application/json"})).status_code,409)
+                     body=b"{}",headers={"Content-Type":"application/json"})).status_code,202)
+        for _ in range(140):
+            rerun=(await self.req("GET","/api/demo/status")).json()
+            if rerun["state"] in ("finished","failed"):break
+            await asyncio.sleep(.025)
+        self.assertEqual(rerun["state"],"finished",rerun)
 
     async def test_no_study_or_arbitrary_file_access(self):
         await self.prepared()

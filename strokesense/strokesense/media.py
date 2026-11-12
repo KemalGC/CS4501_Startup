@@ -58,7 +58,8 @@ class UndecodableMediaError(ValueError):
     """Expected safe failure when local footage cannot be opened or read."""
 
 
-def probe_decodable_video(path) -> bool:
+def probe_decodable_video(path, *, max_seconds: float = 120.0,
+                           max_pixels: int = 3840 * 2160) -> bool:
     """Try one frame inside the background worker, before expensive pose work.
 
     This is a fast UX preflight, not proof that all frames decode safely.
@@ -74,10 +75,8 @@ def probe_decodable_video(path) -> bool:
         height = float(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = float(capture.get(cv2.CAP_PROP_FPS))
         frame_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-        max_pixels = 3840 * 2160
-        # Conservative local-Alpha workload bound: 2 minutes of reported
+        # Conservative workload bound: by default 2 minutes of reported
         # footage. Unknown/invalid metadata is rejected rather than guessing.
-        max_seconds = 120.0
         if not all(math.isfinite(x) for x in (width, height, fps, frame_count)):
             return False
         if (width < 64 or height < 64 or width * height > max_pixels

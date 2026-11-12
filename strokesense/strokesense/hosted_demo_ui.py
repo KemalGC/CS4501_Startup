@@ -74,7 +74,7 @@ INLINE_VIEWER_HTML = """
 <section class="inline-result" id="inline-result" aria-labelledby="inline-result-title" hidden>
  <div class="inline-result-head"><h2 id="inline-result-title">Coaching report</h2>
   <button id="inline-result-close" class="inline-result-close" type="button">Close result</button></div>
- <iframe id="inline-report" title="Generated StrokeSense coaching report" loading="eager" hidden></iframe>
+ <iframe id="inline-report" title="Generated StrokeSense coaching report" loading="eager" sandbox="" referrerpolicy="no-referrer" hidden></iframe>
  <video id="inline-overlay" controls playsinline preload="none" aria-label="Annotated rowing footage" hidden></video>
 </section>
 """
@@ -139,12 +139,7 @@ for(const [kind,link] of [['report',reportLink],['annotated',overlay]]){
 BRIDGE_SCRIPT = r"""
 /* Only StrokeSense's Vercel frontend may drive the hosted API through this frame.
    All analysis, uploads and status calls remain same-origin requests to Render. */
-const ssBridgeClientOrigins=[
-  'https://strokesense-review.vercel.app',
-  'https://strokesense-review-buh688zsc-stroke-sense.vercel.app',
-  'https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app',
-  'https://strokesense-review-qa-stroke-sense.vercel.app'
-];
+const ssBridgeClientOrigins=['https://strokesense-review.vercel.app'];
 function ssBridgeClip(id){
   if(id===null)return '';
   if(typeof id==='string'&&/^[a-f0-9]{48}$/.test(id))return '/videos/'+id;
@@ -190,8 +185,12 @@ async function ssBridgeRequest(action,payload){
   }
   if(action==='analyze'){
     const path=suffix?'/api/demo'+suffix+'/analyze':'/api/demo/analyze';
+    const deleteToken=suffix?payload.deleteToken:null;
+    if(suffix&&(typeof deleteToken!=='string'||!/^[a-zA-Z0-9_-]{32,128}$/.test(deleteToken)))
+      throw Error('invalid_delete_token');
     const response=await fetch(path,{method:'POST',credentials:'same-origin',
-      headers:{'content-type':'application/json','x-demo-csrf':token},body:'{}'});
+      headers:{'content-type':'application/json','x-demo-csrf':token,
+        ...(suffix?{'x-demo-delete-token':deleteToken}:{})},body:'{}'});
     const result=await response.json();
     if(!response.ok)throw Error(result.error||'analysis_failed');
     return result;

@@ -30,6 +30,9 @@ from .pose_merge import VERSION as DETECTION_POSTPROCESS_VERSION
 # Bump this when pose preprocessing or detector defaults change. Downstream
 # technique/report changes can reuse detections because they run again each time.
 POSE_CACHE_VERSION = 3
+# Public uploads only (--bounded-media): longest reported clip that is analysed.
+HOSTED_MAX_SECONDS = 180.0
+MEDIA_REJECTED_EXIT = 3
 
 
 def _file_identity(path, *, hash_content=False):
@@ -346,7 +349,15 @@ def main(argv=None):
     ap.add_argument('--dominant-crew', action='store_true', help='isolate the largest clear crew; gaps never recruit a different boat')
     ap.add_argument('--threads', type=int, default=None, help='ONNX CPU threads, 1–64')
     ap.add_argument("--fresh", action="store_true", help="ignore cached pose results")
+    ap.add_argument("--bounded-media", action="store_true",
+                    help="refuse footage whose reported size or length exceeds the public-service limits")
     a = ap.parse_args(argv)
+    if a.bounded_media:
+        # Untrusted uploads: bound decoder memory and CPU before any pose work.
+        from .media import probe_decodable_video
+        if not probe_decodable_video(a.video, max_seconds=HOSTED_MAX_SECONDS):
+            print("media_rejected: unsupported dimensions, duration or container", flush=True)
+            return MEDIA_REJECTED_EXIT
     tiles = "auto" if a.tiles == "auto" else None
     res = analyse_video(a.video, a.out, a.start, a.duration, tiles, a.fps, single=a.single, reuse=not a.fresh, dominant=a.dominant_crew, threads=a.threads, crew_size=a.crew_size)
     return 0 if res else 1

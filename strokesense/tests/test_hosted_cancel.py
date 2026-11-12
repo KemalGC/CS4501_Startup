@@ -1,14 +1,17 @@
 """Offline visitor upload/cancel contract tests: no actual pose model required."""
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -83,6 +86,13 @@ class HostedVisitorCancelTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 422)
                 self.assertEqual(self.app.state.demo_data["uploads"], {})
 
+    def test_unsafe_filename_cannot_be_default_display_name(self):
+        response = self.post("/api/demo/videos", content=FAKE_MP4,
+            headers={"content-type": "video/mp4",
+                     "x-demo-filename": quote("team\u202eone.mp4")})
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.app.state.demo_data["uploads"], {})
+
     def test_running_cancel_preserves_uploaded_video(self):
         clip = self.upload("Morning 8+")
         self.assertEqual(clip["name"], "Morning 8+")
@@ -126,12 +136,112 @@ class HostedVisitorCancelTests(unittest.TestCase):
         clip = self.upload()
         self.cancel(clip)
         self.wait_status(clip, "cancelled")
-        restarted = self.post(f"/api/demo/videos/{clip['id']}/analyze",
+        denied = self.post(f"/api/demo/videos/{clip['id']}/analyze",
             headers={"content-type": "application/json"})
+        self.assertEqual(denied.status_code, 403)
+        restarted = self.post(f"/api/demo/videos/{clip['id']}/analyze",
+            headers={"content-type": "application/json", "x-demo-delete-token": clip["delete_token"]})
         self.assertEqual(restarted.status_code, 202, restarted.text)
         self.assertTrue(restarted.json()["started"])
         self.assertIn(self.cancel(clip).status_code, (200, 202))
         self.wait_status(clip, "cancelled")
+
+    def test_analysis_reruns_have_a_rate_limit(self):
+        clip = self.upload()
+        self.cancel(clip)
+        self.wait_status(clip, "cancelled")
+        url = f"/api/demo/videos/{clip['id']}/analyze"
+        headers = {"content-type": "application/json", "x-demo-delete-token": clip["delete_token"]}
+        with patch("strokesense.web_demo_hosted.ANALYSIS_GLOBAL_HOURLY_LIMIT", 1):
+            self.assertEqual(self.post(url, headers=headers).status_code, 202)
+            self.cancel(clip)
+            self.wait_status(clip, "cancelled")
+            self.assertEqual(self.post(url, headers=headers).status_code, 429)
+
+    def test_slow_upload_does_not_block_existing_video_deletion(self):
+        clip = self.upload()
+        self.cancel(clip)
+        self.wait_status(clip, "cancelled")
+
+        async def exercise():
+            first_chunk_sent = asyncio.Event()
+            release_upload = asyncio.Event()
+
+            async def slow_video():
+                yield FAKE_MP4[:8]
+                first_chunk_sent.set()
+                await release_upload.wait()
+                yield FAKE_MP4[8:]
+
+            async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=self.app), base_url=self.origin) as client:
+                upload_task = asyncio.create_task(client.post("/api/demo/videos",
+                    content=slow_video(), headers={"origin": self.origin,
+                        "x-demo-csrf": self.csrf, "content-type": "video/mp4",
+                        "x-demo-filename": "slow.mp4"}))
+                await asyncio.wait_for(first_chunk_sent.wait(), timeout=3)
+                try:
+                    deleted = await asyncio.wait_for(client.delete(
+                        f"/api/demo/videos/{clip['id']}", headers={
+                            "origin": self.origin, "x-demo-csrf": self.csrf,
+                            "x-demo-delete-token": clip["delete_token"]}), timeout=3)
+                    self.assertEqual(deleted.status_code, 200, deleted.text)
+                finally:
+                    release_upload.set()
+                response = await asyncio.wait_for(upload_task, timeout=3)
+                self.assertEqual(response.status_code, 202, response.text)
+                self.uploads.append(response.json())
+
+        asyncio.run(exercise())
+
+    def test_incomplete_control_body_times_out(self):
+        async def exercise():
+            async def slow_json():
+                yield b"{"
+                await asyncio.sleep(1)
+                yield b"}"
+
+            async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=self.app), base_url=self.origin) as client:
+                with patch("strokesense.web_demo_hosted.CONTROL_BODY_DEADLINE_SECONDS", .02):
+                    response = await client.post("/api/demo/sessions/" + "a" * 32 + "/analyze", content=slow_json(), headers={
+                        "origin": self.origin, "x-demo-csrf": self.csrf,
+                        "content-type": "application/json"})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(response.json()["error"], "expected_empty_json")
+
+        asyncio.run(exercise())
+
+    def test_idle_upload_times_out_and_releases_slot(self):
+        async def exercise():
+            async def stalled_video():
+                yield FAKE_MP4[:8]
+                await asyncio.sleep(1)
+                yield FAKE_MP4[8:]
+
+            async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=self.app), base_url=self.origin) as client:
+                with patch("strokesense.web_demo_hosted.UPLOAD_IDLE_SECONDS", .02):
+                    response = await client.post("/api/demo/videos", content=stalled_video(),
+                        headers={"origin": self.origin, "x-demo-csrf": self.csrf,
+                            "content-type": "video/mp4", "x-demo-filename": "slow.mp4"})
+                self.assertEqual(response.status_code, 408, response.text)
+                self.assertEqual(response.json()["error"], "upload_timed_out")
+
+        asyncio.run(exercise())
+        clip = self.upload()
+        self.assertTrue(clip["id"])
+
+    def test_csp_nonce_changes_for_each_page(self):
+        first = self.client.get("/setup")
+        second = self.client.get("/setup")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_csp = first.headers["content-security-policy"]
+        second_csp = second.headers["content-security-policy"]
+        self.assertNotEqual(first_csp, second_csp)
+        self.assertIn(first_csp.split("script-src 'nonce-")[1].split("'")[0], first.text)
+        self.assertIn(second_csp.split("script-src 'nonce-")[1].split("'")[0], second.text)
 
 
 if __name__ == "__main__":

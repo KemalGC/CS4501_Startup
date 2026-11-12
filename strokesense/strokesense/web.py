@@ -1761,7 +1761,9 @@ def create_server(
                     required = {"csrf", "permission", "provenance", "video"}
                     if not required.issubset(fields):
                         raise MultipartError("missing fields")
-                    if not hmac.compare_digest(fields["csrf"], token):
+                    supplied = fields["csrf"]
+                    if not isinstance(supplied, str) or not hmac.compare_digest(
+                            supplied.encode(), token.encode()):
                         self._error(403)
                         return
                     select_crew = fields.get('select_crew') == 'yes'
@@ -1908,7 +1910,7 @@ def create_server(
                     self._error(400)
                     return
                 csrf, clip_id = params["csrf"][0], params["clip_id"][0]
-                if not hmac.compare_digest(csrf, token):
+                if not hmac.compare_digest(csrf.encode(), token.encode()):
                     self._error(403)
                     return
                 if not re.fullmatch(r"[0-9a-f]{64}", clip_id):

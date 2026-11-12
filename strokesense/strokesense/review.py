@@ -144,7 +144,7 @@ def add_review(server, jobs, registry, *, scan_fn=scan_clip):
                     self._review_error(403);return
                 cid=f['clip'];clip_for(cid)
                 with lock: entry=cache.get(cid)
-                if entry is None or not hmac.compare_digest(f['review'],entry['review']) or not entry['future'].done():
+                if entry is None or not hmac.compare_digest(f['review'].encode(),entry['review'].encode()) or not entry['future'].done():
                     self._review_error(409);return
                 data=entry['future'].result()
                 if data['state']!='ready' or not re.fullmatch('[0-4]',f['frame']): raise ValueError('invalid_reference')

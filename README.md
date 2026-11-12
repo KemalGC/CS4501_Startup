@@ -1,5 +1,7 @@
 # StrokeSense — Video-based rowing technique analysis
 
+[**🌐 Open the live StrokeSense website on Vercel**](https://strokesense-review.vercel.app/) · [**Try the video analyzer**](https://strokesense-review.vercel.app/demos/)
+
 **StrokeSense** analyzes rowing footage using markerless computer vision, highlights recurring technique patterns, and produces a visual coaching report for individual rowers or a crew. It is a prototype intended to support—not replace—a rowing coach's judgment.
 
 ## Live public website

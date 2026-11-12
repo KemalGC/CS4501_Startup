@@ -201,7 +201,9 @@ class VisitorUploadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.request("GET", "/demo/report")).status_code, 404)
 
         rerun = await self.request("POST", f"/api/demo/videos/{info['id']}/analyze", body=b"{}",
-                                   headers={"Content-Type": "application/json"}, origin=True, csrf=True)
+                                   headers={"Content-Type": "application/json",
+                                            "X-Demo-Delete-Token": info["delete_token"]},
+                                   origin=True, csrf=True)
         self.assertEqual(rerun.status_code, 202, rerun.text)
         self.assertEqual((await self.finished(info["id"]))["state"], "finished")
 

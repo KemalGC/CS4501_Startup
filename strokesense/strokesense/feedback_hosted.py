@@ -6,6 +6,7 @@ adds invitation access, secure cookies and owner-only initial provisioning.
 Only validated traffic is forwarded with the internal loopback host/origin.
 """
 from __future__ import annotations
+import asyncio
 from contextlib import asynccontextmanager
 import hashlib
 import hmac
@@ -110,10 +111,12 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
 
     async def small_body(request):
         data = bytearray()
-        async for block in request.stream():
-            data.extend(block)
-            if len(data) > MAX_BODY:
-                raise OverflowError('request_too_large')
+        # A stalled sender must not hold a public connection open indefinitely.
+        async with asyncio.timeout(15):
+            async for block in request.stream():
+                data.extend(block)
+                if len(data) > MAX_BODY:
+                    raise OverflowError('request_too_large')
         return bytes(data)
 
     async def handle(request: Request):
@@ -174,6 +177,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
                         return err(422, 'invalid_code')
                 except OverflowError:
                     return err(413, 'request_too_large')
+                except TimeoutError:
+                    return err(408, 'request_timed_out')
                 except (ValueError, TypeError):
                     return err(422, 'invalid_code')
                 expiry = None
@@ -255,6 +260,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None, review_code=None, 
             upstream = await state['http'].send(msg, stream=True)
         except OverflowError:
             return err(413, 'request_too_large')
+        except TimeoutError:
+            return err(408, 'request_timed_out')
         except httpx.HTTPError:
             return err(503, 'review_backend_unavailable')
         allowed = ('content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition', 'content-security-policy')

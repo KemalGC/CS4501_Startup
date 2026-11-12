@@ -8,6 +8,9 @@ onnxruntime>=1.16
 matplotlib>=3.7
 imageio-ffmpeg>=0.5
 beautifulsoup4>=4.12,<5
---extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
---only-binary=llama-cpp-python
-llama-cpp-python==0.3.36
+# Runtime dependencies of the separately installed, pinned llama-cpp-python wheel.
+# Resolve these on the normal package index; do not expose every dependency to
+# the project's third-party wheel index.
+typing-extensions>=4.5.0
+diskcache>=5.6.1
+jinja2>=2.11.3

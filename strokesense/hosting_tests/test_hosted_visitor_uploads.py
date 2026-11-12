@@ -83,6 +83,82 @@ class VisitorUploadTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.03)
         self.fail("Synthetic worker did not reach a terminal state")
 
+    async def finished_prepared(self, session_id):
+        for _ in range(150):
+            response = await self.request("GET", f"/api/demo/sessions/{session_id}/status")
+            self.assertEqual(response.status_code, 200)
+            snapshot = response.json()
+            if snapshot["state"] in ("finished", "failed"):
+                self.assertEqual(snapshot["state"], "finished", snapshot)
+                return snapshot
+            await asyncio.sleep(.03)
+        self.fail("Prepared-session worker did not reach a terminal state")
+
+    async def test_prepared_analysis_is_isolated_per_browser_session(self):
+        first_id = "a" * 32
+        second_id = "b" * 32
+        other_id = "c" * 32
+        first_root = f"/api/demo/sessions/{first_id}"
+        second_root = f"/api/demo/sessions/{second_id}"
+        other_root = f"/api/demo/sessions/{other_id}"
+        self.assertEqual((await self.request("GET", first_root + "/status")).json()["state"], "ready")
+        self.assertEqual((await self.request("GET", second_root + "/status")).json()["state"], "ready")
+        body = {"body": b"{}", "headers": {"Content-Type": "application/json"},
+                "origin": True, "csrf": True}
+        first = await self.request("POST", first_root + "/analyze", **body)
+        self.assertEqual(first.status_code, 202, first.text)
+        self.assertTrue(first.json()["started"])
+        # A second browser must remain idle; it must not inherit the first one's progress.
+        self.assertEqual((await self.request("GET", second_root + "/status")).json()["state"], "ready")
+        self.assertEqual((await self.request("GET", second_root + "/dashboard")).status_code, 404)
+        self.assertEqual((await self.request("GET", "/demo/sessions/" + second_id + "/report")).status_code, 404)
+        second = await self.request("POST", second_root + "/analyze", **body)
+        self.assertEqual(second.status_code, 202, second.text)
+        self.assertTrue(second.json()["queued"])
+        self.assertEqual((await self.request("GET", second_root + "/status")).json()["state"], "queued")
+        self.assertEqual((await self.request("GET", other_root + "/status")).json()["state"], "ready")
+        await self.finished_prepared(first_id)
+        await self.finished_prepared(second_id)
+        for session_id in (first_id, second_id):
+            report = await self.request("GET", f"/demo/sessions/{session_id}/report")
+            self.assertEqual(report.status_code, 200, report.text)
+            self.assertEqual(report.headers["Cache-Control"], "private, no-store")
+            self.assertIn("SYNTHETIC FIXTURE P", report.text)
+            with patch("strokesense.web_demo_hosted.build_dashboard",
+                       side_effect=lambda state, label, **kw: {
+                           "snapshot_prefix": kw.get("snapshots_base"),
+                           "report_root": str(state.output_root)}):
+                dashboard = await self.request("GET", f"/api/demo/sessions/{session_id}/dashboard")
+            self.assertEqual(dashboard.status_code, 200, dashboard.text)
+            self.assertEqual(dashboard.json()["snapshot_prefix"],
+                             f"/demo/sessions/{session_id}/snapshots")
+        self.assertNotEqual(self.app.state.demo_data["prepared_sessions"][first_id]["state"].output_root,
+                            self.app.state.demo_data["prepared_sessions"][second_id]["state"].output_root)
+        self.assertEqual((await self.request("GET", other_root + "/status")).json()["state"], "ready")
+        self.assertEqual((await self.request("GET", "/api/demo/status")).json()["state"], "ready")
+        self.assertEqual((await self.request("GET", "/api/demo/dashboard")).status_code, 404)
+        self.assertEqual((await self.request("GET", "/demo/report")).status_code, 404)
+        self.assertEqual((await self.request("GET", "/demo/annotated")).status_code, 404)
+        self.assertEqual((await self.request("POST", "/api/demo/analyze", **body)).status_code, 410)
+
+    async def test_prepared_session_result_restores_without_leaking_to_new_browser(self):
+        session_id = "d" * 32
+        start = await self.request("POST", f"/api/demo/sessions/{session_id}/analyze",
+                                   body=b"{}", headers={"Content-Type": "application/json"},
+                                   origin=True, csrf=True)
+        self.assertEqual(start.status_code, 202, start.text)
+        await self.finished_prepared(session_id)
+        restarted = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
+                               max_upload_bytes=1024)
+        known = (await self.request("GET", f"/api/demo/sessions/{session_id}/status",
+                                    app=restarted)).json()
+        unknown = (await self.request("GET", f"/api/demo/sessions/{'e' * 32}/status",
+                                      app=restarted)).json()
+        self.assertEqual(known["state"], "finished")
+        self.assertEqual(unknown["state"], "ready")
+        self.assertEqual((await self.request("GET", f"/demo/sessions/{session_id}/report",
+                                             app=restarted)).status_code, 200)
+
     async def deletable(self, job_id):
         for _ in range(150):
             status = (await self.request("GET", f"/api/demo/videos/{job_id}/status")).json()

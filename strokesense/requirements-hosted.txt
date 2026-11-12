@@ -1,0 +1,4 @@
+# Playback/survey hosting only: no ONNX, OpenCV, model weights or inference.
+starlette==1.10.0
+uvicorn==0.48.0
+httpx==0.28.1

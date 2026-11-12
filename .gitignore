@@ -1,0 +1,3 @@
+# Private participant feedback and access keys must never be committed.
+**/.feedback/
+/private-study/

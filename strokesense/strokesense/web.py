@@ -1,0 +1,1974 @@
+"""Local-only, dependency-free browser UI for registered StrokeSense jobs.
+
+This is deliberately not a public web service. Every request is Host/Origin
+restricted; queue writes require a per-process anti-CSRF token. Report retrieval
+is revalidated against the job's trusted results root.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import hashlib
+import hmac
+import html
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import math
+import os
+from pathlib import Path
+import re
+import secrets
+import shutil
+import tempfile
+import sys
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+from .evidence import verify_evidence_snapshot
+from .jobs import JobError, JobQueue, MAX_MEDIA_BYTES
+from .multipart_stream import receive, MultipartError
+from .media import plausible_container
+from .evidence import validate_public_evidence_snapshot
+from .strokes import FAULTS  # fixed, deterministic candidate-fault catalogue
+from .web_style import PAGE_CSS
+from .selection import validate_selection, SelectionError
+from .selection_ui import selection_form, preview_jpeg, SELECTION_JS
+from .registry import (DEFAULT_DB, RegistryError, DuplicateClipConflict,
+                       analysis_permission_granted,
+                       list_clips, register_clip, revoke_clip)
+
+
+_JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
+_MAX_FORM = 2048
+_MAX_VIDEO_BYTES = 150 * 1024 * 1024
+_MAX_UPLOAD = _MAX_VIDEO_BYTES + 1024 * 1024  # Bounded multipart fields/headers
+_VIDEO_EXTENSIONS = frozenset({'.mp4', '.mov', '.mkv', '.avi', '.webm'})
+_CAMERA_CHOICES = frozenset({"", "side-on", "bow-on", "stern-on"})
+_MAX_REPORT = 32 * 1024 * 1024
+_MAX_METRICS = 16 * 1024 * 1024
+_MAX_LINKED_STROKES_PER_FINDING = 50
+_MAX_SEEK_SECONDS = 120  # Keep local playback links within the Alpha clip cap.
+_SEEK_TIME = re.compile(r'(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,3})?\Z')
+_RETRYABLE_JOB_ERRORS = frozenset({"analysis_failed", "interrupted", "output_unavailable"})
+_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
+             "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+_REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
+               "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+_STATUS_CSP = _PAGE_CSP + "; media-src 'self'"
+
+
+# Fixed text only: never render raw exceptions or operator-supplied metadata.
+_UPLOAD_REJECTIONS = {
+    "permission_required": ("Confirm permission", "Confirm that you have permission to analyze this recording."),
+    "provenance_required": ("Add a permission source", "Enter a permission source or consent reference before importing."),
+    "provenance_too_long": ("Shorten the permission source", "Keep the permission source to 256 characters or fewer."),
+    "invalid_camera": ("Choose a camera viewpoint", "Choose a supported camera viewpoint or leave it unspecified."),
+    "empty_video": ("Choose a nonempty video", "The selected file is empty. Choose a nonempty local recording."),
+    "duplicate_provenance": ("Video already in your library", "The permission source differs from the saved record. The original permission and metadata have not been changed."),
+    "duplicate_camera": ("Video already in your library", "The camera viewpoint differs from the saved record. The original permission and metadata have not been changed."),
+    "duplicate_metadata": ("Video already in your library", "The supplied details differ from the saved record. The original permission and metadata have not been changed."),
+    "permission_not_granted": ("Saved clip is not permitted", "This video is already registered, but permission is not granted. Re-uploading cannot restore withdrawn permission."),
+    "registry_rejected": ("Video could not be registered", "The video could not be registered. Return to import and check the recording and its permission details."),
+}
+
+
+def _document(title: str, content: str, *, refresh: bool = False) -> bytes:
+    """Render a self-contained private analysis workspace; preserve CSP and escaping."""
+    safe_title = html.escape(title, quote=True)
+    meta = '<meta http-equiv="refresh" content="2">' if refresh else ""
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'{meta}<title>{safe_title}</title><style>{PAGE_CSS}</style></head>'
+        '<body><a class="skip-link" href="#content">Skip to content</a>'
+        '<header class="topbar"><div class="topbar-inner">'
+        '<a class="brand" href="/" aria-label="StrokeSense home">'
+        '<span class="brand-mark" aria-hidden="true">\u224b</span>'
+        'Stroke<span class="brand-accent">Sense</span></a>'
+        '<nav aria-label="Primary navigation">'
+        '<a href="/#upload-clip">New analysis</a>'
+        '<a href="/#recent-analyses">Recent results</a></nav>'
+        '<span class="local-pill">Private on this device</span>'
+        '</div></header><div class="workspace">'
+        '<div class="hero"><div class="eyebrow">ROWING INTELLIGENCE '
+        '<span>/ LOCAL ALPHA</span></div>'
+        f'<h1>{safe_title}</h1>'
+        '<p>Technique patterns and the video evidence behind them, '
+        'all in one private workspace.</p></div>'
+        f'<main id="content" class="content-surface">{content}</main>'
+        '<footer><strong>StrokeSense Alpha</strong> &middot; '
+        'Local analysis only. Candidate faults are not coach-verified '
+        'and generated coaching remains withheld without approval.'
+        '</footer></div></body></html>'
+    ).encode("utf-8")
+
+
+
+def _job_stage_list(status: str) -> str:
+    """Render only observed coarse job states, never invented percentages."""
+    if status == "failed":
+        steps = (("is-complete", "Queued"),
+                 ("is-failed", "Processing stopped"),
+                 ("is-upcoming", "Results unavailable"))
+    else:
+        completed = {"queued": 0, "running": 1, "succeeded": 3}.get(status)
+        if completed is None:
+            return '<p role="status">Analysis stage unavailable.</p>'
+        names = ("Queued", "Analyzing", "Results available" if completed == 3 else "Results")
+        steps = tuple(("is-complete" if index < completed else
+                       "is-current" if index == completed else "is-upcoming", name)
+                      for index, name in enumerate(names))
+    items = []
+    for index, (state, label) in enumerate(steps, start=1):
+        current = ' aria-current="step"' if state == "is-current" else ""
+        items.append(
+            f'<li class="job-step {state}"{current}>'
+            f'<span class="step-index" aria-hidden="true">{index:02d}</span>'
+            f'<span class="step-label">{label}</span></li>'
+        )
+    return '<ol class="job-steps" aria-label="Analysis stages">' + "".join(items) + '</ol>'
+
+
+def _seek_query(query: str) -> str | None:
+    """Allow only one small, unambiguous playback timestamp parameter."""
+    if not query:
+        return None
+    if len(query) > 64:
+        raise ValueError("seek query too long")
+    params = parse_qs(query, keep_blank_values=True, max_num_fields=1,
+                      strict_parsing=True)
+    if (set(params) != {"at"} or len(params["at"]) != 1
+            or _SEEK_TIME.fullmatch(params["at"][0]) is None
+            or float(params["at"][0]) > _MAX_SEEK_SECONDS):
+        raise ValueError("invalid seek position")
+    return params["at"][0]
+
+
+def _fault_query(query: str) -> str:
+    """Restrict HTML evidence filters to one known candidate-fault code."""
+    if not query:
+        return ""
+    if len(query) > 128:
+        raise ValueError("fault filter query too long")
+    params = parse_qs(query, keep_blank_values=True, max_num_fields=1,
+                      strict_parsing=True)
+    if (set(params) != {"fault"} or len(params["fault"]) != 1
+            or params["fault"][0] not in FAULTS):
+        raise ValueError("invalid candidate fault filter")
+    return params["fault"][0]
+
+
+def _spreadsheet_text(value: str) -> str:
+    """Keep user-controlled labels from becoming CSV spreadsheet formulas."""
+    if value.lstrip().startswith(("=", "+", "-", "@", "\u2212")):
+        return "'" + value
+    return value
+
+
+def _history_filters(query: str) -> tuple[str, str, str]:
+    """Parse one bounded, fail-closed set of browser/history CSV filters."""
+    if len(query) > 128:
+        raise ValueError("history filter too long")
+    params = parse_qs(query, keep_blank_values=True, max_num_fields=3,
+                      strict_parsing=True)
+    camera = params.get("camera", [""])[0]
+    status = params.get("status", [""])[0]
+    clip = params.get("clip", [""])[0]
+    if (not set(params).issubset({"camera", "status", "clip"})
+            or any(len(values) != 1 for values in params.values())
+            or camera not in {"", "side-on", "bow-on", "stern-on", "unspecified"}
+            or status not in {"", "queued", "running", "succeeded", "failed"}
+            or (clip and re.fullmatch(r"[0-9a-f]{64}", clip) is None)):
+        raise ValueError("invalid history filter")
+    return camera, status, clip
+
+
+def _visible_history(rows, camera_by_clip, camera_filter, status_filter,
+                     clip_filter):
+    """Apply identical local permission-scoped filters to HTML and CSV."""
+    return [
+        row for row in rows
+        if (_JOB_ID.fullmatch(row["job_id"])
+            and row["clip_id"] in camera_by_clip
+            and (not camera_filter or camera_by_clip[row["clip_id"]] == camera_filter)
+            and (not status_filter or row["status"] == status_filter)
+            and (not clip_filter or row["clip_id"] == clip_filter))
+    ]
+
+
+def _allowed_methods(route: str) -> str | None:
+    """HTTP Allow for known local endpoints; unknown routes stay 404."""
+    if (route in ("/", "/api/jobs", "/history.csv", "/compare", "/compare.csv") or route.startswith("/api/jobs/")
+            or route.startswith("/jobs/") or route.startswith("/reports/")
+            or route.startswith("/media/")):
+        return "GET"
+    if route == "/select":
+        return "GET, POST"
+    if route == "/selection.js":
+        return "GET"
+    if route in ("/jobs", "/upload", "/revoke"):
+        return "POST"
+    return None
+
+
+def create_server(
+    jobs: JobQueue, *, registry_db, host: str = "127.0.0.1", port: int = 0,
+    upload_dir=None,
+) -> ThreadingHTTPServer:
+    """Return an explicit loopback-only server; caller owns its lifecycle."""
+    if host != "127.0.0.1":
+        raise ValueError("local UI can bind only to 127.0.0.1")
+    if type(port) is not int or not 0 <= port <= 65535:
+        raise ValueError("invalid HTTP port")
+    token = secrets.token_urlsafe(32)
+    registry_path = Path(registry_db).expanduser().resolve()
+    result_root = jobs._results_root.resolve()  # Trusted local JobQueue directory.
+    private_uploads = Path(upload_dir if upload_dir is not None
+                           else result_root.parent / "uploads").expanduser().resolve()
+
+    def permitted_recent_jobs():
+        """Only display job links for clips currently permitted locally."""
+        return [
+            row for row in jobs.list_recent(limit=20)
+            if (analysis_permission_granted(row["clip_id"], registry_path)
+                and row.get("coaching_state") == "withheld")
+        ]
+
+    def verified_media_available(job_id: str) -> bool:
+        """Only offer navigation to a real, unchanged, bounded job-owned clip.
+
+        This never returns media bytes or a private location to the browser.
+        The /media route independently verifies again at playback time.
+        """
+        try:
+            artifact = jobs.media_artifact(job_id)
+            if artifact is None:
+                return False
+            raw, expected_digest = artifact
+            if not isinstance(raw, str) or not isinstance(expected_digest, str):
+                return False
+            rel = Path(raw)
+            if (rel.is_absolute() or not rel.parts or rel.parts[0] != job_id
+                    or ".." in rel.parts or
+                    rel.suffix.lower() not in (".mp4", ".webm")):
+                return False
+            job_root = (result_root / job_id).resolve(strict=True)
+            target = (result_root / rel).resolve(strict=True)
+            if not target.is_file() or not target.is_relative_to(job_root):
+                return False
+            digest = hashlib.sha256()
+            size = 0
+            with target.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_MEDIA_BYTES:
+                        return False
+                    digest.update(chunk)
+            return hmac.compare_digest(expected_digest, digest.hexdigest())
+        except (OSError, ValueError, TypeError):
+            return False
+        except Exception:
+            # Private storage failures must not expose paths or stack traces.
+            return False
+
+    def verified_comparison_summary(job_id: str):
+        """Recheck both job-owned artifacts before comparing saved observations.
+
+        The digest confirms consistency with the saved job, not real-world
+        accuracy or genuine approval of heuristic candidate faults.
+        """
+        try:
+            record = jobs.get(job_id)
+            if record is None or record["status"] != "succeeded":
+                return 404, None
+            if not analysis_permission_granted(record["clip_id"], registry_path):
+                return 403, None
+            if record.get("coaching_state") != "withheld":
+                return 409, None
+            raw = record.get("report_path")
+            if not isinstance(raw, str):
+                return 404, None
+            relative = Path(raw)
+            if (relative.is_absolute() or not relative.parts
+                    or relative.parts[0] != job_id or ".." in relative.parts
+                    or relative.name != "report.html"):
+                return 404, None
+            job_root = (result_root / job_id).resolve(strict=True)
+            report = (result_root / relative).resolve(strict=True)
+            if (not job_root.is_relative_to(result_root)
+                    or not report.is_file() or not report.is_relative_to(job_root)):
+                return 409, None
+            if report.stat().st_size > _MAX_REPORT:
+                return 413, None
+            report_hash = hashlib.sha256()
+            byte_count = 0
+            with report.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    byte_count += len(chunk)
+                    if byte_count > _MAX_REPORT:
+                        return 413, None
+                    report_hash.update(chunk)
+            expected_report = jobs.report_sha256(job_id)
+            if (not isinstance(expected_report, str)
+                    or not hmac.compare_digest(expected_report,
+                                               report_hash.hexdigest())):
+                return 409, None
+            metrics = (report.parent / "metrics.json").resolve(strict=True)
+            if (metrics.name != "metrics.json" or not metrics.is_file()
+                    or not metrics.is_relative_to(job_root)):
+                return 409, None
+            if metrics.stat().st_size > _MAX_METRICS:
+                return 413, None
+            with metrics.open("rb") as handle:
+                raw_metrics = handle.read(_MAX_METRICS + 1)
+            if len(raw_metrics) > _MAX_METRICS:
+                return 413, None
+            expected_metrics = jobs.metrics_sha256(job_id)
+            if (not isinstance(expected_metrics, str)
+                    or not hmac.compare_digest(
+                        expected_metrics, hashlib.sha256(raw_metrics).hexdigest()
+                    )):
+                return 409, None
+            data = json.loads(raw_metrics.decode("utf-8"))
+            snapshot = data.get("evidence") if isinstance(data, dict) else None
+            if not validate_public_evidence_snapshot(snapshot):
+                return 409, None
+            analyzed = sum(seat["analyzed_strokes"] for seat in snapshot["seats"])
+            counts = {}
+            for finding in snapshot["findings"]:
+                code = finding["fault_code"]
+                counts[code] = counts.get(code, 0) + finding["observed_count"]
+            if any(value > analyzed for value in counts.values()):
+                return 409, None
+            current_clip = next((
+                clip for clip in list_clips(registry_path)
+                if (clip["clip_id"] == record["clip_id"]
+                    and clip["permission"] == "granted")
+            ), None)
+            if current_clip is None:
+                return 403, None
+            camera = current_clip.get("camera")
+            if camera not in {"side-on", "bow-on", "stern-on"}:
+                camera = "unspecified"
+            return 200, {
+                "analyzed": analyzed, "counts": counts,
+                "clip_id": record["clip_id"], "camera": camera,
+            }
+        except FileNotFoundError:
+            # Historical results may not include versioned evidence.
+            return 404, None
+        except (OSError, ValueError, TypeError, KeyError, RecursionError):
+            return 409, None
+        except Exception:
+            return 503, None
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "StrokeSense"
+        sys_version = ""
+
+        def log_message(self, fmt, *args):
+            # Do not emit clip IDs, private paths or raw user-supplied routes.
+            pass
+
+        def log_request(self, code="-", size="-"):
+            # Visible local diagnostics, without filenames, tokens or paths.
+            if (self.command == "POST" and urlsplit(self.path).path == "/upload"
+                    and isinstance(code, int)):
+                reason = getattr(self, "_upload_reason", None)
+                suffix = f" ({reason})" if reason in _UPLOAD_REJECTIONS else ""
+                print(f"StrokeSense upload: HTTP {code}{suffix}", file=sys.stderr, flush=True)
+
+        def _send(self, code, data: bytes, *, mime="text/html; charset=utf-8",
+                  csp=_PAGE_CSP, location=None, allow=None,
+                  content_range=None, accept_ranges=False, download_name=None):
+            self.send_response(code)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            # Native POST forms under no-referrer send Origin: null and fail
+            # our strict Origin gate. Keep local origins, hide cross-site referrers.
+            self.send_header("Referrer-Policy", "same-origin")
+            self.send_header("Content-Security-Policy", csp)
+            if accept_ranges:
+                self.send_header("Accept-Ranges", "bytes")
+            if content_range is not None:
+                self.send_header("Content-Range", content_range)
+            if location is not None:
+                self.send_header("Location", location)
+            if allow is not None:
+                self.send_header("Allow", allow)
+            if download_name is not None:
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{download_name}"')
+            self.end_headers()
+            # RFC 9110: HEAD responses must contain no message body.
+            if data and self.command != "HEAD":
+                self.wfile.write(data)
+
+        def _error(self, status, *, allow=None):
+            if urlsplit(self.path).path.startswith("/api/"):
+                # Safe, machine-readable Problem Details for local API clients.
+                # Never include exceptions, filesystem paths or request contents.
+                title = {
+                    400: "Bad Request",
+                    403: "Forbidden",
+                    404: "Not Found",
+                    405: "Method Not Allowed",
+                    409: "Conflict",
+                    413: "Content Too Large",
+                    415: "Unsupported Media Type",
+                    422: "Unprocessable Content",
+                    503: "Service Unavailable",
+                }.get(status, "Request Failed")
+                body = json.dumps(
+                    {"type": "about:blank", "title": title, "status": status},
+                    sort_keys=True,
+                ).encode("utf-8")
+                self._send(status, body, mime="application/problem+json",
+                           allow=allow)
+                return
+            self._send(status, _document("Request unavailable",
+                                         "<p>The requested action is unavailable.</p>"),
+                       allow=allow)
+
+        def _upload_rejected(self, reason: str, *, duplicate_id=None):
+            """Explain a 422 without overwriting records or auto-starting jobs."""
+            if reason not in _UPLOAD_REJECTIONS:
+                reason = "registry_rejected"
+            recovery = ""
+            if (reason in {"duplicate_provenance", "duplicate_camera", "duplicate_metadata"}
+                    and isinstance(duplicate_id, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", duplicate_id)):
+                try:
+                    permitted = analysis_permission_granted(duplicate_id, registry_path)
+                except Exception:
+                    # Failed permission reads must not offer a recovery action.
+                    reason = "registry_rejected"
+                else:
+                    if permitted:
+                        recovery = (
+                            '<p>Your saved video is still available. Continue with its '
+                            'original permission and camera settings; no new copy or '
+                            'analysis has been created.</p>'
+                            f'<p><a class="button" href="/select?clip={duplicate_id}">'
+                            'Choose rowers for saved clip</a></p>'
+                        )
+                    else:
+                        reason = "permission_not_granted"
+            self._upload_reason = reason
+            title, message = _UPLOAD_REJECTIONS[reason]
+            body = (
+                '<section aria-label="Import feedback"><p role="alert">'
+                + html.escape(message) + '</p>' + recovery
+                + '<p><a href="/#upload-clip">Back to import</a></p>'
+                + '<p class="muted">Upload status: 422 · '
+                + html.escape(reason) + '</p></section>'
+            )
+            self._send(422, _document(title, body))
+
+        def _trusted_request(self):
+            hosts = self.headers.get_all("Host") or []
+            port_now = self.server.server_address[1]
+            accepted = {f"127.0.0.1:{port_now}", f"localhost:{port_now}"}
+            if len(hosts) != 1 or hosts[0] not in accepted:
+                return False
+            origins = self.headers.get_all("Origin") or []
+            if len(origins) > 1 or (origins and origins[0] != f"http://{hosts[0]}"):
+                return False
+            return True
+
+        def _home(self, *, camera_filter="", status_filter="", clip_filter=""):
+            try:
+                clips = [c for c in list_clips(registry_path)
+                         if c["permission"] == "granted"]
+            except Exception:
+                self._error(503)
+                return
+            if clip_filter and clip_filter not in {c["clip_id"] for c in clips}:
+                self._error(400)
+                return
+            options = "".join(
+                '<option value="' + html.escape(c["clip_id"], quote=True) + '">'
+                + html.escape(c["clip_id"]) + " — "
+                + html.escape(c.get("camera") or "camera unspecified")
+                + '</option>' for c in clips
+            )
+            if options:
+                controls = (
+                    '<form method="post" action="/jobs">'
+                    '<label>Registered clip <select name="clip_id">' + options
+                    + '</select></label><input type="hidden" name="csrf" value="'
+                    + html.escape(token, quote=True)
+                    + '"><button type="submit">Analyze clip</button></form>'
+                    + '<form method="get" action="/select">'
+                    + '<label>Select one boat <select name="clip">' + options
+                    + '</select></label><button type="submit">Choose eight rowers</button></form>'
+                    + '<form method="post" action="/revoke">'
+                    + '<label>Withdraw permission for clip <select name="clip_id">'
+                    + options + '</select></label>'
+                    + '<input type="hidden" name="csrf" value="'
+                    + html.escape(token, quote=True)
+                    + '"><button type="submit">Withdraw analysis permission</button>'
+                    + '</form>'
+                )
+            else:
+                controls = ("<p>No permission-claimed clips are registered. "
+                            "Use the private import form below or the registry CLI.</p>")
+            try:
+                recent = permitted_recent_jobs()
+            except Exception:
+                self._error(503)
+                return
+            # Reuse the already permission-filtered public clip labels.
+            # Never use local source paths or rights provenance for history.
+            camera_by_clip = {
+                clip["clip_id"]: clip.get("camera") or "unspecified"
+                for clip in clips
+            }
+            def has_saved_evidence_shortcut(row):
+                """Only advertise a saved metrics digest; the destination
+                independently checks permission, report and evidence bytes.
+                Never claim that a shortcut itself certifies accuracy.
+                """
+                if row["status"] != "succeeded":
+                    return False
+                try:
+                    digest = jobs.metrics_sha256(row["job_id"])
+                    return (isinstance(digest, str)
+                            and re.fullmatch(r"[0-9a-f]{64}", digest) is not None)
+                except Exception:
+                    # Optional navigation must not break the local library.
+                    return False
+
+            history_items = "".join(
+                '<li class="history-card"><div class="history-summary">'
+                '<a class="history-title" href="/jobs/'
+                + html.escape(row["job_id"], quote=True)
+                + '">Analysis ' + html.escape(row["job_id"][:12])
+                + '</a><span class="history-status">'
+                + html.escape(row["status"]) + '</span>'
+                + '<span class="history-camera">camera: '
+                + html.escape(str(camera_by_clip.get(row["clip_id"], "unspecified")))
+                + '</span><span class="history-coaching">coaching: withheld</span>'
+                + '</div><div class="history-actions">'
+                + ('<a href="/reports/'
+                   + html.escape(row["job_id"], quote=True)
+                   + '">Open technique report</a>'
+                   if row["status"] == "succeeded" else "")
+                + ('<a href="/jobs/'
+                   + html.escape(row["job_id"], quote=True)
+                   + '/evidence">Inspect saved evidence</a>'
+                   if has_saved_evidence_shortcut(row) else "")
+                + '</div></li>'
+                for row in _visible_history(
+                    recent, camera_by_clip, camera_filter, status_filter,
+                    clip_filter,
+                )
+            )
+            camera_options = (("", "All"), ("side-on", "Side-on"),
+                              ("bow-on", "Bow-on"), ("stern-on", "Stern-on"),
+                              ("unspecified", "Unspecified"))
+            camera_select = "".join(
+                '<option value="' + value + '"'
+                + (' selected' if value == camera_filter else '')
+                + '>' + label + '</option>'
+                for value, label in camera_options
+            )
+            status_options = (("", "All"), ("queued", "Queued"),
+                              ("running", "Running"),
+                              ("succeeded", "Succeeded"), ("failed", "Failed"))
+            status_select = "".join(
+                '<option value="' + value + '"'
+                + (' selected' if value == status_filter else '')
+                + '>' + label + '</option>'
+                for value, label in status_options
+            )
+            clip_select = '<option value="">All clips</option>' + "".join(
+                '<option value="' + html.escape(c["clip_id"], quote=True) + '"'
+                + (' selected' if c["clip_id"] == clip_filter else '')
+                + '>' + html.escape(c["clip_id"][:12]) + " — "
+                + html.escape(c.get("camera") or "unspecified")
+                + '</option>' for c in clips
+            )
+            history_q = urlencode([
+                (field, value) for field, value in (
+                    ("camera", camera_filter), ("status", status_filter),
+                    ("clip", clip_filter),
+                ) if value
+            ])
+            history_csv_link = "/history.csv" + ("?" + history_q if history_q else "")
+            history = ('<h2 id="recent-analyses">Recent analyses</h2>'
+                       '<form method="get" action="/">'
+                       '<label>Filter analyses by camera <select name="camera">'
+                       + camera_select + '</select></label>'
+                       '<label>Filter analyses by status <select name="status">'
+                       + status_select + '</select></label>'
+                       '<label>Filter analyses by clip <select name="clip">'
+                       + clip_select + '</select></label>'
+                       '<button type="submit">Filter</button></form>'
+                       '<p><a href="/">Clear filters</a></p>'
+                       '<p><a href="' + html.escape(history_csv_link, quote=True)
+                       + '">Download analysis history CSV</a>'
+                       ' (current filters, up to 20 permission-allowed jobs)</p>'
+                       + ('<ol class="history-list">' + history_items + '</ol>' if history_items
+                          else '<p>None yet.</p>'))
+            upload_form = (
+                '<section class="import-panel" aria-labelledby="upload-clip">'
+                '<div class="import-heading"><div>'
+                '<p class="import-eyebrow">01 / NEW ANALYSIS</p>'
+                '<h2 id="upload-clip">Register a new local clip</h2>'
+                '<p class="import-intro">Choose your footage, confirm permission, '
+                'and start an analysis when you are ready.</p></div>'
+                '<span class="import-private">Stored on this device</span></div>'
+                '<form method="post" action="/upload" enctype="multipart/form-data">'
+                '<fieldset class="import-stage import-file">'
+                '<legend><span aria-hidden="true">01</span> Choose a recording</legend>'
+                '<label for="upload-video">Video (up to 150 MiB; .mp4, .mov, '
+                '.mkv, .avi, .webm): '
+                '<input id="upload-video" type="file" name="video" required '
+                'accept=".mp4,.mov,.mkv,.avi,.webm" '
+                'aria-describedby="upload-video-help"></label>'
+                '<p class="import-help" id="upload-video-help">'
+                'Use the file picker to select video from your computer. '
+                'Import does not share it with a cloud service.</p>'
+                '</fieldset>'
+                '<fieldset class="import-stage import-permission">'
+                '<legend><span aria-hidden="true">02</span> Confirm permission</legend>'
+                '<label class="import-consent">'
+                '<input type="checkbox" name="permission" value="granted" required>'
+                '<span>I attest I have permission to analyze this recording'
+                '</span></label>'
+                '<div class="import-fields">'
+                '<label>Permission source / provenance: '
+                '<input type="text" name="provenance" maxlength="256" required '
+                'aria-describedby="upload-provenance-help"></label>'
+                '<label>Camera viewpoint (optional): <select name="camera">'
+                '<option value="">Unspecified</option>'
+                '<option value="side-on">Side-on</option>'
+                '<option value="bow-on">Bow-on</option>'
+                '<option value="stern-on">Stern-on</option>'
+                '</select></label></div>'
+                '<p class="import-help" id="upload-provenance-help">'
+                'Give a brief rights/consent reference; avoid athlete names '
+                'or personal details.</p>'
+                '</fieldset>'
+                '<div class="import-actions">'
+                '<label class="import-analyze"><input type="checkbox" '
+                'name="analyze" value="now" checked>'
+                '<span>Analyze immediately after import</span></label>'
+                '<label><input type="checkbox" name="select_crew" value="yes" checked>'
+                'Choose eight rowers from one boat before analysis</label>'
+                '<p>With crew selection checked, you will confirm the boat and its eight '
+                'rowers on a preview before processing starts. Uncheck for full-frame automatic analysis.</p>'
+                '<p>Uncheck to add this clip to the local library without '
+                'starting an analysis job.</p>'
+                '<input type="hidden" name="csrf" value="'
+                + html.escape(token, quote=True)
+                + '"><button type="submit">Import locally '
+                '<span aria-hidden="true">&rarr;</span></button>'
+                '</div></form></section>'
+            )
+            comparable = [
+                row for row in recent
+                if (row["status"] == "succeeded"
+                    and _JOB_ID.fullmatch(row["job_id"])
+                    and row["clip_id"] in camera_by_clip)
+            ]
+            comparison_form = ""
+            if len(comparable) >= 2:
+                older, newer = comparable[1]["job_id"], comparable[0]["job_id"]
+
+                def comparison_options(selected):
+                    return "".join(
+                        '<option value="' + html.escape(row["job_id"], quote=True)
+                        + '"' + (' selected' if row["job_id"] == selected else '')
+                        + '>Analysis ' + html.escape(row["job_id"][:12])
+                        + '</option>' for row in comparable
+                    )
+
+                comparison_form = (
+                    '<h2>Compare saved analyses</h2>'
+                    '<form method="get" action="/compare">'
+                    '<label>Earlier run <select name="before">'
+                    + comparison_options(older) + '</select></label>'
+                    '<label>Later run <select name="after">'
+                    + comparison_options(newer) + '</select></label>'
+                    '<button type="submit">Compare candidate faults</button></form>'
+                    '<p>Only runs with saved validated evidence can be compared. '
+                    'These are unreviewed candidate detections, not measured '
+                    'coaching effectiveness.</p>'
+                )
+            body = ("<p>Local prototype. Permission is an operator assertion, "
+                    "not independent consent verification. Analysis runs on "
+                    "your computer. No generated LLM advice is released here.</p>"
+                    + controls + upload_form + history + comparison_form)
+            self._send(200, _document("StrokeSense local Alpha", body))
+
+
+        def _compare(self, query: str, *, as_csv=False):
+            """Side-by-side candidate counts from two independently checked runs."""
+            if len(query) > 128:
+                self._error(400)
+                return
+            try:
+                params = parse_qs(query, keep_blank_values=True,
+                                  max_num_fields=2, strict_parsing=True)
+                if (set(params) != {"before", "after"}
+                        or any(len(values) != 1 for values in params.values())):
+                    raise ValueError("invalid comparison selection")
+                before, after = params["before"][0], params["after"][0]
+                if (before == after or _JOB_ID.fullmatch(before) is None
+                        or _JOB_ID.fullmatch(after) is None):
+                    raise ValueError("invalid comparison identifiers")
+            except ValueError:
+                self._error(400)
+                return
+            first_code, first = verified_comparison_summary(before)
+            if first_code != 200:
+                self._error(first_code)
+                return
+            last_code, last = verified_comparison_summary(after)
+            if last_code != 200:
+                self._error(last_code)
+                return
+            faults = sorted(set(first["counts"]) | set(last["counts"]))
+            if as_csv:
+                output = io.StringIO(newline="")
+                writer = csv.writer(output, lineterminator="\r\n")
+                writer.writerow((
+                    "fault_code", "before_job_id", "before_flagged",
+                    "before_analyzed", "after_job_id", "after_flagged",
+                    "after_analyzed",
+                ))
+                for code in faults:
+                    values = (
+                        code, before, first["counts"].get(code, 0),
+                        first["analyzed"], after, last["counts"].get(code, 0),
+                        last["analyzed"],
+                    )
+                    writer.writerow([
+                        _spreadsheet_text(str(value)) for value in values
+                    ])
+                self._send(
+                    200, output.getvalue().encode("utf-8"),
+                    mime="text/csv; charset=utf-8",
+                    download_name="strokesense-comparison.csv",
+                )
+                return
+            table_rows = []
+            for code in faults:
+                def rate(summary, job_id):
+                    n = summary["analyzed"]
+                    if n == 0:
+                        label = "insufficient evidence (0 analyzed strokes)"
+                    else:
+                        label = (
+                            f'{summary["counts"].get(code, 0)} of {n} analyzed strokes'
+                        )
+                    # Both the job ID and fault code have already passed
+                    # independent evidence/schema validation above.
+                    target = ("/jobs/" + job_id + "/evidence?fault="
+                              + html.escape(code, quote=True))
+                    return ('<a href="' + target + '">'
+                            + html.escape(label) + '</a>')
+                table_rows.append(
+                    '<tr><th scope="row">' + html.escape(code) + '</th><td>'
+                    + rate(first, before) + '</td><td>'
+                    + rate(last, after) + '</td></tr>'
+                )
+            if table_rows:
+                frequency = (
+                    '<section class="comparison-findings" aria-labelledby="comparison-findings-heading">'
+                    '<h2 id="comparison-findings-heading">Candidate faults to inspect</h2>'
+                    '<p>Each count links directly to the integrity-checked saved strokes '
+                    'for that candidate fault.</p>'
+                    '<div class="comparison-scroll" role="region" '
+                    'aria-label="Candidate fault comparison table" tabindex="0">'
+                    '<table class="comparison-table">'
+                    '<caption>Observed candidate faults across saved analyzed strokes</caption>'
+                    '<thead><tr><th scope="col">Candidate fault</th>'
+                    '<th scope="col">Earlier run</th>'
+                    '<th scope="col">Later run</th></tr></thead><tbody>'
+                    + "".join(table_rows) + '</tbody></table></div></section>'
+                )
+            else:
+                frequency = (
+                    '<section class="comparison-findings" aria-labelledby="comparison-findings-heading">'
+                    '<h2 id="comparison-findings-heading">Candidate faults to inspect</h2>'
+                    '<p class="comparison-empty">Neither saved evidence snapshot flagged '
+                    'a candidate fault. This is not a negative coach-reviewed label.</p>'
+                    '</section>'
+                )
+            same_clip = first["clip_id"] == last["clip_id"]
+            content = (
+                '<section class="comparison-panel" aria-labelledby="comparison-panel-heading">'
+                '<p class="comparison-eyebrow">SAVED MEASUREMENT REVIEW</p>'
+                '<h2 id="comparison-panel-heading">Two runs, one evidence trail</h2>'
+                '<p class="comparison-context">Candidate fault counts over analyzed strokes only; '
+                'not proof of improvement, diagnostic accuracy, or coaching '
+                'effectiveness. Different footage, viewpoints and settings '
+                'can make these runs incomparable.</p>'
+                '<div class="comparison-runs">'
+                '<article class="comparison-run" aria-label="Earlier analysis">'
+                '<p class="comparison-run-label">01 / EARLIER</p>'
+                '<h3>Earlier run</h3>'
+                '<p class="comparison-meta">Earlier viewpoint (operator-entered): '
+                + html.escape(first["camera"]) + '</p>'
+                '<div class="comparison-actions"><a href="/reports/' + before
+                + '">Open report</a><a href="/jobs/' + before
+                + '/evidence">Inspect evidence</a></div></article>'
+                '<article class="comparison-run" aria-label="Later analysis">'
+                '<p class="comparison-run-label">02 / LATER</p>'
+                '<h3>Later run</h3>'
+                '<p class="comparison-meta">Later viewpoint (operator-entered): '
+                + html.escape(last["camera"]) + '</p>'
+                '<div class="comparison-actions"><a href="/reports/' + after
+                + '">Open report</a><a href="/jobs/' + after
+                + '/evidence">Inspect evidence</a></div></article>'
+                '</div>'
+                '<p class="comparison-source">'
+                + ("Same registered source clip." if same_clip
+                   else "Different registered source clips.") + '</p>'
+                + ('<p class="comparison-warning"><strong>Camera viewpoints differ.</strong> '
+                   'Candidate counts are not normalized across viewpoints.</p>'
+                   if first["camera"] != last["camera"] else "")
+                + '<p class="comparison-withheld"><strong>Coaching withheld</strong> '
+                'on both analyses. Candidate counts are unreviewed.</p>'
+                '</section>'
+                + frequency
+                + '<div class="comparison-utilities"><a href="'
+                + html.escape(
+                    "/compare.csv?" + urlencode((("before", before), ("after", after))),
+                    quote=True,
+                )
+                + '">Download comparison CSV</a>'
+                '<a href="/">Back to analysis library</a></div>'
+            )
+            self._send(200, _document("Compare saved analyses", content))
+
+        def _history_csv(self, *, camera_filter="", status_filter="",
+                         clip_filter=""):
+            """Export only the bounded public history already visible locally."""
+            try:
+                clips = [c for c in list_clips(registry_path)
+                         if c["permission"] == "granted"]
+                camera_by_clip = {
+                    c["clip_id"]: c.get("camera") or "unspecified"
+                    for c in clips
+                }
+                if clip_filter and clip_filter not in camera_by_clip:
+                    self._error(400)
+                    return
+                selected = _visible_history(
+                    permitted_recent_jobs(), camera_by_clip, camera_filter,
+                    status_filter, clip_filter,
+                )
+            except Exception:
+                self._error(503)
+                return
+            output = io.StringIO(newline="")
+            writer = csv.writer(output, lineterminator="\r\n")
+            writer.writerow((
+                "job_id", "clip_id", "camera", "status", "created_utc",
+                "finished_utc", "coaching_state", "report_available",
+            ))
+            for row in selected:
+                values = (
+                    row["job_id"], row["clip_id"],
+                    camera_by_clip[row["clip_id"]], row["status"],
+                    row["created_utc"], row["finished_utc"],
+                    "withheld", "yes" if row["status"] == "succeeded" else "no",
+                )
+                writer.writerow([
+                    _spreadsheet_text("" if value is None else str(value))
+                    for value in values
+                ])
+            self._send(
+                200, output.getvalue().encode("utf-8"),
+                mime="text/csv; charset=utf-8",
+                download_name="strokesense-history.csv",
+            )
+
+        def _status(self, job_id: str, *, api=False, at=None):
+            if not _JOB_ID.fullmatch(job_id):
+                self._error(404)
+                return
+            try:
+                record = jobs.get(job_id)
+            except Exception:
+                self._error(503)
+                return
+            if record is None:
+                self._error(404)
+                return
+            try:
+                permitted = analysis_permission_granted(
+                    record["clip_id"], registry_path
+                )
+            except Exception:
+                self._error(503)
+                return
+            if not permitted:
+                self._error(403)
+                return
+            # This Alpha has no verified, persisted LLM release pathway.
+            # Do not trust an unexpected (including tampered 'released') flag.
+            if record.get("coaching_state") != "withheld":
+                self._error(409)
+                return
+            if api:
+                body = json.dumps(record, sort_keys=True).encode("utf-8")
+                self._send(200, body, mime="application/json; charset=utf-8")
+                return
+            status = html.escape(record["status"])
+            err = record.get("error_code")
+            message = f'<p>Error: <code>{html.escape(err)}</code></p>' if err else ""
+            link = (
+                '<section class="result-workspace" aria-labelledby="result-heading">'
+                '<div class="result-head">'
+                '<p class="result-eyebrow">ANALYSIS COMPLETE / REVIEW WORKSPACE</p>'
+                '<h2 id="result-heading">Review your analysis</h2>'
+                '<p>Start with the technique summary, then inspect the saved '
+                'observations behind each candidate finding.</p></div>'
+                '<div class="result-actions">'
+                '<article class="result-action">'
+                '<p class="result-action-number">01 / SUMMARY</p>'
+                '<h3>Technique report</h3>'
+                '<p>Read the analysis summary and its recorded patterns.</p>'
+                f'<a href="/reports/{job_id}">Open technique report</a>'
+                '</article>'
+                '<article class="result-action">'
+                '<p class="result-action-number">02 / VERIFY</p>'
+                '<h3>Saved evidence</h3>'
+                '<p>Inspect strokes, measurements and candidate-fault links.</p>'
+                f'<a href="/jobs/{job_id}/evidence">Inspect saved evidence</a>'
+                '</article></div>'
+                '<p class="result-review-notice">Generated coaching is withheld. '
+                'Candidate faults are not coach-verified; review the evidence '
+                'before interpreting any finding as a technique correction.</p>'
+                '</section>'
+            ) if status == "succeeded" else ""
+            notice = ""
+            if status in ("queued", "running"):
+                title = "Analysis is queued" if status == "queued" else "Analysis is processing"
+                detail = ("Your recording is waiting for its local analysis job."
+                          if status == "queued" else
+                          "Your recording is being analyzed on this device.")
+                notice = (
+                    '<section class="status-callout status-processing" '
+                    'role="status" aria-label="Analysis progress">'
+                    f'<h2>{title}</h2><p>{detail} This page refreshes '
+                    'automatically as the recorded job state changes.</p></section>'
+                )
+            elif status == "failed":
+                notice = (
+                    '<section class="status-callout status-error" role="alert">'
+                    '<h2>Analysis could not finish</h2>'
+                    '<p>No technique results were released. Check the recorded '
+                    'error below before retrying with an eligible clip.</p></section>'
+                )
+
+            if err == 'selected_crew_lost_or_ambiguous':
+                notice += ('<p>The selected crew was lost or became ambiguous. No other '
+                           'rowers were substituted. Use a shorter unobstructed clip or '
+                           '<a href="/select?clip=' + record['clip_id'] + '">select this boat again</a>.</p>')
+            retry = ""
+            if status == "failed" and err in _RETRYABLE_JOB_ERRORS:
+                # Reuse the existing CSRF-protected POST /jobs; a retry is a
+                # *new* job, never a mutation of the original failed record.
+                retry = (
+                    '<form method="post" action="/jobs">'
+                    '<input type="hidden" name="clip_id" value="'
+                    + html.escape(record["clip_id"], quote=True)
+                    + '"><input type="hidden" name="csrf" value="'
+                    + html.escape(token, quote=True)
+                    + '"><input type="hidden" name="retry_job" value="'
+                    + job_id + '"><button type="submit">Retry analysis</button></form>'
+                )
+            media_player = ""
+            if status == "succeeded":
+                try:
+                    media = jobs.media_artifact(job_id)
+                except Exception:
+                    self._error(503)
+                    return
+                if media is not None:
+                    mime = ("video/webm" if media[0].lower().endswith(".webm")
+                            else "video/mp4")
+                    fragment = f"#t={at}" if at is not None else ""
+                    media_player = (
+                        '<section class="result-video" aria-labelledby="result-video-heading">'
+                        '<h2 id="result-video-heading">Annotated video</h2>'
+                        '<p>Review locally rendered footage alongside the saved '
+                        'measurements. Playback does not mean coach verification.</p>'
+                        '<video controls preload="metadata" '
+                        f'width="720" src="/media/{job_id}{fragment}" type="{mime}">'
+                        'Your browser does not support HTML5 video.</video></section>'
+                    )
+
+            if at is not None and not media_player:
+                self._error(404)
+                return
+            state_token = status if status in ("queued", "running", "succeeded", "failed") else "unknown"
+            content = (f"<p>Job: <code>{job_id}</code></p>"
+                       f'<p>Status: <span class="state-badge state-{state_token}" role="status">{status}</span></p>'
+                       + _job_stage_list(status)
+                       + '<p>Coaching: <strong>withheld</strong></p>'
+                       + notice + message + link + media_player + retry
+                       + '<p><a href="/">Choose another clip</a></p>')
+            self._send(200, _document("Analysis status", content,
+                                      refresh=status in ("queued", "running")),
+                       csp=_STATUS_CSP)
+
+        def _media(self, job_id: str):
+            """Serve only verified, bounded, local job-owned rendered media."""
+            if not _JOB_ID.fullmatch(job_id):
+                self._error(404)
+                return
+            try:
+                record = jobs.get(job_id)
+                if record is None or record["status"] != "succeeded":
+                    self._error(404)
+                    return
+                if not analysis_permission_granted(record["clip_id"], registry_path):
+                    self._error(403)
+                    return
+                if record.get("coaching_state") != "withheld":
+                    self._error(409)
+                    return
+                artifact = jobs.media_artifact(job_id)
+                if artifact is None:
+                    self._error(404)
+                    return
+                raw, expected_digest = artifact
+                rel = Path(raw)
+                if (rel.is_absolute() or not rel.parts or rel.parts[0] != job_id
+                        or ".." in rel.parts or
+                        rel.suffix.lower() not in (".mp4", ".webm")):
+                    self._error(404)
+                    return
+                job_root = (result_root / job_id).resolve(strict=True)
+                target = (result_root / rel).resolve(strict=True)
+                if not target.is_file() or not target.is_relative_to(job_root):
+                    self._error(404)
+                    return
+                with target.open("rb") as handle:
+                    payload = handle.read(MAX_MEDIA_BYTES + 1)
+                if len(payload) > MAX_MEDIA_BYTES:
+                    self._error(413)
+                    return
+                if (not isinstance(expected_digest, str) or
+                        not hmac.compare_digest(
+                            expected_digest, hashlib.sha256(payload).hexdigest())):
+                    self._error(409)
+                    return
+            except (OSError, ValueError, TypeError):
+                self._error(404)
+                return
+            except Exception:
+                self._error(503)
+                return
+            mime = "video/webm" if rel.suffix.lower() == ".webm" else "video/mp4"
+            ranges = self.headers.get_all("Range") or []
+            if not ranges:
+                self._send(200, payload, mime=mime, accept_ranges=True)
+                return
+            total = len(payload)
+            invalid = (len(ranges) != 1 or len(ranges[0]) > 128 or
+                       not re.fullmatch(r"bytes=(?:[0-9]{0,12})-(?:[0-9]{0,12})",
+                                        ranges[0]))
+            start = end = 0
+            if not invalid:
+                first, last = ranges[0][len("bytes="):].split("-", 1)
+                if not first and not last:
+                    invalid = True
+                elif first:
+                    start = int(first)
+                    end = min(int(last), total - 1) if last else total - 1
+                    invalid = start > end or start >= total
+                else:
+                    suffix = int(last)
+                    invalid = suffix < 1 or total == 0
+                    if not invalid:
+                        start = max(total - suffix, 0)
+                        end = total - 1
+            if invalid:
+                self._send(416, b"", mime=mime, accept_ranges=True,
+                           content_range=f"bytes */{total}")
+                return
+            self._send(206, payload[start:end + 1], mime=mime,
+                       accept_ranges=True,
+                       content_range=f"bytes {start}-{end}/{total}")
+
+        def _report(self, job_id: str):
+            if not _JOB_ID.fullmatch(job_id):
+                self._error(404)
+                return
+            try:
+                record = jobs.get(job_id)
+                if record and not analysis_permission_granted(
+                    record["clip_id"], registry_path
+                ):
+                    self._error(403)
+                    return
+                if not record or record["status"] != "succeeded":
+                    self._error(404)
+                    return
+                # Persisted release flags are not authority to publish coaching.
+                # There is no independently verified release path in this Alpha.
+                if record.get("coaching_state") != "withheld":
+                    self._error(409)
+                    return
+                raw = record.get("report_path")
+                if not isinstance(raw, str):
+                    self._error(404)
+                    return
+                rel = Path(raw)
+                if (rel.is_absolute() or not rel.parts or rel.parts[0] != job_id
+                        or ".." in rel.parts or rel.name != "report.html"):
+                    self._error(404)
+                    return
+                target = (result_root / rel).resolve(strict=True)
+                job_root = (result_root / job_id).resolve(strict=True)
+                if not target.is_file() or not target.is_relative_to(job_root):
+                    self._error(404)
+                    return
+                if target.stat().st_size > _MAX_REPORT:
+                    self._error(413)
+                    return
+                # File may grow after the size check; cap bytes actually read.
+                with target.open("rb") as stream:
+                    data = stream.read(_MAX_REPORT + 1)
+                if len(data) > _MAX_REPORT:
+                    self._error(413)
+                    return
+                # The recorded success must attest to these exact HTML bytes.
+                expected_digest = jobs.report_sha256(job_id)
+                if (not isinstance(expected_digest, str)
+                        or not hmac.compare_digest(
+                            expected_digest, hashlib.sha256(data).hexdigest()
+                        )):
+                    self._error(409)
+                    return
+            except (OSError, ValueError, TypeError):
+                self._error(404)
+                return
+            except Exception:
+                self._error(503)
+                return
+            self._send(200, data, csp=_REPORT_CSP)
+
+
+        def _evidence(self, job_id: str, *, api=False, as_csv=False,
+                      review_template=False, fault_template=False,
+                      fault_filter=""):
+            if not _JOB_ID.fullmatch(job_id):
+                self._error(404)
+                return
+            try:
+                record = jobs.get(job_id)
+                if record and not analysis_permission_granted(
+                    record["clip_id"], registry_path
+                ):
+                    self._error(403)
+                    return
+                if not record or record["status"] != "succeeded":
+                    self._error(404)
+                    return
+                # Persisted release flags are not authority to publish coaching.
+                # There is no independently verified release path in this Alpha.
+                if record.get("coaching_state") != "withheld":
+                    self._error(409)
+                    return
+                raw = record.get("report_path")
+                if not isinstance(raw, str):
+                    self._error(404)
+                    return
+                report_rel = Path(raw)
+                if (report_rel.is_absolute() or not report_rel.parts
+                        or report_rel.parts[0] != job_id
+                        or ".." in report_rel.parts
+                        or report_rel.name != "report.html"):
+                    self._error(404)
+                    return
+                job_root = (result_root / job_id).resolve(strict=True)
+                report = (result_root / report_rel).resolve(strict=True)
+                if not report.is_file() or not report.is_relative_to(job_root):
+                    self._error(404)
+                    return
+                if report.stat().st_size > _MAX_REPORT:
+                    self._error(413)
+                    return
+                with report.open("rb") as stream:
+                    verified_report = stream.read(_MAX_REPORT + 1)
+                if len(verified_report) > _MAX_REPORT:
+                    self._error(413)
+                    return
+                expected_digest = jobs.report_sha256(job_id)
+                if (not isinstance(expected_digest, str)
+                        or not hmac.compare_digest(
+                            expected_digest, hashlib.sha256(verified_report).hexdigest()
+                        )):
+                    self._error(409)
+                    return
+                metrics = (report.parent / "metrics.json").resolve(strict=True)
+                if (metrics.name != "metrics.json" or not metrics.is_file()
+                        or not metrics.is_relative_to(job_root)):
+                    self._error(404)
+                    return
+                if metrics.stat().st_size > _MAX_METRICS:
+                    self._error(413)
+                    return
+                # Do not rely solely on a possibly stale stat() result.
+                with metrics.open("rb") as stream:
+                    metrics_bytes = stream.read(_MAX_METRICS + 1)
+                if len(metrics_bytes) > _MAX_METRICS:
+                    self._error(413)
+                    return
+                # A rehashed snapshot alone cannot attest to the bytes
+                # saved at analysis completion; bind them to the job record.
+                expected_metrics = jobs.metrics_sha256(job_id)
+                if (not isinstance(expected_metrics, str)
+                        or not hmac.compare_digest(
+                            expected_metrics,
+                            hashlib.sha256(metrics_bytes).hexdigest(),
+                        )):
+                    self._error(409)
+                    return
+                data = json.loads(metrics_bytes.decode("utf-8"))
+                snapshot = data.get("evidence") if isinstance(data, dict) else None
+                if not validate_public_evidence_snapshot(snapshot):
+                    self._error(409)
+                    return
+                columns = {
+                    "seats": ("id", "seat", "analyzed_strokes", "status"),
+                    "strokes": ("id", "seat_id", "index", "catch_frame",
+                                "finish_frame", "next_catch_frame", "catch_seconds",
+                                "finish_seconds", "next_catch_seconds", "fault_codes"),
+                    "findings": ("id", "seat_id", "fault_code", "stroke_ids",
+                                 "observed_count", "analyzed_strokes",
+                                 "observed_fraction", "eligible_strokes",
+                                 "status", "coaching_eligible"),
+                }
+                curated = {key: snapshot[key] for key in
+                           ("schema_version", "analysis_id", "fps",
+                            "start_seconds", "status")}
+                for collection, fields in columns.items():
+                    values = snapshot.get(collection)
+                    if not isinstance(values, list) or len(values) > 5000:
+                        raise ValueError("invalid evidence collection")
+                    curated[collection] = [
+                        {key: row[key] for key in fields if key in row}
+                        for row in values if isinstance(row, dict)
+                    ]
+                    if len(curated[collection]) != len(values):
+                        raise ValueError("invalid evidence entry")
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                self._error(409)
+                return
+            except Exception:
+                self._error(503)
+                return
+            if as_csv or review_template or fault_template:
+                output = io.StringIO(newline="")
+                writer = csv.writer(output, lineterminator="\r\n")
+                labels = {row["id"]: row["seat"] for row in curated["seats"]}
+                if fault_template:
+                    # Explicit negative opportunities are required for any
+                    # later valid recall estimate. Human labels stay blank.
+                    has_saved_video = verified_media_available(job_id)
+                    writer.writerow((
+                        "schema_version", "seat_id", "seat", "stroke_id",
+                        "stroke_index", "fault_code", "catch_seconds",
+                        "video_seek_seconds", "predicted",
+                        "coach_fault_present", "coach_comments",
+                        "review_status",
+                    ))
+                    for stroke in curated["strokes"]:
+                        seek_seconds = ""
+                        if has_saved_video:
+                            elapsed = (
+                                stroke["catch_seconds"] - curated["start_seconds"]
+                            )
+                            if (math.isfinite(elapsed)
+                                    and 0 <= elapsed <= _MAX_SEEK_SECONDS):
+                                seek_seconds = (
+                                    f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                                )
+                        for fault_code in sorted(FAULTS):
+                            writer.writerow((
+                                curated["schema_version"],
+                                _spreadsheet_text(stroke["seat_id"]),
+                                _spreadsheet_text(labels[stroke["seat_id"]]),
+                                _spreadsheet_text(stroke["id"]),
+                                stroke["index"], fault_code,
+                                stroke["catch_seconds"], seek_seconds,
+                                int(fault_code in stroke["fault_codes"]),
+                                "", "", "unreviewed",
+                            ))
+                elif review_template:
+                    # A worksheet for future human review, not a label dataset.
+                    # These review fields must never be prefilled by heuristics.
+                    # Optional clip-relative navigation is derived only from
+                    # the validated, saved source-relative stroke evidence.
+                    has_saved_video = verified_media_available(job_id)
+                    writer.writerow(("stroke_id", "seat", "stroke_index",
+                                     "catch_seconds", "video_seek_seconds",
+                                     "fault_codes", "coach_fault_present",
+                                     "coach_comments", "review_status"))
+                    for stroke in curated["strokes"]:
+                        seek_seconds = ""
+                        if has_saved_video:
+                            elapsed = (stroke["catch_seconds"]
+                                       - curated["start_seconds"])
+                            if (math.isfinite(elapsed)
+                                    and 0 <= elapsed <= _MAX_SEEK_SECONDS):
+                                seek_seconds = (
+                                    f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                                )
+                        writer.writerow((
+                            _spreadsheet_text(stroke["id"]),
+                            _spreadsheet_text(labels[stroke["seat_id"]]),
+                            stroke["index"], stroke["catch_seconds"],
+                            seek_seconds,
+                            _spreadsheet_text("; ".join(stroke["fault_codes"])),
+                            "", "", "unreviewed",
+                        ))
+                else:
+                    writer.writerow(("seat", "stroke_index", "catch_seconds",
+                                     "finish_seconds", "fault_codes"))
+                    for stroke in curated["strokes"]:
+                        writer.writerow((
+                            _spreadsheet_text(labels[stroke["seat_id"]]),
+                            stroke["index"], stroke["catch_seconds"],
+                            stroke["finish_seconds"],
+                            "; ".join(stroke["fault_codes"]),
+                        ))
+                csv_bytes = output.getvalue().encode("utf-8")
+                if len(csv_bytes) > _MAX_REPORT:
+                    self._error(413)
+                    return
+                self._send(200, csv_bytes, mime="text/csv; charset=utf-8")
+                return
+            if api:
+                response = {"coaching_state": "withheld", "evidence": curated}
+                self._send(200, json.dumps(response, allow_nan=False).encode("utf-8"),
+                           mime="application/json; charset=utf-8")
+                return
+            seats = "".join(
+                "<li>" + html.escape(str(row.get("seat", "unknown")))
+                + " — " + html.escape(str(row.get("status", "unknown")))
+                + "</li>" for row in curated["seats"]
+            )
+            # Generate anchors only from trusted list positions. Source- and
+            # model-provided IDs are references, not HTML attribute values.
+            seat_labels = {
+                row["id"]: row["seat"] for row in curated["seats"]
+            }
+            stroke_ref = {
+                row["id"]: (f"stroke-{position}", row)
+                for position, row in enumerate(curated["strokes"])
+            }
+            # Do not advertise dead or modified media from saved evidence.
+            media_available = verified_media_available(job_id)
+
+            def watch_link(stroke, label):
+                # Source-relative evidence times are not rendered-video times:
+                # exported annotated footage starts at pose.start (t=0).
+                if not media_available:
+                    return ""
+                elapsed = stroke["catch_seconds"] - curated["start_seconds"]
+                if (not math.isfinite(elapsed)
+                        or not 0 <= elapsed <= _MAX_SEEK_SECONDS):
+                    return ""
+                second = f"{elapsed:.3f}".rstrip("0").rstrip(".")
+                # The job ID and timestamp are internally validated; never
+                # interpolate model/source-controlled IDs into an HTML URL.
+                return (f'<a href="/jobs/{job_id}?at={second}">'
+                        + html.escape(label) + '</a>')
+
+            def stroke_item(position, row):
+                watch = watch_link(row, "Watch catch")
+                return (
+                    '<li id="stroke-' + str(position) + '">Seat '
+                    + html.escape(seat_labels.get(row["seat_id"], "unknown"))
+                    + ", stroke " + html.escape(str(row["index"]))
+                    + ": Catch " + html.escape(str(row["catch_seconds"]))
+                    + " s; finish " + html.escape(str(row["finish_seconds"]))
+                    + " s; faults: "
+                    + html.escape(", ".join(str(x) for x in row["fault_codes"]))
+                    + (" " + watch if watch else "") + "</li>"
+                )
+
+            strokes = "".join(
+                stroke_item(position, row)
+                for position, row in enumerate(curated["strokes"])
+                if not fault_filter or fault_filter in row["fault_codes"]
+            )
+
+            def finding_item(row):
+                ids = row["stroke_ids"]
+                visible = ids[:_MAX_LINKED_STROKES_PER_FINDING]
+                links = ", ".join(
+                    '<a href="#' + stroke_ref[sid][0] + '">Stroke '
+                    + html.escape(str(stroke_ref[sid][1]["index"])) + "</a>"
+                    for sid in visible
+                )
+                remaining = len(ids) - len(visible)
+                more = (
+                    f" and {remaining} more supporting stroke"
+                    + ("s" if remaining != 1 else "")
+                    + " (see JSON evidence)"
+                    if remaining else ""
+                )
+                # The snapshot validator attests that supporting IDs refer to
+                # saved strokes. Their list order decides the first example.
+                reference = stroke_ref.get(ids[0]) if ids else None
+                watch = (watch_link(reference[1], "Watch first example")
+                         if reference is not None else "")
+                numerator = row["observed_count"]
+                denominator = row["analyzed_strokes"]
+                # Native HTML meter is a frequency among analyzed candidates,
+                # not a probability of truth, classifier accuracy or confidence.
+                frequency_meter = (
+                    f' <meter min="0" max="{denominator}" value="{numerator}" '
+                    'aria-label="Candidate frequency among analyzed strokes">'
+                    f'{numerator} of {denominator}</meter>'
+                    if denominator > 0
+                    else " (no analyzed strokes available for frequency)"
+                )
+                return (
+                    "<li>" + html.escape(row["fault_code"])
+                    + " — " + html.escape(row["status"])
+                    + " — " + str(row["observed_count"])
+                    + " of " + str(row["analyzed_strokes"])
+                    + " analyzed strokes" + frequency_meter
+                    + "; supporting strokes: "
+                    + (links if links else "No supporting strokes listed")
+                    + more + ("; " + watch if watch else "") + "</li>"
+                )
+
+            findings = "".join(
+                finding_item(row) for row in curated["findings"]
+                if not fault_filter or row["fault_code"] == fault_filter
+            )
+            # Only display known candidates; this never implies coach approval.
+            fault_options = "".join(
+                '<option value="' + html.escape(code, quote=True) + '"'
+                + (" selected" if code == fault_filter else "") + ">"
+                + html.escape(FAULTS[code]["title"]) + "</option>"
+                for code in sorted(FAULTS)
+            )
+            fault_controls = (
+                f'<form method="get" action="/jobs/{job_id}/evidence">'
+                '<label>Select a candidate fault <select name="fault">'
+                + fault_options
+                + '</select></label><button type="submit">'
+                'Filter evidence</button></form>'
+                + (f'<p>Showing candidate fault: <strong>'
+                   f'{html.escape(fault_filter)}</strong> '
+                   f'<a href="/jobs/{job_id}/evidence">Clear filter</a></p>'
+                   if fault_filter else "")
+            )
+            stroke_list = (
+                "<ul>" + strokes + "</ul>"
+                if strokes or not fault_filter
+                else "<p>No strokes flagged for this candidate fault.</p>"
+            )
+            # Counts are from the independently checked *full* saved snapshot,
+            # not from the currently filtered candidate rows or coach labels.
+            overview = (
+                '<section class="evidence-workspace" aria-labelledby="evidence-summary-title">'
+                '<div class="evidence-head">'
+                '<p class="evidence-eyebrow">Analysis snapshot</p>'
+                '<h2 id="evidence-summary-title">Saved evidence overview</h2>'
+                '<p>Totals describe the full saved snapshot, even when filtering '
+                'details. These are model-generated candidates, not coach-reviewed '
+                'accuracy.</p></div>'
+                '<dl class="evidence-stats">'
+                + "".join(
+                    '<div class="evidence-stat"><dt>' + label + '</dt><dd>'
+                    + str(count) + '</dd></div>'
+                    for label, count in (
+                        ("Seats", len(curated["seats"])),
+                        ("Saved strokes", len(curated["strokes"])),
+                        ("Candidate findings", len(curated["findings"])),
+                    )
+                )
+                + '</dl>'
+                '<nav class="evidence-jump" aria-label="Jump to evidence details">'
+                '<a href="#evidence-seats">Seats</a>'
+                '<a href="#evidence-strokes">Stroke times</a>'
+                '<a href="#evidence-findings">Candidate findings</a>'
+                '</nav></section>'
+            )
+            findings_list = (
+                "<ul>" + findings + "</ul>"
+                if findings else (
+                    "<p>No candidate findings for this selected fault.</p>"
+                    if fault_filter else
+                    "<p>No candidate findings in this saved snapshot.</p>"
+                )
+            )
+            body = (
+                "<p><strong>Generated coaching withheld.</strong> "
+                "These measurements are unreviewed evidence, not "
+                "coach-approved advice or verified model accuracy.</p>"
+                + overview
+                + fault_controls
+                + '<section id="evidence-seats" class="evidence-section" '
+                'aria-label="Saved seats"><h2>Seats</h2>'
+                + ("<ul>" + seats + "</ul>" if seats
+                   else "<p>No seats in this saved snapshot.</p>")
+                + "</section>"
+                + '<section id="evidence-strokes" class="evidence-section" '
+                'aria-label="Saved stroke times"><h2>Stroke times</h2>'
+                + stroke_list + "</section>"
+                + '<section id="evidence-findings" class="evidence-section" '
+                'aria-label="Saved candidate findings"><h2>Candidate findings</h2>'
+                + findings_list + "</section>"
+                + '<nav class="evidence-downloads" aria-label="Evidence exports">'
+                + f'<a href="/api/jobs/{job_id}/strokes.csv">'
+                'Export stroke evidence (CSV)</a>'
+                + f'<a href="/api/jobs/{job_id}/review.csv">'
+                'Blank coach-review worksheet</a>'
+                + f'<a href="/api/jobs/{job_id}/fault-review.csv">'
+                'Complete per-fault coach-review grid</a>'
+                + '</nav>'
+                + f'<p><a href="/jobs/{job_id}">Back to job</a></p>'
+            )
+            self._send(200, _document("Saved evidence", body))
+
+        def _reject_unsupported_method(self):
+            # BaseHTTPRequestHandler defaults to 501 HTML without the local
+            # Host/Origin gates or our defensive headers. Never use it for
+            # common unsupported methods, including TRACE or OPTIONS.
+            if not self._trusted_request():
+                self._error(403)
+                return
+            allowed = _allowed_methods(urlsplit(self.path).path)
+            if allowed is None:
+                self._error(404)
+                return
+            self._error(405, allow=allowed)
+
+        do_HEAD = _reject_unsupported_method
+        do_PUT = _reject_unsupported_method
+        do_PATCH = _reject_unsupported_method
+        do_DELETE = _reject_unsupported_method
+        do_OPTIONS = _reject_unsupported_method
+        do_TRACE = _reject_unsupported_method
+        do_CONNECT = _reject_unsupported_method
+
+        def __getattr__(self, name):
+            # Python's handler otherwise emits unsanitized 501 HTML for
+            # extension verbs (e.g. PROPFIND), bypassing Host/Origin checks.
+            if name.startswith("do_") and len(name) > 3:
+                return self._reject_unsupported_method
+            raise AttributeError(name)
+
+        def _select_get(self):
+            try:
+                query = urlsplit(self.path).query
+                if len(query) > 80:
+                    raise ValueError('invalid_selection_query')
+                params = parse_qs(query, strict_parsing=True, max_num_fields=1)
+                clip_id = params.get('clip', [''])[0]
+                if set(params) != {'clip'} or re.fullmatch(r'[0-9a-f]{64}', clip_id) is None:
+                    raise ValueError('invalid_clip')
+                clip = next((c for c in list_clips(registry_path, show_paths=True)
+                             if c['clip_id'] == clip_id), None)
+                if clip is None:
+                    self._error(404)
+                    return
+                if clip['permission'] != 'granted':
+                    self._error(403)
+                    return
+                from .registry import _stream_sha256
+                source = Path(clip['source_path'])
+                if source.stat().st_size > _MAX_VIDEO_BYTES or _stream_sha256(source) != clip['sha256']:
+                    self._error(409)
+                    return
+                image = preview_jpeg(source)
+                if _stream_sha256(source) != clip['sha256'] or not analysis_permission_granted(clip_id, registry_path):
+                    self._error(409)
+                    return
+                self._send(200, _document('Select your boat', selection_form(clip_id, token, image)),
+                           csp=_PAGE_CSP + "; img-src data:; script-src 'self'")
+            except (ValueError, OSError):
+                self._send(422, _document('Preview unavailable',
+                    '<p>A valid, unchanged, decodable clip is needed. Use a short clip '
+                    'with all eight rowers visible at its first frame. '
+                    '<a href="/">Return to the library</a>.</p>'))
+
+        def _select_post(self):
+            content_type = self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+            if content_type != 'application/x-www-form-urlencoded':
+                self._error(415)
+                return
+            length = int(self.headers['Content-Length'])
+            if not 0 < length <= 4096:
+                self._error(413)
+                return
+            try:
+                self.connection.settimeout(5)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise ValueError('incomplete_form')
+                fields = parse_qs(raw.decode('utf-8'), keep_blank_values=True,
+                                  strict_parsing=True, max_num_fields=23)
+                required = {'csrf', 'clip_id', 'same_boat', 'left', 'top', 'right', 'bottom'}
+                required |= {f'{axis}{i}' for i in range(8) for axis in ('x', 'y')}
+                if set(fields) != required or any(len(v) != 1 for v in fields.values()):
+                    raise ValueError('invalid_form')
+                fields = {k: v[0] for k, v in fields.items()}
+                if not hmac.compare_digest(fields['csrf'].encode(), token.encode()):
+                    self._error(403)
+                    return
+                clip_id = fields['clip_id']
+                if re.fullmatch(r'[0-9a-f]{64}', clip_id) is None:
+                    raise ValueError('invalid_clip')
+                selected = validate_selection({
+                    'version': 1, 'confirmed_same_boat': fields['same_boat'] == 'yes',
+                    'roi': [float(fields[k])/100 for k in ('left', 'top', 'right', 'bottom')],
+                    'seeds': [[float(fields[f'x{i}'])/100, float(fields[f'y{i}'])/100] for i in range(8)],
+                })
+                job = jobs.submit(clip_id, selection=selected)
+            except (ValueError, UnicodeError, OSError):
+                self._send(422, _document('Check your crew selection',
+                    '<p>Choose a valid region containing eight distinct rowers and confirm '
+                    'they share one boat. Reload the selection page and try again.</p>'))
+                return
+            self._send(303, b'', location='/jobs/' + job['job_id'])
+
+        def do_GET(self):
+            if not self._trusted_request():
+                self._error(403)
+                return
+            route = urlsplit(self.path).path
+            if route == '/select':
+                self._select_get()
+                return
+            if route == '/selection.js':
+                self._send(200, SELECTION_JS.encode(), mime='application/javascript; charset=utf-8')
+                return
+            if route in ("/", "/history.csv"):
+                try:
+                    camera, status, clip = _history_filters(
+                        urlsplit(self.path).query
+                    )
+                except ValueError:
+                    self._error(400)
+                    return
+                if route == "/":
+                    self._home(camera_filter=camera, status_filter=status,
+                               clip_filter=clip)
+                else:
+                    self._history_csv(camera_filter=camera,
+                                      status_filter=status, clip_filter=clip)
+            elif route in ("/compare", "/compare.csv"):
+                self._compare(urlsplit(self.path).query,
+                              as_csv=(route == "/compare.csv"))
+            elif route == "/api/jobs":
+                try:
+                    recent = permitted_recent_jobs()
+                except Exception:
+                    self._error(503)
+                    return
+                self._send(200, json.dumps(recent, sort_keys=True).encode("utf-8"),
+                           mime="application/json; charset=utf-8")
+            elif route.startswith("/api/jobs/") and route.endswith("/strokes.csv"):
+                self._evidence(route[len("/api/jobs/"):-len("/strokes.csv")],
+                               as_csv=True)
+            elif route.startswith("/api/jobs/") and route.endswith("/review.csv"):
+                self._evidence(route[len("/api/jobs/"):-len("/review.csv")],
+                               review_template=True)
+            elif route.startswith("/api/jobs/") and route.endswith("/fault-review.csv"):
+                self._evidence(
+                    route[len("/api/jobs/"):-len("/fault-review.csv")],
+                    fault_template=True,
+                )
+            elif route.startswith("/api/jobs/") and route.endswith("/evidence"):
+                self._evidence(route[len("/api/jobs/"):-len("/evidence")], api=True)
+            elif route.startswith("/jobs/") and route.endswith("/evidence"):
+                try:
+                    fault = _fault_query(urlsplit(self.path).query)
+                except ValueError:
+                    self._error(400)
+                    return
+                self._evidence(route[len("/jobs/"):-len("/evidence")],
+                               fault_filter=fault)
+            elif route.startswith("/api/jobs/"):
+                self._status(route[len("/api/jobs/"):], api=True)
+            elif route.startswith("/jobs/"):
+                try:
+                    at = _seek_query(urlsplit(self.path).query)
+                except ValueError:
+                    self._error(400)
+                    return
+                self._status(route[len("/jobs/"):], at=at)
+            elif route.startswith("/reports/"):
+                self._report(route[len("/reports/"):])
+            elif route.startswith("/media/"):
+                self._media(route[len("/media/"):])
+            else:
+                allowed = _allowed_methods(route)
+                self._error(405, allow=allowed) if allowed == "POST" else self._error(404)
+
+        def _upload(self):
+            content_type = self.headers.get("Content-Type", "")
+            if (len(content_type) > 200 or not content_type.lower().startswith(
+                    "multipart/form-data;") or
+                    any(ord(char) < 32 or ord(char) > 126 for char in content_type)):
+                self._error(415)
+                return
+            from email.message import Message
+            header = Message()
+            header["content-type"] = content_type
+            boundary = header.get_param("boundary")
+            if not isinstance(boundary, str) or not boundary.isascii():
+                self._error(400)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                self._error(411)
+                return
+            if length > _MAX_UPLOAD:
+                self._error(413)
+                return
+            if length < 1:
+                self._error(400)
+                return
+            # TemporaryFile spools the video to disk without retaining 150 MiB
+            # plus parser copies in process memory. Nothing is registered until
+            # all fields and the video header pass validation.
+            try:
+                with tempfile.TemporaryFile(mode="w+b") as staging:
+                    self.connection.settimeout(60)
+                    fields, filename = receive(
+                        self.rfile, length, boundary.encode("ascii"), staging,
+                        _MAX_VIDEO_BYTES,
+                    )
+                    required = {"csrf", "permission", "provenance", "video"}
+                    if not required.issubset(fields):
+                        raise MultipartError("missing fields")
+                    if not hmac.compare_digest(fields["csrf"], token):
+                        self._error(403)
+                        return
+                    select_crew = fields.get('select_crew') == 'yes'
+                    if 'select_crew' in fields and not select_crew:
+                        self._error(400)
+                        return
+                    analyze_now = fields.get("analyze") == "now"
+                    if "analyze" in fields and not analyze_now:
+                        self._error(400)
+                        return
+                    provenance = fields["provenance"].strip()
+                    if fields["permission"] != "granted":
+                        self._upload_rejected("permission_required")
+                        return
+                    if not provenance:
+                        self._upload_rejected("provenance_required")
+                        return
+                    if len(provenance) > 256:
+                        self._upload_rejected("provenance_too_long")
+                        return
+                    camera = fields.get("camera", "")
+                    if camera not in _CAMERA_CHOICES:
+                        self._upload_rejected("invalid_camera")
+                        return
+                    extension = Path(filename).suffix.lower()
+                    if extension not in _VIDEO_EXTENSIONS:
+                        self._error(415)
+                        return
+                    if fields["video"] == 0:
+                        self._upload_rejected("empty_video")
+                        return
+                    staging.seek(0)
+                    if not plausible_container(staging.read(4096), extension,
+                                               total_size=fields["video"]):
+                        self._error(415)
+                        return
+                    staging.seek(0)
+                    private_uploads.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    destination = private_uploads / (secrets.token_hex(16) + extension)
+                    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    try:
+                        with os.fdopen(fd, "wb") as stream:
+                            shutil.copyfileobj(staging, stream, length=1024 * 1024)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        clip, created = register_clip(
+                            destination, registry_path, permission="granted",
+                            provenance=provenance, camera=camera or None,
+                        )
+                    except Exception:
+                        destination.unlink(missing_ok=True)
+                        raise
+                    if not created:
+                        destination.unlink(missing_ok=True)
+            except MultipartError as exc:
+                self._error(413 if "size limit" in str(exc) else 400)
+                return
+            except DuplicateClipConflict as exc:
+                # The registry preserves original metadata and rolls back first.
+                # Recovery is explicit and rechecks permission; never regrant it.
+                reason = {
+                    "permission": "permission_not_granted",
+                    "provenance": "duplicate_provenance",
+                    "camera": "duplicate_camera",
+                }.get(exc.field, "duplicate_metadata")
+                self._upload_rejected(reason, duplicate_id=exc.clip_id)
+                return
+            except RegistryError:
+                # Unknown errors never leak exception text or a guessed clip ID.
+                self._upload_rejected("registry_rejected")
+                return
+            except (UnicodeError, ValueError, TypeError, OSError, TimeoutError):
+                self._error(400)
+                return
+            except Exception:
+                self._error(503)
+                return
+            if analyze_now and select_crew:
+                self._send(303, b'', location='/select?clip=' + clip['clip_id'])
+                return
+            if analyze_now:
+                try:
+                    job = jobs.submit(clip["clip_id"])
+                except Exception:
+                    self._error(503)
+                    return
+                self._send(303, b"", location="/jobs/" + job["job_id"])
+                return
+            self._send(303, b"", location="/")
+
+        def do_POST(self):
+            if not self._trusted_request():
+                self._error(403)
+                return
+            route = urlsplit(self.path).path
+            if route not in ("/jobs", "/revoke", "/upload", "/select"):
+                allowed = _allowed_methods(route)
+                self._error(405, allow=allowed) if allowed == "GET" else self._error(404)
+                return
+            # Reject ambiguous framing before reading or mutating private data.
+            # The local server does not implement chunked request decoding.
+            lengths = self.headers.get_all("Content-Length") or []
+            if (len(lengths) != 1
+                    or re.fullmatch(r"[0-9]+", lengths[0]) is None
+                    or self.headers.get_all("Transfer-Encoding")):
+                self._error(400)
+                return
+            if route == "/select":
+                self._select_post()
+                return
+            if route == "/upload":
+                self._upload()
+                return
+            content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if content_type != "application/x-www-form-urlencoded":
+                self._error(415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                self._error(411)
+                return
+            if length > _MAX_FORM:
+                self._error(413)
+                return
+            if length < 1:
+                self._error(400)
+                return
+            try:
+                # Never parse or act on a partial form, even if it looks valid.
+                # Bound a stalled local connection rather than leaving a worker thread.
+                self.connection.settimeout(5)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    self._error(400)
+                    return
+                body = raw.decode("utf-8")
+                params = parse_qs(body, keep_blank_values=True, strict_parsing=True,
+                                  max_num_fields=3)
+                allowed_fields = ({"csrf", "clip_id"}, {"csrf", "clip_id", "retry_job"}) if route == "/jobs" else ({"csrf", "clip_id"},)
+                if set(params) not in allowed_fields or any(
+                    len(v) != 1 for v in params.values()
+                ):
+                    self._error(400)
+                    return
+                csrf, clip_id = params["csrf"][0], params["clip_id"][0]
+                if not hmac.compare_digest(csrf, token):
+                    self._error(403)
+                    return
+                if not re.fullmatch(r"[0-9a-f]{64}", clip_id):
+                    self._error(400)
+                    return
+                if route == "/revoke":
+                    revoke_clip(clip_id, registry_path)
+                    destination = "/"
+                else:
+                    selected = None
+                    if 'retry_job' in params:
+                        retry_id = params['retry_job'][0]
+                        previous = jobs.get(retry_id) if _JOB_ID.fullmatch(retry_id) else None
+                        if (previous is None or previous['clip_id'] != clip_id or previous['status'] != 'failed'
+                                or previous['error_code'] not in _RETRYABLE_JOB_ERRORS):
+                            raise ValueError('invalid_retry')
+                        selected = jobs.selection(retry_id)
+                    record = jobs.submit(clip_id, selection=selected) if selected is not None else jobs.submit(clip_id)
+                    destination = "/jobs/" + record["job_id"]
+            except TimeoutError:
+                self._error(400)
+                return
+            except (UnicodeError, ValueError, JobError):
+                self._error(422)
+                return
+            except Exception:
+                self._error(503)
+                return
+            self._send(303, b"", location=destination)
+
+    class Server(ThreadingHTTPServer):
+        daemon_threads = True
+
+    httpd = Server((host, port), Handler)
+    httpd.csrf_token = token
+    return httpd
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Private loopback StrokeSense Alpha")
+    parser.add_argument("--registry-db", default=str(DEFAULT_DB))
+    private_root = Path(__file__).resolve().parents[1] / "results"
+    parser.add_argument("--jobs-db", default=str(private_root / "analysis_jobs.sqlite3"))
+    parser.add_argument("--results", default=str(private_root / "jobs"))
+    parser.add_argument("--uploads", default=str(private_root / "uploads"))
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args(argv)
+    with JobQueue(registry_db=args.registry_db, job_db=args.jobs_db,
+                  results_root=args.results) as jobs:
+        with create_server(jobs, registry_db=args.registry_db,
+                           upload_dir=args.uploads, port=args.port) as server:
+            print(f"Local StrokeSense: http://127.0.0.1:{server.server_address[1]}/")
+            print("Upload mode: streaming-150MiB-v4 (maximum video: 150 MiB; same-origin forms; select one crew; upload recovery)",
+                  flush=True)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

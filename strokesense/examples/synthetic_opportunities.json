@@ -1,0 +1,90 @@
+[
+  {
+    "clip_id": "synthetic-clip-development",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-1",
+    "fault_code": "early_arms",
+    "actual": true,
+    "predicted": true,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-development",
+    "split": "development"
+  },
+  {
+    "clip_id": "synthetic-clip-development",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-2",
+    "fault_code": "early_arms",
+    "actual": false,
+    "predicted": true,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-development",
+    "split": "development"
+  },
+  {
+    "clip_id": "synthetic-clip-development",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-3",
+    "fault_code": "early_arms",
+    "actual": true,
+    "predicted": false,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-development",
+    "split": "development"
+  },
+  {
+    "clip_id": "synthetic-clip-development",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-4",
+    "fault_code": "early_arms",
+    "actual": false,
+    "predicted": false,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-development",
+    "split": "development"
+  },
+  {
+    "clip_id": "synthetic-clip-development",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-1",
+    "fault_code": "over_compression",
+    "actual": false,
+    "predicted": false,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-development",
+    "split": "development"
+  },
+  {
+    "clip_id": "synthetic-clip-development",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-2",
+    "fault_code": "over_compression",
+    "actual": true,
+    "predicted": false,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-development",
+    "split": "development"
+  },
+  {
+    "clip_id": "synthetic-clip-heldout",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-1",
+    "fault_code": "early_arms",
+    "actual": true,
+    "predicted": true,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-heldout",
+    "split": "heldout"
+  },
+  {
+    "clip_id": "synthetic-clip-heldout",
+    "seat_id": "seat-1",
+    "stroke_id": "synthetic-stroke-2",
+    "fault_code": "early_arms",
+    "actual": false,
+    "predicted": false,
+    "review_status": "reviewed",
+    "group_id": "synthetic-session-heldout",
+    "split": "heldout"
+  }
+]

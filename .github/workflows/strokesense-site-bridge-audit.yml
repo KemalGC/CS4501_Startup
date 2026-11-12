@@ -1,0 +1,42 @@
+name: Inspect public StrokeSense study and demo bridge
+on:
+  push:
+    branches: [strokesense-render-live]
+    paths: ['.github/workflows/strokesense-site-bridge-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Read only live public endpoints without triggering model analysis
+        run: |
+          python3 - <<'PY'
+          import urllib.request, urllib.error, json, re
+          urls = [
+            'https://strokesense-review.kemalgcortuk.chatgpt.site/demos#analyze-video',
+            'https://strokesense-review.kemalgcortuk.chatgpt.site/',
+            'https://strokesense-real-analysis-demo.onrender.com/healthz',
+            'https://strokesense-real-analysis-demo.onrender.com/demo',
+            'https://strokesense-real-analysis-demo.onrender.com/api/demo/status',
+          ]
+          for url in urls:
+            print('\n=== URL', url.split('#')[0])
+            req = urllib.request.Request(url,headers={'User-Agent':'StrokeSense-Site-Integration-Read-Only/1.0'})
+            try:
+              with urllib.request.urlopen(req,timeout=28) as resp:
+                body=resp.read(200000).decode('utf-8','replace')
+                print('STATUS',resp.status,'FINAL',resp.url, 'LENGTH',len(body))
+                for key in ('Content-Type','Content-Security-Policy','X-Frame-Options','Access-Control-Allow-Origin'):
+                  print(key,resp.headers.get(key,'(none)')[:600])
+                print('HTML_HEAD',body[:1800].replace('\n',' '))
+                if 'strokesense-review.kemalgcortuk.chatgpt.site' in url:
+                  for pattern in ('demos','analyze-video','motion','iframe','render.com','script'):
+                    print('OCCURRENCES',pattern,len(re.findall(re.escape(pattern),body,re.I)))
+                  print('SCRIPTS',re.findall(r'<script[^>]*src=["\']([^"\']+)',body,re.I)[:12])
+            except urllib.error.HTTPError as e:
+              print('HTTP_ERROR',e.code,'BODY',e.read(800).decode('utf-8','replace'))
+            except Exception as e: print('ERROR',type(e).__name__,str(e)[:500])
+          PY

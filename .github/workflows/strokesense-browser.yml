@@ -1,0 +1,60 @@
+name: StrokeSense native browser form
+
+on:
+  push:
+    branches:
+      - 'dev/**'
+      - 'dev-consolidated'
+    paths:
+      - 'strokesense/**'
+      - '.github/workflows/strokesense-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-form:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install project and pinned browser-test dependencies
+        run: python -m pip install -r strokesense/requirements.txt playwright==1.58.0
+      - name: Run targeted saved-evidence overview regressions
+        run: python -m unittest discover -s strokesense/tests -p test_evidence_overview.py -v
+      - name: Run targeted recent-history evidence shortcut tests
+        run: python -m unittest discover -s strokesense/tests -p test_history_evidence_shortcut.py -v
+      - name: Run targeted comparison workspace regressions
+        run: python -m unittest discover -s strokesense/tests -p test_comparison_workspace.py -v
+      - name: Render and navigate synthetic comparison workspace
+        run: python strokesense/tests/browser_comparison_workspace.py
+      - name: Run targeted completed-analysis review regressions
+        run: python -m unittest discover -s strokesense/tests -p test_results_workspace.py -v
+      - name: Render and inspect synthetic job result cards in native Chrome
+        run: python strokesense/tests/browser_results_workspace.py
+      - name: Submit native form using installed Chrome
+        run: python strokesense/tests/browser_form_origin.py
+      - name: Render and navigate synthetic saved evidence overview
+        run: python strokesense/tests/browser_evidence_overview.py
+      - name: Select one crew through native canvas and form
+        run: python strokesense/tests/browser_crew_selection.py
+      - name: Recover a duplicate upload without overwriting metadata
+        run: python strokesense/tests/browser_upload_feedback.py
+      - name: Remove blocked entries explicitly and reimport through the library launcher
+        run: python strokesense/tests/browser_library_removal.py
+      - name: Confirm a later-frame boat without starting work early
+        run: python strokesense/tests/browser_multiframe_review.py
+      - name: Confirm one blade through model-only controls
+        run: python strokesense/tests/browser_blade_model.py
+      - name: Choose independent tasks for all eight selected rowers
+        run: python strokesense/tests/browser_crew_options.py
+      - name: Review usefulness and accuracy with consent and private export
+        run: python strokesense/tests/browser_feedback.py
+      - name: Navigate the report library and preserve private feedback
+        run: python strokesense/tests/browser_feedback_library.py
+      - name: Save five separate report-quality answers and export them privately
+        run: python strokesense/tests/browser_feedback_quality.py

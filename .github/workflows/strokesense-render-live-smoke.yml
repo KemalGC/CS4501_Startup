@@ -1,0 +1,79 @@
+name: Verify public StrokeSense Render demo
+on:
+  push:
+    branches: [strokesense-render-live]
+    paths:
+      - .github/workflows/strokesense-render-live-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-demo-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify real public host and prepared-video state without starting inference
+        env:
+          DEMO_BASE: https://strokesense-real-analysis-demo.onrender.com
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, urllib.error
+          base = os.environ["DEMO_BASE"]
+          def fetch(path, extra_headers=None):
+              req = urllib.request.Request(base + path, headers={
+                  "User-Agent": "StrokeSense-Public-Healthcheck/1.0",
+                  **(extra_headers or {}),
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as res:
+                      return res.status, res.read(2048), dict(res.headers)
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read(2048), dict(e.headers)
+          checks = []
+          for path in ("/healthz", "/demo", "/api/demo/status"):
+              try:
+                  status, body, headers = fetch(path)
+                  print("CHECK", path, "HTTP", status, "body", body[:450].decode("utf-8", "replace"))
+                  checks.append((status, body, headers))
+              except Exception as exc:
+                  print("CHECK FAILED", path, type(exc).__name__, str(exc)[:350])
+                  sys.exit(1)
+          health_code, health_body, _ = checks[0]
+          if health_code != 200:
+              print("NOT HEALTHY: /healthz did not return 200")
+              sys.exit(1)
+          try:
+              health = json.loads(health_body)
+          except Exception:
+              print("NOT HEALTHY: invalid /healthz JSON")
+              sys.exit(1)
+          if health.get("ok") is not True:
+              print("NOT HEALTHY: /healthz ok != true")
+              sys.exit(1)
+          page_code, page_body, _ = checks[1]
+          if page_code != 200:
+              print("NOT HEALTHY: /demo did not return a page")
+              sys.exit(1)
+          ready = health.get("demo_video_ready")
+          status_code, status_body, _ = checks[2]
+          if ready is False:
+              print("SERVICE READY FOR PRIVATE VIDEO SETUP (expected status: 409 video_not_ready)")
+              if status_code != 409: sys.exit(1)
+              sys.exit(0)
+          if ready is not True:
+              print("Unexpected demo_video_ready status")
+              sys.exit(1)
+          if status_code != 200 or b"Analyze" not in page_body and b"StrokeSense" not in page_body:
+              print("PREPARED VIDEO STATUS IS NOT READY")
+              sys.exit(1)
+          state = json.loads(status_body).get("state")
+          print("PREPARED VIDEO", "status", state)
+          if state not in ("ready","running","finished","failed"):
+              sys.exit(1)
+          code, _, headers = fetch("/demo/video", {"Range":"bytes=0-3"})
+          print("RANGE TEST /demo/video", code, headers.get("Content-Range"))
+          if code != 206 or not headers.get("Content-Range"):
+              sys.exit(1)
+          PY

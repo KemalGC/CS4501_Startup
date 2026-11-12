@@ -1,0 +1,39 @@
+# Optional SEPARATE compute-backed service; does not replace/charge the study site.
+# Requires owner action in Render. This plan is PAID: 2 CPUs / 4 GB of RAM.
+# Do not deploy or switch plans without approval.
+services:
+  - type: web
+    name: strokesense-dev-analysis-demo
+    runtime: python
+    repo: https://github.com/KemalGC/CS4501_Startup
+    branch: dev-consolidated
+    rootDir: strokesense
+    plan: 2c-4g
+    region: virginia
+    autoDeployTrigger: "off"
+    buildCommand: pip install -r requirements-demo-hosted.txt
+    startCommand: uvicorn strokesense.web_demo_hosted:create_app --factory --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 5 --no-proxy-headers --no-access-log
+    healthCheckPath: /healthz
+    disk:
+      name: strokesense-dev-demo
+      mountPath: /var/data
+      sizeGB: 2
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: MPLBACKEND
+        value: Agg
+      - key: STROKESENSE_DEMO_DATA_DIR
+        value: /var/data
+      - key: STROKESENSE_DEMO_OWNER_KEY
+        generateValue: true
+      - key: STROKESENSE_DEMO_SOURCE_URL
+        value: https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4
+      - key: STROKESENSE_DEMO_SOURCE_SHA256
+        value: 4ef24792190ca9f6cfed0887b5a0ae5dd1787ababd857a66d3f26d42167299d3
+      - key: STROKESENSE_DEMO_RELEASE
+        value: render-demo-v4-llm
+      - key: STROKESENSE_LLM_FEEDBACK
+        value: "1"
+      - key: STROKESENSE_LLM_MODEL_DIR
+        value: /var/data/llm-models

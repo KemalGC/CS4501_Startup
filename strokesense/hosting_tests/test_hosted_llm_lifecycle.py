@@ -107,6 +107,7 @@ out.mkdir(parents=True,exist_ok=True)
     def new_app(self):
         app = create_app(
             data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
+            legacy_demo_routes=True,
             command_factory=lambda: self.vision_command(app.state.demo_data["demo"].root),
         )
         self.apps.append(app)

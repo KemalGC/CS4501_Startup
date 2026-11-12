@@ -185,12 +185,15 @@ async function ssBridgeRequest(action,payload){
   }
   if(action==='analyze'){
     const path=suffix?'/api/demo'+suffix+'/analyze':'/api/demo/analyze';
-    const deleteToken=suffix?payload.deleteToken:null;
-    if(suffix&&(typeof deleteToken!=='string'||!/^[a-zA-Z0-9_-]{32,128}$/.test(deleteToken)))
+    // A prepared session has a URL suffix too, but only uploaded clips have
+    // deletion tokens. Never require an upload capability for prepared footage.
+    const uploadedClip=clipId!==null;
+    const deleteToken=uploadedClip?payload.deleteToken:null;
+    if(uploadedClip&&(typeof deleteToken!=='string'||!/^[a-zA-Z0-9_-]{32,128}$/.test(deleteToken)))
       throw Error('invalid_delete_token');
     const response=await fetch(path,{method:'POST',credentials:'same-origin',
       headers:{'content-type':'application/json','x-demo-csrf':token,
-        ...(suffix?{'x-demo-delete-token':deleteToken}:{})},body:'{}'});
+        ...(uploadedClip?{'x-demo-delete-token':deleteToken}:{})},body:'{}'});
     const result=await response.json();
     if(!response.ok)throw Error(result.error||'analysis_failed');
     return result;

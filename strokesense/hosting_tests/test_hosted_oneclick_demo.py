@@ -30,6 +30,7 @@ class HostedOneClickTests(unittest.IsolatedAsyncioTestCase):
         )
         self.app = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
                               max_upload_bytes=1024,
+                              legacy_demo_routes=True,
                               command_factory=lambda: [sys.executable,"-c",fixture,str(self.app.state.demo_data['demo'].root)])
         self.transport = httpx.ASGITransport(app=self.app)
     def tearDown(self):

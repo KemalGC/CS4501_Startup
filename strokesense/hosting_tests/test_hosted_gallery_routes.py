@@ -25,7 +25,8 @@ class HostedGalleryRoutes(unittest.IsolatedAsyncioTestCase):
         demo = self.root / 'demo'
         demo.mkdir()
         (demo / 'prepared.mp4').write_bytes(b'private test video')
-        self.app = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER)
+        self.app = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
+                              legacy_demo_routes=True)
         prepared_root = demo / 'outputs'
         prepared_run = prepared_root / 'prepared-fixture'
         prepared_run.mkdir(parents=True)

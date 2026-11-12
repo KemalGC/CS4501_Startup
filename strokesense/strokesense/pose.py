@@ -10,7 +10,9 @@ resolution. Detections from all tiles are merged with NMS.
 from __future__ import annotations
 
 import os
+import hashlib
 import tempfile
+import time
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,15 +22,56 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose.onnx"
+MODEL_BYTES = 11853451
+MODEL_SHA256 = "93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408"
 DEFAULT_MODEL = Path(__file__).resolve().parent.parent / "models" / "yolo11n-pose.onnx"
 
 
 def ensure_model(path: Path = DEFAULT_MODEL) -> Path:
     path = Path(path)
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Downloading pose model to {path} ...")
-        urllib.request.urlretrieve(MODEL_URL, path)
+    # Explicit custom models belong to the caller; the pinned digest applies to
+    # the default model downloaded by this application.
+    if path != DEFAULT_MODEL and path.is_file() and not path.is_symlink():
+        return path
+    def verified(candidate):
+        if candidate.is_symlink() or not candidate.is_file() or candidate.stat().st_size != MODEL_BYTES:
+            return False
+        digest = hashlib.sha256()
+        with candidate.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest() == MODEL_SHA256
+
+    if verified(path):
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pending = None
+    try:
+        digest = hashlib.sha256()
+        total = 0
+        started = time.monotonic()
+        request = urllib.request.Request(MODEL_URL, headers={"User-Agent": "StrokeSense/1"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".pose-", suffix=".download", delete=False) as stream:
+                pending = Path(stream.name)
+                while True:
+                    if time.monotonic() - started > 120:
+                        raise ValueError("pose_model_download_timeout")
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MODEL_BYTES:
+                        raise ValueError("pose_model_integrity_failed")
+                    digest.update(chunk)
+                    stream.write(chunk)
+        if total != MODEL_BYTES or digest.hexdigest() != MODEL_SHA256:
+            raise ValueError("pose_model_integrity_failed")
+        os.replace(pending, path)
+        pending = None
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
     return path
 
 

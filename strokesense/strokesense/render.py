@@ -351,3 +351,60 @@ def fault_snapshot_requests(rower, pose, out_dir):
                            'seconds': float(pose.start + fi / pose.fps), 'path': path}
             requests.append((fi, rower, path))
     return shots, requests
+
+
+def mistake_progression_requests(rower, pose, faults, out_dir, *, max_sequences=3):
+    """Request nearby *observed* frames for measured fault evidence.
+
+    The center image is the exact flagged frame already selected by
+    ``fault_snapshot_requests``.  The before/after images are the same tracked
+    rower about 0.2 seconds to either side; missing observations are omitted,
+    never interpolated or substituted with another person's image.  These
+    pictures show context for a candidate heuristic, not verified diagnoses.
+    """
+    k = rower.k
+    if not np.isfinite(pose.fps) or pose.fps <= 0:
+        return [], []
+    gap = max(2, int(round(float(pose.fps) * 0.2)))
+    ordered_issues = rower.summary.get('issues', []) if isinstance(rower.summary, dict) else []
+    sequences, requests = [], []
+    for issue in ordered_issues:
+        if not isinstance(issue, dict):
+            continue
+        code = issue.get('code')
+        if code not in FAULTS or code not in faults:
+            continue
+        shot = faults[code]
+        flagged = int(shot['frame'])
+        if not 0 <= flagged < k.n or not k.visible[flagged]:
+            continue
+        frames = [{
+            'label': 'Flagged moment', 'frame': flagged,
+            'time_seconds': float(pose.start + flagged / pose.fps),
+            'path': Path(shot['path']),
+        }]
+        for label, direction in (('Before', -1), ('After', +1)):
+            target = flagged + direction * gap
+            # Small camera/tracking dropouts should not turn a still into a
+            # guessed pose. Only use a real visible frame on the proper side.
+            lo = max(0, target - 2)
+            hi = min(k.n - 1, target + 2)
+            candidates = [fi for fi in range(lo, hi + 1)
+                          if (fi - flagged) * direction > 0 and k.visible[fi]]
+            if not candidates:
+                continue
+            fi = min(candidates, key=lambda index: (abs(index - target), index))
+            path = Path(out_dir) / f'fault_{int(rower.tid)}_{code}_{label.lower()}.jpg'
+            frames.append({
+                'label': label, 'frame': fi,
+                'time_seconds': float(pose.start + fi / pose.fps), 'path': path,
+            })
+            requests.append((fi, rower, path))
+        frames.sort(key=lambda frame: frame['frame'])
+        sequences.append({
+            'code': code, 'label': FAULTS[code]['title'],
+            'stroke': int(shot['stroke']), 'frames': frames,
+        })
+        if len(sequences) >= max_sequences:
+            break
+    return sequences, requests

@@ -13,8 +13,15 @@ from pathlib import Path
 import re
 
 from .oneclick_demo import MAX_METRICS_BYTES, _safe_result, summarize_crew_metrics
+from .strokes import FAULTS
 
 _SEAT = re.compile(r"R(?:[1-9]|1[0-6])\Z")
+_SNAPSHOT_NAME = re.compile(
+    r"(?:seat_R(?:[1-9]|1[0-6])_(?:catch|finish)|"
+    r"fault_[0-9]{1,4}_(?:" + "|".join(re.escape(code) for code in FAULTS) +
+    r")(?:_(?:before|after))?)\.jpg\Z"
+)
+MAX_SNAPSHOT_BYTES = 512 * 1024
 _EIGHT_TRACK_IDS = {f"R{i}" for i in range(1, 9)}
 # The known prepared eights clip was visually checked: its tracked rowers run
 # from stroke (R1, left of frame) to bow (R8, right of frame).  This is NOT a
@@ -53,6 +60,117 @@ def _json_file(path: Path, root: Path, limit: int):
     if not isinstance(result, dict):
         raise ValueError("invalid_report_data")
     return result
+
+
+def _snapshot_path(report: Path, root: Path, filename):
+    """Resolve only bounded, actual generated JPEGs beside this run's report."""
+    if not isinstance(filename, str) or not _SNAPSHOT_NAME.fullmatch(filename):
+        return None
+    path = report.with_name(filename)
+    try:
+        if (not _safe_result(root, path) or not 4 <= path.stat().st_size <= MAX_SNAPSHOT_BYTES):
+            return None
+        return path
+    except (OSError, ValueError):
+        return None
+
+
+def _gallery_manifest(report: Path, root: Path):
+    """A missing manifest is normal for older completed analyses."""
+    path = report.with_name('mistake_frames.json')
+    if not path.exists():
+        return None
+    try:
+        raw = _json_file(path, root, 128 * 1024)
+        rows = raw.get('rowers')
+        if raw.get('version') != 1 or not isinstance(rows, dict) or len(rows) > 16:
+            return {}
+        return rows
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _rower_gallery(report, root, seat, track, issues, gallery_rows, snapshots_base):
+    """Serve only real images in this report and flags in its measured metrics."""
+    raw = gallery_rows.get(seat, {}) if isinstance(gallery_rows, dict) else {}
+    raw = raw if isinstance(raw, dict) else {}
+    valid_flags = {item.get('code') for item in issues if isinstance(item, dict)
+                   and isinstance(item.get('code'), str) and item['code'] in FAULTS}
+
+    def exposed(photo, expected_filename):
+        if not isinstance(photo, dict):
+            return None
+        filename = photo.get('filename')
+        if filename != expected_filename or _snapshot_path(report, root, filename) is None:
+            return None
+        label = _text(photo.get('label'), 40)
+        when = _number(photo.get('time_seconds'), 0, 1_000_000)
+        if label not in ('Before', 'Flagged moment', 'After', 'Catch reference', 'Finish reference'):
+            return None
+        return {'label': label, 'time_seconds': when,
+                'url': f'{snapshots_base}/{filename}'}
+
+    # Analyses created before the progression feature still have two valid
+    # real snapshots. Do not reattribute stale photos on reruns with a manifest.
+    if gallery_rows is None:
+        legacy = [('catch', 'Catch reference'), ('finish', 'Finish reference')]
+        flagged = []
+        for issue in issues[:3]:
+            if (not isinstance(issue, dict) or not isinstance(issue.get('code'), str)
+                    or issue['code'] not in valid_flags):
+                continue
+            code = issue['code']
+            filename = f"fault_{track}_{code}.jpg" if track is not None else None
+            if filename is not None and _snapshot_path(report, root, filename) is not None:
+                flagged = [{
+                    'label': f"Candidate: {FAULTS[code]['title']}",
+                    'time_seconds': None, 'url': f'{snapshots_base}/{filename}',
+                }]
+                break
+        snapshots = [
+            {'label': label, 'time_seconds': None,
+             'url': f'{snapshots_base}/seat_{seat}_{kind}.jpg'}
+            for kind, label in legacy
+            if _snapshot_path(report, root, f'seat_{seat}_{kind}.jpg') is not None
+        ]
+        return [], flagged + snapshots
+
+    snapshots = []
+    for photo in raw.get('snapshots', [])[:2] if isinstance(raw.get('snapshots'), list) else []:
+        reference_name = {'Catch reference': f'seat_{seat}_catch.jpg',
+                          'Finish reference': f'seat_{seat}_finish.jpg'}
+        available = exposed(photo, reference_name.get(photo.get('label'))
+                            if isinstance(photo, dict) else None)
+        if available:
+            snapshots.append(available)
+
+    sequences = []
+    listed = raw.get('mistake_sequences', [])
+    for item in listed[:3] if isinstance(listed, list) else []:
+        if (not isinstance(item, dict) or not isinstance(item.get('code'), str)
+                or item['code'] not in valid_flags):
+            continue
+        code = item['code']
+        stroke = _integer(item.get('stroke'), 0, 10000)
+        photos = item.get('frames', [])
+        if stroke is None or track is None or not isinstance(photos, list):
+            continue
+        expected = {
+            'Before': f'fault_{track}_{code}_before.jpg',
+            'Flagged moment': f'fault_{track}_{code}.jpg',
+            'After': f'fault_{track}_{code}_after.jpg',
+        }
+        checked = [image for photo in photos[:3] if isinstance(photo, dict)
+                   and (image := exposed(photo, expected.get(photo.get('label'))))]
+        if (not any(image['label'] == 'Flagged moment' for image in checked)
+                or any(image['time_seconds'] is None for image in checked)):
+            continue
+        checked.sort(key=lambda image: image['time_seconds'])
+        if len({image['url'] for image in checked}) != len(checked):
+            continue
+        sequences.append({'code': code, 'label': FAULTS[code]['title'],
+                          'stroke': stroke, 'frames': checked})
+    return sequences, snapshots
 
 
 def _verified_feedback(report: Path, root: Path):
@@ -128,13 +246,14 @@ def _report_seat_mapping(raw, rower_ids, *, prepared: bool = False):
         return {
             "status": "prepared", "travel_direction": "right", "confidence": None,
             "assignments": dict(_PREPARED_EIGHT_SEATS),
-            "reason": "Visual seat order for this prepared eight: R1 is Stroke seat, R8 is Bow seat.",
+            "reason": "Visual seat order for this prepared eight: R1 is Seat 8 (Stroke); R8 is Seat 1 (Bow).",
             "source": "prepared_reference_visual_order",
         }
     return _verified_seat_mapping(raw, rower_ids)
 
 
-def build_dashboard(state, clip_name: str, *, prepared: bool = False):
+def build_dashboard(state, clip_name: str, *, prepared: bool = False,
+                    snapshots_base: str = '/demo/snapshots'):
     """Return a finite, bounded subset of a completed run's measured report."""
     if state.snapshot().get("state") != "finished":
         raise ValueError("report_not_ready")
@@ -148,6 +267,7 @@ def build_dashboard(state, clip_name: str, *, prepared: bool = False):
     if not isinstance(measured_rows, list) or len(measured_rows) > 16:
         raise ValueError("invalid_report_data")
     feedback = _verified_feedback(report, root)
+    gallery_rows = _gallery_manifest(report, root)
     coaching_rows = feedback.get("rowers", {})
     cadence = metrics.get("crew_cadence", {})
     cadence = cadence if isinstance(cadence, dict) else {}
@@ -188,6 +308,15 @@ def build_dashboard(state, clip_name: str, *, prepared: bool = False):
         observation = _text(llm_row.get("observation"), 500)
         cue = _text(llm_row.get("cue"), 500)
         offset = _number(row.get("sync_ms"), -10000, 10000)
+        track_value = row.get("track")
+        track = None
+        if type(track_value) is int and 0 <= track_value <= 9999:
+            track = track_value
+        elif (type(track_value) is float and math.isfinite(track_value)
+              and track_value.is_integer() and 0 <= track_value <= 9999):
+            track = int(track_value)
+        sequences, photos = _rower_gallery(
+            report, root, seat, track, issues, gallery_rows, snapshots_base)
         rowers.append({
             "id": seat,
             "usable_cycles": _integer(summary.get("n_strokes"), 0, 10000),
@@ -210,7 +339,8 @@ def build_dashboard(state, clip_name: str, *, prepared: bool = False):
                 # coaching narrative. Let the UI distinguish the two states.
                 "source": "verified_llm" if observation or cue else "not_generated",
             },
-            "snapshots": [],
+            "snapshots": photos,
+            "mistake_sequences": sequences,
         })
     if not rowers:
         raise ValueError("invalid_report_data")

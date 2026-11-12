@@ -58,6 +58,7 @@ VISITOR_UPLOAD_TTL = 60 * 60 * 2
 VISITOR_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_CLIENT_HOURLY_LIMIT = 6
 UPLOAD_DEADLINE_SECONDS = 180
+CONTROL_BODY_DEADLINE_SECONDS = 10
 ANALYSIS_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 VISITOR_ID = re.compile(r"[0-9a-f]{48}\Z")
@@ -324,7 +325,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 meta = json.loads(meta_path.read_text())
                 name = _visitor_name(meta["name"], encoded=False)
                 display = (_visitor_display_name(meta.get("display_name"), encoded=False)
-                           if "display_name" in meta else name[0] if name else None)
+                           if "display_name" in meta else
+                           _visitor_display_name(name[0], encoded=False) if name else None)
                 created = meta["created"]
                 delete_token = meta.get("delete_token")
                 if delete_token is not None and (not isinstance(delete_token, str)
@@ -445,10 +447,11 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
 
     async def bounded_body(request: Request, limit: int):
         data = bytearray()
-        async for chunk in request.stream():
-            data.extend(chunk)
-            if len(data) > limit:
-                raise OverflowError("oversize")
+        async with asyncio.timeout(CONTROL_BODY_DEADLINE_SECONDS):
+            async for chunk in request.stream():
+                data.extend(chunk)
+                if len(data) > limit:
+                    raise OverflowError("oversize")
         return bytes(data)
 
     def video_response(request, path: Path):
@@ -619,7 +622,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return reply(415,"json_required")
             try:
                 raw = await bounded_body(request,2)
-            except OverflowError:
+            except (OverflowError, TimeoutError):
                 return reply(400,"expected_empty_json")
             if raw != b"{}":
                 return reply(400,"expected_empty_json")
@@ -641,7 +644,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return reply(415, "json_required")
             try:
                 raw = await bounded_body(request, 2)
-            except OverflowError:
+            except (OverflowError, TimeoutError):
                 return reply(400, "expected_empty_json")
             if raw != b"{}":
                 return reply(400, "expected_empty_json")
@@ -675,7 +678,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return reply(415, "json_required")
             try:
                 raw = await bounded_body(request, 2)
-            except OverflowError:
+            except (OverflowError, TimeoutError):
                 return reply(400, "expected_empty_json")
             if raw != b"{}":
                 return reply(400, "expected_empty_json")
@@ -765,7 +768,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return reply(415, "supported_video_required")
             display_header = request.headers.get("x-demo-display-name")
             display_name = (_visitor_display_name(display_header) if display_header is not None
-                            else name[0])
+                            else _visitor_display_name(name[0], encoded=False))
             if not display_name:
                 return reply(422, "invalid_display_name")
             limit = min(upper, VISITOR_UPLOAD_BYTES)

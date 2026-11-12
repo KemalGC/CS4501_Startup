@@ -86,6 +86,13 @@ class HostedVisitorCancelTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 422)
                 self.assertEqual(self.app.state.demo_data["uploads"], {})
 
+    def test_unsafe_filename_cannot_be_default_display_name(self):
+        response = self.post("/api/demo/videos", content=FAKE_MP4,
+            headers={"content-type": "video/mp4",
+                     "x-demo-filename": quote("team\u202eone.mp4")})
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.app.state.demo_data["uploads"], {})
+
     def test_running_cancel_preserves_uploaded_video(self):
         clip = self.upload("Morning 8+")
         self.assertEqual(clip["name"], "Morning 8+")
@@ -184,6 +191,24 @@ class HostedVisitorCancelTests(unittest.TestCase):
                 response = await asyncio.wait_for(upload_task, timeout=3)
                 self.assertEqual(response.status_code, 202, response.text)
                 self.uploads.append(response.json())
+
+        asyncio.run(exercise())
+
+    def test_incomplete_control_body_times_out(self):
+        async def exercise():
+            async def slow_json():
+                yield b"{"
+                await asyncio.sleep(1)
+                yield b"}"
+
+            async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=self.app), base_url=self.origin) as client:
+                with patch("strokesense.web_demo_hosted.CONTROL_BODY_DEADLINE_SECONDS", .02):
+                    response = await client.post("/api/demo/analyze", content=slow_json(), headers={
+                        "origin": self.origin, "x-demo-csrf": self.csrf,
+                        "content-type": "application/json"})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(response.json()["error"], "expected_empty_json")
 
         asyncio.run(exercise())
 

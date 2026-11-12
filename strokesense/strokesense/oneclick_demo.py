@@ -295,6 +295,7 @@ class DemoState:
                 pass
         if phase=='failed':
             detail={'model_missing':'The pose model could not be loaded. Install requirements and retry.',
+                    'media_rejected':'This video could not be accepted. Use a clip up to three minutes long, no larger than 4K, in a standard MP4, MOV or WebM encoding.',
                     'analysis_timeout':'The CPU analysis exceeded its time limit.',
                     'no_usable_strokes':'The model could not produce a reliable report for this view.',
                     'analysis_failed':'The model process failed. See the private terminal for diagnostic details.',
@@ -362,7 +363,8 @@ class DemoState:
             if ret != 0:
                 with self.lock:
                     self.phase = 'failed'
-                    self.error = 'analysis_failed'
+                    # Exit 3 is the CLI's bounded-media refusal (cli.MEDIA_REJECTED_EXIT).
+                    self.error = 'media_rejected' if ret == 3 else 'analysis_failed'
                 return
             # The output root is dedicated to this one-click demo, with no existing reports.
             found = sorted(self.root.rglob('report.html'), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -491,7 +493,7 @@ def create_server(video, *, output_dir=None, port=8768, command_factory=None):
                 self.media(overlay,mimetypes.guess_type(overlay.name)[0] or 'video/mp4');return
             self.json_reply(404,{'error':'not_found'})
         def do_POST(self):
-            if not self.secure(post=True) or not secrets.compare_digest(self.headers.get('X-CSRF-Token',''),csrf):
+            if not self.secure(post=True) or not secrets.compare_digest(self.headers.get('X-CSRF-Token','').encode('utf-8','surrogateescape'),csrf.encode()):
                 self.json_reply(403,{'error':'origin_or_csrf_required'});return
             if self.path!='/api/analyze':self.json_reply(404,{'error':'not_found'});return
             lengths=self.headers.get_all('Content-Length') or []

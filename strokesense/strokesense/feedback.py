@@ -227,7 +227,7 @@ def create_server(pack, *, port=8767, db_path=None):
             return store.session(item.value if item else None)
         def owner(self):
             value = self.headers.get('Authorization', '')
-            return hmac.compare_digest(value, 'Bearer '+owner)
+            return hmac.compare_digest(value.encode('utf-8','surrogateescape'), ('Bearer '+owner).encode())
         def send(self, code, body=b'', mime='application/json; charset=utf-8', headers=None):
             if isinstance(body, (dict, list)): body = _json(body)
             self.send_response(code)
@@ -347,7 +347,7 @@ def create_server(pack, *, port=8767, db_path=None):
                     if not data:break
                     self.wfile.write(data);remaining-=len(data)
         def do_POST(self):
-            if not self.trusted() or not hmac.compare_digest(self.headers.get('X-CSRF-Token',''),csrf):
+            if not self.trusted() or not hmac.compare_digest(self.headers.get('X-CSRF-Token','').encode('utf-8','surrogateescape'),csrf.encode()):
                 self.error(403,'same_origin_and_csrf_required');return
             try:
                 lengths=self.headers.get_all('Content-Length') or []

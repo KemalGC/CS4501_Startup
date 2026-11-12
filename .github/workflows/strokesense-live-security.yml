@@ -7,6 +7,7 @@ on:
       - 'strokesense/strokesense/**'
       - 'strokesense/tests/test_hosted_cancel.py'
       - 'strokesense/tests/test_pose_download_security.py'
+      - 'strokesense/tests/test_hosted_hardening.py'
       - 'strokesense/requirements-*.txt'
       - 'render.yaml'
       - '.github/workflows/strokesense-live-security.yml'
@@ -16,6 +17,7 @@ on:
       - 'strokesense/strokesense/**'
       - 'strokesense/tests/test_hosted_cancel.py'
       - 'strokesense/tests/test_pose_download_security.py'
+      - 'strokesense/tests/test_hosted_hardening.py'
       - 'strokesense/requirements-*.txt'
       - 'render.yaml'
       - '.github/workflows/strokesense-live-security.yml'
@@ -41,3 +43,4 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_hosted_cancel.py' -q
           python -m unittest discover -s tests -p 'test_pose_download_security.py' -q
+          python -m unittest discover -s tests -p 'test_hosted_hardening.py' -q

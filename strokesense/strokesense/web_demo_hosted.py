@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -63,6 +64,15 @@ CONTROL_BODY_DEADLINE_SECONDS = 10
 ANALYSIS_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 VISITOR_ID = re.compile(r"[0-9a-f]{48}\Z")
+
+
+def _same_secret(given, expected):
+    """Constant-time comparison that cannot raise on non-ASCII client input."""
+    if isinstance(given, str):
+        given = given.encode("utf-8", "surrogateescape")
+    if isinstance(expected, str):
+        expected = expected.encode("utf-8", "surrogateescape")
+    return hmac.compare_digest(given, expected)
 
 
 def _visitor_name(value, *, encoded=True):
@@ -251,6 +261,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     csrf = secrets.token_urlsafe(32)
     analysis_history = []
     bootstrap_status = {"state": "not_configured"}
+    last_sweep = [time.monotonic()]
 
     def fresh_state():
         if work_dir.is_symlink():
@@ -317,6 +328,12 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         # prepared report. Each private-id directory restores only its own run.
         now = time.time()
         for folder in sorted(visitor_root.iterdir()):
+            # A process killed mid-upload leaves its partial body behind. Nothing
+            # else is running yet, so reclaim the bounded disk immediately.
+            if (folder.name.startswith(".upload-") and folder.is_file()
+                    and not folder.is_symlink()):
+                folder.unlink(missing_ok=True)
+                continue
             if not folder.is_dir() or folder.is_symlink() or not VISITOR_ID.fullmatch(folder.name):
                 continue
             try:
@@ -333,7 +350,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 if delete_token is not None and (not isinstance(delete_token, str)
                         or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", delete_token)):
                     continue
-                if (not name or not display or type(created) not in (int, float) or created > now + 60
+                if (not name or not display or type(created) not in (int, float)
+                        or not math.isfinite(created) or created > now + 60
                         or now - created > VISITOR_UPLOAD_TTL):
                     shutil.rmtree(folder)
                     continue
@@ -347,6 +365,12 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     "delete_token": delete_token, "cancelled": cancelled,
                     "queued": not cancelled and bool(meta.get("auto_start")) and
                         state.snapshot()["state"] == "ready"}
+            except FileNotFoundError:
+                # Interrupted before its metadata was saved: an unreachable
+                # private video must not stay on disk indefinitely.
+                if not (folder / "upload.json").exists():
+                    shutil.rmtree(folder, ignore_errors=True)
+                continue
             except (OSError, ValueError, KeyError, TypeError):
                 continue
 
@@ -359,19 +383,36 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         }
         pending = entry["root"] / (".upload-" + secrets.token_hex(10) + ".tmp")
         try:
-            with pending.open("x", encoding="utf-8") as output:
+            descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
                 output.write(json.dumps(metadata))
             os.replace(pending, entry["root"] / "upload.json")
         finally:
             pending.unlink(missing_ok=True)
 
-    def free_upload_slot():
+    def purge_expired():
+        """Delete expired visitor footage and reports. Caller holds `lock`."""
         now = time.time()
         for job_id, entry in list(data["uploads"].items()):
             if (now - entry["created"] > VISITOR_UPLOAD_TTL and
                     entry["state"].snapshot()["state"] not in ("running", "stopping")):
                 data["uploads"].pop(job_id)
-                shutil.rmtree(entry["root"])
+                shutil.rmtree(entry["root"], ignore_errors=True)
+
+    def sweep_expired():
+        """Honor the stated two-hour retention even when nobody uploads again."""
+        now = time.monotonic()
+        if now - last_sweep[0] < 60 or not lock.acquire(blocking=False):
+            return
+        try:
+            last_sweep[0] = now
+            with analysis_gate:
+                purge_expired()
+        finally:
+            lock.release()
+
+    def free_upload_slot():
+        purge_expired()
         if len(data["uploads"]) >= VISITOR_UPLOAD_COUNT:
             # Preserve active analysis jobs; completed reports are temporary.
             reusable = [(job_id, entry) for job_id, entry in data["uploads"].items()
@@ -441,7 +482,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 (request.method not in ("POST", "DELETE") or origins == [origin]))
 
     def owner_ok(request: Request):
-        return hmac.compare_digest(
+        return _same_secret(
             request.headers.get("authorization", "").encode(),
             ("Bearer " + owner).encode()
         )
@@ -519,6 +560,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             return reply(403,"same_origin_required")
         if request.method not in ("GET","HEAD","POST","DELETE"):
             return reply(405,"method_not_allowed")
+        sweep_expired()
         if route == "/" and request.method in ("GET","HEAD"):
             return RedirectResponse("/demo",status_code=307)
         if route == "/demo/bridge" and request.method in ("GET","HEAD"):
@@ -627,7 +669,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 media_type="text/html; charset=utf-8",
                 headers={"Content-Security-Policy":REPORT_CSP})
         if route == "/api/demo/analyze" and request.method == "POST":
-            if not hmac.compare_digest(request.headers.get("x-demo-csrf",""),csrf):
+            if not _same_secret(request.headers.get("x-demo-csrf",""),csrf):
                 return reply(403,"csrf_required")
             if request.headers.get("content-type") != "application/json":
                 return reply(415,"json_required")
@@ -649,7 +691,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             return JSONResponse({"started":True},status_code=202)
         visitor_analyze = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/analyze", route)
         if visitor_analyze and request.method == "POST":
-            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+            if not _same_secret(request.headers.get("x-demo-csrf", ""), csrf):
                 return reply(403, "csrf_required")
             if request.headers.get("content-type") != "application/json":
                 return reply(415, "json_required")
@@ -663,7 +705,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if entry is None:
                 return reply(404, "video_not_found")
             delete_token = entry.get("delete_token")
-            if delete_token and not hmac.compare_digest(
+            if delete_token and not _same_secret(
                     request.headers.get("x-demo-delete-token", ""), delete_token):
                 return reply(403, "delete_token_required")
             with analysis_gate:
@@ -683,7 +725,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             return JSONResponse({"started": True}, status_code=202)
         visitor_cancel = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/cancel", route)
         if visitor_cancel and request.method == "POST":
-            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+            if not _same_secret(request.headers.get("x-demo-csrf", ""), csrf):
                 return reply(403, "csrf_required")
             if request.headers.get("content-type") != "application/json":
                 return reply(415, "json_required")
@@ -707,7 +749,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     if entry is None:
                         return reply(404, "video_not_found")
                     delete_token = entry.get("delete_token")
-                    if delete_token and not hmac.compare_digest(
+                    if delete_token and not _same_secret(
                             request.headers.get("x-demo-delete-token", ""), delete_token):
                         return reply(403, "delete_token_required")
                     if entry.get("cancelled"):
@@ -743,7 +785,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
 
         visitor_delete = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})", route)
         if visitor_delete and request.method == "DELETE":
-            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+            if not _same_secret(request.headers.get("x-demo-csrf", ""), csrf):
                 return reply(403, "csrf_required")
             if not lock.acquire(blocking=False):
                 return reply(409, "upload_in_progress")
@@ -757,7 +799,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     # Clips created before removal was added had no per-clip
                     # token. Their unpredictable 192-bit ID remains the only
                     # bearer capability for the rest of their two-hour life.
-                    if delete_token and not hmac.compare_digest(
+                    if delete_token and not _same_secret(
                             request.headers.get("x-demo-delete-token", ""), delete_token):
                         return reply(403, "delete_token_required")
                     snapshot = entry["state"].snapshot()
@@ -772,7 +814,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             finally:
                 lock.release()
         if route == "/api/demo/videos" and request.method == "POST":
-            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+            if not _same_secret(request.headers.get("x-demo-csrf", ""), csrf):
                 return reply(403, "csrf_required")
             name = _visitor_name(request.headers.get("x-demo-filename", ""))
             if not name or request.headers.get("content-type") != VISITOR_MEDIA_TYPES[name[1]]:
@@ -830,10 +872,14 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     pending = None
                     created = time.time()
                     delete_token = secrets.token_urlsafe(32)
-                    (folder / "upload.json").write_text(json.dumps({
-                        "name": name[0], "display_name": display_name, "created": created,
-                        "delete_token": delete_token, "auto_start": True, "cancelled": False,
-                    }))
+                    # The file holds this clip's bearer capability: owner-only.
+                    descriptor = os.open(folder / "upload.json",
+                                         os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                        output.write(json.dumps({
+                            "name": name[0], "display_name": display_name, "created": created,
+                            "delete_token": delete_token, "auto_start": True, "cancelled": False,
+                        }))
                     state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
                     with analysis_gate:
                         queued = analysis_busy() or queue_pending()
@@ -922,6 +968,11 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         response.headers["Referrer-Policy"]="no-referrer"
         response.headers["X-Robots-Tag"]="noindex, nofollow"
         response.headers["Strict-Transport-Security"]="max-age=31536000"
+        # The analyzer never needs device sensors, even inside the trusted frame.
+        response.headers["Permissions-Policy"]=(
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), "
+            "display-capture=(), browsing-topics=()")
+        response.headers["X-Permitted-Cross-Domain-Policies"]="none"
         return response
 
     app=Starlette(routes=[Route("/{path:path}",handle,
@@ -930,4 +981,5 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     app.state.demo_csrf=csrf
     app.state.bootstrap_thread=bootstrap_thread
     app.state.demo_data=data
+    app.state.demo_last_sweep=last_sweep
     return app

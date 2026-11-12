@@ -23,7 +23,12 @@ class HostedDemoState(DemoState):
         self.output_root = Path(out_dir).resolve()
         self.output_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.manifest = self.output_root / "latest.json"
-        self.source_sha256 = hashlib.sha256(Path(video).read_bytes()).hexdigest()
+        # Stream the digest: a 100 MiB upload must not be held in server memory.
+        digest = hashlib.sha256()
+        with Path(video).open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        self.source_sha256 = digest.hexdigest()
         self.run_id = secrets.token_hex(16)
         self.feedback_enabled = os.environ.get("STROKESENSE_LLM_FEEDBACK") == "1"
         self.feedback = {"state": "pending" if self.feedback_enabled else "disabled"}
@@ -42,7 +47,9 @@ class HostedDemoState(DemoState):
 
     def _command(self):
         # A live rerun always executes inference, even if another run has a cache.
-        return super()._command() + ["--fresh"]
+        # Visitor footage is untrusted: the worker rejects oversized frames
+        # and long clips before decoding more than one frame.
+        return super()._command() + ["--fresh", "--bounded-media"]
 
     def _restore(self):
         try:

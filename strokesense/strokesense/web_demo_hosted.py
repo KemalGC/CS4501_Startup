@@ -57,8 +57,13 @@ VISITOR_UPLOAD_COUNT = 3
 VISITOR_UPLOAD_TTL = 60 * 60 * 2
 VISITOR_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_CLIENT_HOURLY_LIMIT = 6
+PREPARED_SESSION_COUNT = 24
+PREPARED_SESSION_TTL = 60 * 60 * 2
+PREPARED_GLOBAL_HOURLY_LIMIT = 12
+PREPARED_SESSION_HOURLY_LIMIT = 3
 VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 VISITOR_ID = re.compile(r"[0-9a-f]{48}\Z")
+PREPARED_ID = re.compile(r"[0-9a-f]{32}\Z")
 
 
 def _visitor_name(value, *, encoded=True):
@@ -218,7 +223,8 @@ document.getElementById('upload').addEventListener('submit',async (event)=>{
 
 
 def create_app(*, data_dir=None, origin=None, owner_key=None,
-               max_upload_bytes=None, command_factory=None, bootstrap_url=None, bootstrap_sha256=None):
+               max_upload_bytes=None, command_factory=None, bootstrap_url=None,
+               bootstrap_sha256=None, legacy_demo_routes=False):
     root = Path(data_dir or os.environ.get("STROKESENSE_DEMO_DATA_DIR", "/var/data")).resolve()
     origin = (origin or os.environ.get("STROKESENSE_DEMO_ORIGIN")
               or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
@@ -237,12 +243,17 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     if visitor_root.is_symlink():
         raise ValueError("unsafe_visitor_directory")
     visitor_root.mkdir(mode=0o700, exist_ok=True)
+    session_root = demo_root / "prepared-sessions"
+    if session_root.is_symlink():
+        raise ValueError("unsafe_prepared_session_directory")
+    session_root.mkdir(mode=0o700, exist_ok=True)
     lock = threading.Lock()
     analysis_gate = threading.Lock()
     queue_wake = threading.Event()
     queue_thread = None
-    data = {"demo": None, "uploads": {}}
+    data = {"demo": None, "uploads": {}, "prepared_sessions": {}}
     upload_history = []
+    prepared_history = []
     csrf = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(18)
     bootstrap_status = {"state": "not_configured"}
@@ -261,10 +272,49 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         prepared = data["demo"]
         return (prepared is not None and prepared.snapshot()["state"] in ("running", "stopping")
                 or any(entry["state"].snapshot()["state"] in ("running", "stopping")
-                       for entry in data["uploads"].values()))
+                       for entry in data["uploads"].values())
+                or any(entry["state"].snapshot()["state"] in ("running", "stopping")
+                       for entry in data["prepared_sessions"].values()))
 
     def queue_pending():
-        return any(entry.get("queued", False) for entry in data["uploads"].values())
+        return (any(entry.get("queued", False) for entry in data["uploads"].values())
+                or any(entry.get("queued", False)
+                       for entry in data["prepared_sessions"].values()))
+
+    def prepared_ready():
+        """A new visitor must never see another visitor's prepared-clip run."""
+        return {"state": "ready", "label": "Ready to analyze",
+            "detail": "Run the prepared video to see your own analysis and report.",
+            "progress": 0, "has_report": False, "has_overlay": False,
+            "elapsed_seconds": None, "crew_summary": None,
+            "llm_feedback": {"state": "pending"}, "can_rerun": True}
+
+    def prepared_entry(session_id):
+        entry = data["prepared_sessions"].get(session_id)
+        if entry is not None and time.time() - entry["created"] > PREPARED_SESSION_TTL:
+            if entry["state"].snapshot()["state"] not in ("running", "stopping"):
+                return None
+        return entry
+
+    def prepared_snapshot(entry):
+        if entry is None:
+            return prepared_ready()
+        if entry.get("queued"):
+            return {"state": "queued", "label": "Waiting for Render analysis",
+                "detail": "Your prepared-video analysis will start when the current job finishes.",
+                "progress": 0, "has_report": False, "has_overlay": False,
+                "elapsed_seconds": None, "crew_summary": None,
+                "llm_feedback": {"state": "pending"}, "can_rerun": False}
+        return entry["state"].snapshot()
+
+    def prepared_quota_open(session_id):
+        now = time.time()
+        # Render's upstream proxy can mask visitor IPs. Use the random session
+        # capability for per-visitor limits, plus an aggregate paid-CPU cap.
+        prepared_history[:] = [(at, session) for at, session in prepared_history if now - at < 3600]
+        return (len(prepared_history) < PREPARED_GLOBAL_HOURLY_LIMIT and
+                sum(previous == session_id for _, previous in prepared_history)
+                < PREPARED_SESSION_HOURLY_LIMIT)
 
     def visitor_snapshot(entry):
         if entry.get("queued"):
@@ -297,6 +347,41 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         client = request.client.host if request.client else "unknown"
         return (len(upload_history) < VISITOR_GLOBAL_HOURLY_LIMIT and
                 sum(previous == client for _, previous in upload_history) < VISITOR_CLIENT_HOURLY_LIMIT)
+
+    def load_prepared_sessions():
+        """Restore only the report belonging to each unguessable browser session."""
+        if not video_path.is_file():
+            return
+        now = time.time()
+        for folder in sorted(session_root.iterdir()):
+            if not folder.is_dir() or folder.is_symlink() or not PREPARED_ID.fullmatch(folder.name):
+                continue
+            try:
+                meta_path = folder / "session.json"
+                if meta_path.is_symlink() or meta_path.stat().st_size > 1024:
+                    continue
+                meta = json.loads(meta_path.read_text())
+                created = meta.get("created")
+                if (type(created) not in (int, float) or created > now + 60
+                        or now - created > PREPARED_SESSION_TTL):
+                    continue
+                state = HostedDemoState(video_path, folder / "outputs",
+                                        command_factory=command_factory)
+                data["prepared_sessions"][folder.name] = {
+                    "state": state, "root": folder, "created": created,
+                    "queued": bool(meta.get("auto_start")) and state.snapshot()["state"] == "ready",
+                }
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+
+    def prepared_slot_open():
+        now = time.time()
+        for session_id, entry in list(data["prepared_sessions"].items()):
+            if (now - entry["created"] > PREPARED_SESSION_TTL and
+                    entry["state"].snapshot()["state"] not in ("running", "stopping")):
+                data["prepared_sessions"].pop(session_id)
+                shutil.rmtree(entry["root"])
+        return len(data["prepared_sessions"]) < PREPARED_SESSION_COUNT
 
     def load_uploads():
         # A Render restart must not silently swap an uploaded report with the
@@ -375,10 +460,15 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             queue_wake.clear()
             with lock:
                 with analysis_gate:
-                    waiting = sorted((entry for entry in data["uploads"].values()
-                                      if entry.get("queued") and
-                                      time.time() - entry["created"] <= VISITOR_UPLOAD_TTL),
-                                     key=lambda entry: entry["created"])
+                    waiting = sorted(
+                        (entry for entry in data["uploads"].values()
+                         if entry.get("queued") and
+                         time.time() - entry["created"] <= VISITOR_UPLOAD_TTL),
+                        key=lambda entry: entry.get("queued_at", entry["created"]))
+                    waiting.extend(entry for entry in data["prepared_sessions"].values()
+                                   if entry.get("queued") and
+                                   time.time() - entry["created"] <= PREPARED_SESSION_TTL)
+                    waiting.sort(key=lambda entry: entry.get("queued_at", entry["created"]))
                     if waiting and not analysis_busy():
                         next_job = waiting[0]
                         if next_job["state"].begin():
@@ -393,6 +483,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         queue_wake.set()
 
     load_uploads()
+    load_prepared_sessions()
     if queue_pending():
         ensure_queue_worker()
 
@@ -408,6 +499,9 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 try:
                     _install_demo_video(source_url, source_sha256, video_path, upper)
                     data["demo"] = fresh_state()
+                    load_prepared_sessions()
+                    if queue_pending():
+                        ensure_queue_worker()
                     bootstrap_status["state"] = "ready"
                 except (OSError, ValueError):
                     bootstrap_status["state"] = "failed"
@@ -516,17 +610,38 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             return HTMLResponse(_setup_page(nonce),
                 headers={"Content-Security-Policy":PUBLIC_CSP.format(nonce=nonce)})
         if route == "/api/demo/status" and request.method in ("GET","HEAD"):
-            return JSONResponse(data["demo"].snapshot()) if data["demo"] else reply(409,"video_not_ready")
+            if data["demo"] is None:
+                return reply(409, "video_not_ready")
+            return JSONResponse(data["demo"].snapshot() if legacy_demo_routes else prepared_ready())
+        prepared_status_route = re.fullmatch(r"/api/demo/sessions/([0-9a-f]{32})/status", route)
+        if prepared_status_route and request.method in ("GET", "HEAD"):
+            if data["demo"] is None:
+                return reply(409, "video_not_ready")
+            return JSONResponse(prepared_snapshot(prepared_entry(prepared_status_route.group(1))))
         visitor_status = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/status", route)
         if visitor_status and request.method in ("GET", "HEAD"):
             entry = visitor_entry(visitor_status.group(1))
             return JSONResponse(visitor_snapshot(entry)) if entry else reply(404, "video_not_found")
         if route == "/api/demo/dashboard" and request.method in ("GET", "HEAD"):
+            if not legacy_demo_routes:
+                return reply(404, "session_required")
             demo = data["demo"]
             if demo is None or demo.snapshot()["state"] != "finished":
                 return reply(404, "report_not_ready")
             try:
                 result = build_dashboard(demo, "Prepared rowing clip", prepared=True)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                return reply(503, "report_data_unavailable")
+            return JSONResponse(result)
+        prepared_dashboard_route = re.fullmatch(r"/api/demo/sessions/([0-9a-f]{32})/dashboard", route)
+        if prepared_dashboard_route and request.method in ("GET", "HEAD"):
+            entry = prepared_entry(prepared_dashboard_route.group(1))
+            if entry is None or entry.get("queued") or entry["state"].snapshot()["state"] != "finished":
+                return reply(404, "report_not_ready")
+            try:
+                result = build_dashboard(
+                    entry["state"], "Prepared rowing clip", prepared=True,
+                    snapshots_base=f"/demo/sessions/{prepared_dashboard_route.group(1)}/snapshots")
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 return reply(503, "report_data_unavailable")
             return JSONResponse(result)
@@ -544,6 +659,13 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 return reply(503, "report_data_unavailable")
             return JSONResponse(result)
+        prepared_snapshot_image = re.fullmatch(
+            r"/demo/sessions/([0-9a-f]{32})/snapshots/([^/]+)", route)
+        if prepared_snapshot_image and request.method in ("GET", "HEAD"):
+            entry = prepared_entry(prepared_snapshot_image.group(1))
+            if entry is None or entry.get("queued"):
+                return reply(404, "report_not_ready")
+            return snapshot_response(request, entry["state"], prepared_snapshot_image.group(2))
         visitor_snapshot_image = re.fullmatch(
             r"/demo/videos/([0-9a-f]{48})/snapshots/([^/]+)", route)
         if visitor_snapshot_image and request.method in ("GET", "HEAD"):
@@ -555,6 +677,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             return snapshot_response(request, entry["state"], visitor_snapshot_image.group(2))
         prepared_snapshot_image = re.fullmatch(r"/demo/snapshots/([^/]+)", route)
         if prepared_snapshot_image and request.method in ("GET", "HEAD"):
+            if not legacy_demo_routes:
+                return reply(404, "session_required")
             return snapshot_response(request, data["demo"], prepared_snapshot_image.group(1))
         visitor_media = re.fullmatch(r"/demo/videos/([0-9a-f]{48})/(video|report|annotated)", route)
         if visitor_media and request.method in ("GET", "HEAD"):
@@ -578,11 +702,32 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 if request.method == "GET" else b"",
                 media_type="text/html; charset=utf-8",
                 headers={"Content-Security-Policy": REPORT_CSP})
+        prepared_media = re.fullmatch(
+            r"/demo/sessions/([0-9a-f]{32})/(report|annotated)", route)
+        if prepared_media and request.method in ("GET", "HEAD"):
+            entry = prepared_entry(prepared_media.group(1))
+            if entry is None or entry.get("queued") or entry["state"].snapshot()["state"] != "finished":
+                return reply(404, "report_not_ready")
+            state = entry["state"]
+            kind = prepared_media.group(2)
+            path = state.report if kind == "report" else state.overlay
+            if path is None or not _safe_result(state.output_root, path):
+                return reply(404, "report_not_ready")
+            if kind == "annotated":
+                return video_response(request, path)
+            if path.stat().st_size > 16 * 1024 * 1024:
+                return reply(503, "report_too_large")
+            return Response(restyle_report(path.read_bytes(), dark=request.query_params.get("theme") == "dark")
+                if request.method == "GET" else b"",
+                media_type="text/html; charset=utf-8",
+                headers={"Content-Security-Policy": REPORT_CSP})
         if route == "/demo/video" and request.method in ("GET","HEAD"):
             if data["demo"] is None:
                 return reply(404,"video_not_ready")
             return video_response(request,video_path)
         if route in ("/demo/report","/demo/annotated") and request.method in ("GET","HEAD"):
+            if not legacy_demo_routes:
+                return reply(404, "session_required")
             demo=data["demo"]
             if demo is None or demo.snapshot()["state"] != "finished":
                 return reply(404,"report_not_ready")
@@ -598,6 +743,8 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 media_type="text/html; charset=utf-8",
                 headers={"Content-Security-Policy":REPORT_CSP})
         if route == "/api/demo/analyze" and request.method == "POST":
+            if not legacy_demo_routes:
+                return reply(410, "session_required")
             if not hmac.compare_digest(request.headers.get("x-demo-csrf",""),csrf):
                 return reply(403,"csrf_required")
             if request.headers.get("content-type") != "application/json":
@@ -615,6 +762,63 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 if analysis_busy() or queue_pending() or not demo.begin():
                     return reply(409,"analysis_already_started")
             return JSONResponse({"started":True},status_code=202)
+        prepared_analyze = re.fullmatch(r"/api/demo/sessions/([0-9a-f]{32})/analyze", route)
+        if prepared_analyze and request.method == "POST":
+            if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
+                return reply(403, "csrf_required")
+            if request.headers.get("content-type") != "application/json":
+                return reply(415, "json_required")
+            try:
+                raw = await bounded_body(request, 2)
+            except OverflowError:
+                return reply(400, "expected_empty_json")
+            if raw != b"{}":
+                return reply(400, "expected_empty_json")
+            if data["demo"] is None:
+                return reply(409, "video_not_ready")
+            if not lock.acquire(blocking=False):
+                return reply(409, "upload_in_progress")
+            try:
+                with analysis_gate:
+                    session_id = prepared_analyze.group(1)
+                    entry = prepared_entry(session_id)
+                    if entry is not None:
+                        status = prepared_snapshot(entry)
+                        if entry.get("queued") or not status.get("can_rerun", False):
+                            return reply(409, "analysis_in_progress")
+                    if not prepared_quota_open(session_id):
+                        return reply(429, "analysis_rate_limited")
+                    if entry is None:
+                        if not prepared_slot_open():
+                            return reply(429, "analysis_capacity_reached")
+                        folder = session_root / session_id
+                        if folder.exists() or folder.is_symlink():
+                            return reply(409, "session_conflict")
+                        try:
+                            folder.mkdir(mode=0o700)
+                            now = time.time()
+                            (folder / "session.json").write_text(json.dumps({
+                                "created": now, "auto_start": True}))
+                            state = HostedDemoState(video_path, folder / "outputs",
+                                                    command_factory=command_factory)
+                        except (OSError, ValueError):
+                            shutil.rmtree(folder)
+                            return reply(503, "unable_to_create_session")
+                        entry = {"state": state, "root": folder, "created": now,
+                                 "queued": False}
+                        data["prepared_sessions"][session_id] = entry
+                    queued = analysis_busy() or queue_pending()
+                    if queued:
+                        entry["queued"] = True
+                        entry["queued_at"] = time.time()
+                    elif not entry["state"].begin():
+                        return reply(409, "analysis_in_progress")
+                    prepared_history.append((time.time(), session_id))
+                    if queued:
+                        ensure_queue_worker()
+                return JSONResponse({"started": not queued, "queued": queued}, status_code=202)
+            finally:
+                lock.release()
         visitor_analyze = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/analyze", route)
         if visitor_analyze and request.method == "POST":
             if not hmac.compare_digest(request.headers.get("x-demo-csrf", ""), csrf):
@@ -862,7 +1066,9 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     async def security_headers(request, call_next):
         response=await call_next(request)
         response.headers.setdefault("Content-Security-Policy",DEFAULT_CSP)
-        response.headers["Cache-Control"]="no-store"
+        response.headers["Cache-Control"]=(
+            "private, no-store" if request.url.path.startswith((
+                "/api/demo/sessions/", "/demo/sessions/")) else "no-store")
         response.headers["X-Content-Type-Options"]="nosniff"
         response.headers["Referrer-Policy"]="no-referrer"
         response.headers["X-Robots-Tag"]="noindex, nofollow"

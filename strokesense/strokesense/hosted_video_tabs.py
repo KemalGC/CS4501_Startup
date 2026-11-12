@@ -59,11 +59,22 @@ let removeInProgress=false;
 let pendingRemovalId=null;
 let nextVideoNumber=2;
 const clipOrigin='/demo/videos/';
+const preparedSessionId=(()=>{
+  let id='';
+  try{id=sessionStorage.getItem('strokesense-prepared-session')||'';}catch(e){}
+  if(!/^[a-f0-9]{32}$/.test(id)){
+    id=Array.from(crypto.getRandomValues(new Uint8Array(16)),
+      byte=>byte.toString(16).padStart(2,'0')).join('');
+    try{sessionStorage.setItem('strokesense-prepared-session',id);}catch(e){}
+  }
+  return id;
+})();
+const preparedSessionRoot='/demo/sessions/'+preparedSessionId;
 const sampleClip={id:null,name:'Video Project 19 · 12.8-second eights clip',
-  videoUrl:'/demo/video',reportUrl:'/demo/report',annotatedUrl:'/demo/annotated',
+  videoUrl:'/demo/video',reportUrl:preparedSessionRoot+'/report',annotatedUrl:preparedSessionRoot+'/annotated',
   info:'Full 12.8-second uploaded eights clip; the model runs on this footage. The report is computed from this exact video.'};
-function statusEndpoint(){return activeVideoId?'/api/demo/videos/'+activeVideoId+'/status':'/api/demo/status';}
-function analyzeEndpoint(){return activeVideoId?'/api/demo/videos/'+activeVideoId+'/analyze':'/api/demo/analyze';}
+function statusEndpoint(){return activeVideoId?'/api/demo/videos/'+activeVideoId+'/status':'/api/demo/sessions/'+preparedSessionId+'/status';}
+function analyzeEndpoint(){return activeVideoId?'/api/demo/videos/'+activeVideoId+'/analyze':'/api/demo/sessions/'+preparedSessionId+'/analyze';}
 function activateClip(clip){
   activeVideoId=clip.id;
   pendingRemovalId=null;

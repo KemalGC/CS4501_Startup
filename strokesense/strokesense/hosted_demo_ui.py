@@ -150,8 +150,18 @@ function ssBridgeClip(id){
   if(typeof id==='string'&&/^[a-f0-9]{48}$/.test(id))return '/videos/'+id;
   throw Error('invalid_video_id');
 }
+function ssBridgeSession(id){
+  if(typeof id==='string'&&/^[a-f0-9]{32}$/.test(id))return '/sessions/'+id;
+  throw Error('invalid_session_id');
+}
 async function ssBridgeRequest(action,payload){
-  const suffix=ssBridgeClip(payload.clipId===undefined?null:payload.clipId);
+  if(!['status','dashboard','analyze','upload','cancel','delete'].includes(action))
+    throw Error('unsupported_action');
+  const clipId=payload.clipId===undefined?null:payload.clipId;
+  if(clipId===null&&action==='cancel')throw Error('cannot_cancel_prepared_video');
+  if(clipId===null&&action==='delete')throw Error('cannot_delete_prepared_video');
+  const suffix=clipId===null&&action!=='upload'
+    ?ssBridgeSession(payload.sessionId):ssBridgeClip(clipId);
   if(action==='status'){
     const path=suffix?'/api/demo'+suffix+'/status':'/api/demo/status';
     const response=await fetch(path,{cache:'no-store',credentials:'same-origin'});
@@ -167,7 +177,7 @@ async function ssBridgeRequest(action,payload){
     return result;
   }
   if(action==='cancel'){
-    if(!suffix)throw Error('cannot_cancel_prepared_video');
+    if(clipId===null)throw Error('cannot_cancel_prepared_video');
     const deleteToken=payload.deleteToken;
     if(typeof deleteToken!=='string'||!/^[a-zA-Z0-9_-]{32,128}$/.test(deleteToken))
       throw Error('invalid_delete_token');
@@ -208,7 +218,7 @@ async function ssBridgeRequest(action,payload){
     return result;
   }
   if(action==='delete'){
-    if(!suffix)throw Error('cannot_delete_prepared_video');
+    if(clipId===null)throw Error('cannot_delete_prepared_video');
     const deleteToken=payload.deleteToken;
     if(typeof deleteToken!=='string'||!/^[a-zA-Z0-9_-]{32,128}$/.test(deleteToken))
       throw Error('invalid_delete_token');

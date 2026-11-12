@@ -61,6 +61,7 @@ time.sleep(0.35)
         app = create_app(data_dir=self.root, origin=ORIGIN, owner_key=OWNER,
                          max_upload_bytes=1024,
                          command_factory=lambda: self.worker_command(app.state.demo_data['demo'].root),
+                         legacy_demo_routes=True,
                          **kwargs)
         return app
 

@@ -8,6 +8,8 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import re
 import sys
 import time
 import zlib
@@ -98,6 +100,54 @@ def _result_directory(video, out_dir):
     video = Path(video).expanduser().resolve()
     source_key = hashlib.sha256(str(video).encode("utf-8")).hexdigest()[:20]
     return Path(out_dir) / f"{video.stem[:72]}--{source_key}"
+
+
+def _write_mistake_gallery(out, rowers, snaps, written):
+    """Publish only image files written in this run, never stale captures.
+
+    Keeping a small file of relative JPEG basenames lets the HTTPS dashboard
+    offer genuine, timestamped photo sequences without embedding huge data
+    URLs in its JSON response. Unrelated local CLI reports are unaffected.
+    """
+    written = {Path(path) for path in (written or ())}
+    manifest = {'version': 1, 'rowers': {}}
+    for rower in rowers:
+        seat = rower.seat
+        if not isinstance(seat, str) or not re.fullmatch(r'R(?:[1-9]|1[0-6])', seat):
+            continue
+        item = snaps.get(rower.tid, {})
+        pictures = []
+        for kind, label in (('catch', 'Catch reference'), ('finish', 'Finish reference')):
+            path = item.get(kind)
+            if path is not None and Path(path) in written:
+                pictures.append({
+                    'label': label, 'time_seconds': item.get(kind + '_seconds'),
+                    'filename': Path(path).name,
+                })
+        sequences = []
+        for progression in item.get('progressions', [])[:3]:
+            frames = [
+                {'label': photo['label'], 'time_seconds': photo['time_seconds'],
+                 'filename': Path(photo['path']).name}
+                for photo in progression['frames']
+                if Path(photo['path']) in written
+            ]
+            # A context-only image is not evidence of the candidate flag.
+            if any(photo['label'] == 'Flagged moment' for photo in frames):
+                sequences.append({
+                    'code': progression['code'], 'stroke': progression['stroke'],
+                    'frames': frames,
+                })
+        manifest['rowers'][seat] = {
+            'snapshots': pictures, 'mistake_sequences': sequences,
+        }
+    target = Path(out) / 'mistake_frames.json'
+    pending = Path(out) / '.mistake_frames.tmp'
+    try:
+        pending.write_text(json.dumps(manifest, allow_nan=False), encoding='utf-8')
+        os.replace(pending, target)
+    finally:
+        pending.unlink(missing_ok=True)
 
 
 def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="auto", fps=15.0,
@@ -222,8 +272,13 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
         mid = r.strokes[len(r.strokes) // 2]
         c, f = out / f"seat_{r.seat}_catch.jpg", out / f"seat_{r.seat}_finish.jpg"
         faults, fault_requests = render.fault_snapshot_requests(r, pose, out)
-        snaps[r.tid] = {"catch": c, "finish": f, "faults": faults}
-        reqs += [(mid.catch, r, c), (mid.finish, r, f)] + fault_requests
+        progressions, progress_requests = render.mistake_progression_requests(r, pose, faults, out)
+        snaps[r.tid] = {
+            "catch": c, "catch_seconds": float(pose.start + mid.catch / pose.fps),
+            "finish": f, "finish_seconds": float(pose.start + mid.finish / pose.fps),
+            "faults": faults, "progressions": progressions,
+        }
+        reqs += [(mid.catch, r, c), (mid.finish, r, f)] + fault_requests + progress_requests
     ref = max(rowers, key=lambda r: len(r.strokes))
     if ref.strokes:
         reqs.append((ref.strokes[len(ref.strokes) // 2].catch, None, out / "crew_catch.jpg"))
@@ -232,6 +287,7 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
     for sn in snaps.values():
         sn['faults'] = {code: shot for code, shot in sn.get('faults', {}).items()
                         if written is not None and shot['path'] in written}
+    _write_mistake_gallery(out, rowers, snaps, written)
     html_path = report.build_html(video.name, pose, rowers, sync, snaps, out / "report.html")
     report.build_json(
         rowers, sync, out / "metrics.json",

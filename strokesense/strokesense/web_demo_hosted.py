@@ -37,7 +37,7 @@ from .oneclick_demo import PAGE, _safe_media, _safe_result, MAX_MEDIA_BYTES
 from .hosted_demo_state import HostedDemoState
 from .hosted_video_tabs import add_video_tabs
 from .hosted_demo_ui import bridge_page, redesign_hosted_demo, restyle_report
-from .hosted_dashboard import build_dashboard
+from .hosted_dashboard import build_dashboard, _snapshot_path
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; frame-src 'self'; media-src 'self'; connect-src 'self'; "
@@ -47,6 +47,7 @@ DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
                "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
 MEDIA_CSP = ("default-src 'none'; media-src 'self'; frame-ancestors 'self' "
              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
+IMAGE_CSP = MEDIA_CSP.replace("media-src 'self'", "img-src 'self'")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
@@ -464,6 +465,24 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     yield chunk
         return StreamingResponse(chunks(),status_code=code,headers=headers)
 
+    def snapshot_response(request, state, filename):
+        """Public evidence from this completed analysis only, never disk paths."""
+        if state is None or state.snapshot().get("state") != "finished":
+            return reply(404, "report_not_ready")
+        report = state.report
+        try:
+            ready = report is not None and _safe_result(state.output_root, report)
+        except (OSError, ValueError):
+            ready = False
+        if not ready:
+            return reply(404, "report_not_ready")
+        path = _snapshot_path(report, state.output_root, filename)
+        if path is None:
+            return reply(404, "snapshot_not_found")
+        return Response(path.read_bytes() if request.method == "GET" else b"",
+                        media_type="image/jpeg",
+                        headers={"Content-Security-Policy": IMAGE_CSP})
+
     async def handle(request: Request):
         route = request.url.path
         if route == "/healthz" and request.method in ("GET","HEAD"):
@@ -519,10 +538,24 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if entry.get("queued") or entry.get("cancelled") or entry["state"].snapshot()["state"] != "finished":
                 return reply(404, "report_not_ready")
             try:
-                result = build_dashboard(entry["state"], entry["name"])
+                result = build_dashboard(
+                    entry["state"], entry["name"],
+                    snapshots_base=f"/demo/videos/{visitor_dashboard.group(1)}/snapshots")
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 return reply(503, "report_data_unavailable")
             return JSONResponse(result)
+        visitor_snapshot_image = re.fullmatch(
+            r"/demo/videos/([0-9a-f]{48})/snapshots/([^/]+)", route)
+        if visitor_snapshot_image and request.method in ("GET", "HEAD"):
+            entry = visitor_entry(visitor_snapshot_image.group(1))
+            if entry is None:
+                return reply(404, "video_not_found")
+            if entry.get("queued") or entry.get("cancelled"):
+                return reply(404, "report_not_ready")
+            return snapshot_response(request, entry["state"], visitor_snapshot_image.group(2))
+        prepared_snapshot_image = re.fullmatch(r"/demo/snapshots/([^/]+)", route)
+        if prepared_snapshot_image and request.method in ("GET", "HEAD"):
+            return snapshot_response(request, data["demo"], prepared_snapshot_image.group(1))
         visitor_media = re.fullmatch(r"/demo/videos/([0-9a-f]{48})/(video|report|annotated)", route)
         if visitor_media and request.method in ("GET", "HEAD"):
             entry = visitor_entry(visitor_media.group(1))

@@ -240,6 +240,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         raise ValueError("unsafe_visitor_directory")
     visitor_root.mkdir(mode=0o700, exist_ok=True)
     lock = threading.Lock()
+    upload_gate = threading.Lock()
     analysis_gate = threading.Lock()
     queue_wake = threading.Event()
     queue_thread = None
@@ -773,7 +774,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                 return reply(411, "invalid_content_length")
             if lengths and not 0 < int(lengths[0]) <= limit:
                 return reply(413, "video_too_large")
-            if not lock.acquire(blocking=False):
+            if not upload_gate.acquire(blocking=False):
                 return reply(409, "upload_in_progress")
             pending = None
             folder = None
@@ -799,48 +800,53 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     return reply(422, "incomplete_video")
                 if not plausible_container(bytes(header), name[1], total_size=total):
                     return reply(422, "invalid_video_container")
-                if not free_upload_slot():
-                    return reply(429, "analysis_capacity_reached")
-                job_id = secrets.token_hex(24)
-                folder = visitor_root / job_id
-                folder.mkdir(mode=0o700)
-                media_path = folder / ("input" + name[1])
-                os.chmod(pending, 0o600)
-                os.replace(pending, media_path)
-                pending = None
-                created = time.time()
-                delete_token = secrets.token_urlsafe(32)
-                (folder / "upload.json").write_text(json.dumps({
-                    "name": name[0], "display_name": display_name, "created": created,
-                    "delete_token": delete_token, "auto_start": True, "cancelled": False,
-                }))
-                state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
-                with analysis_gate:
-                    queued = analysis_busy() or queue_pending()
-                    if not queued and not state.begin():
-                        return reply(503, "unable_to_start_analysis")
-                    data["uploads"][job_id] = {"name": display_name, "filename": name[0],
-                                                "created": created, "state": state,
-                                                "video": media_path, "root": folder,
-                                                "delete_token": delete_token, "queued": queued,
-                                                "cancelled": False}
-                    upload_history.append((created, request.client.host if request.client else "unknown"))
-                if queued:
-                    ensure_queue_worker()
-                folder = None
-                return JSONResponse({"id": job_id, "name": display_name,
-                    "started": not queued, "queued": queued,
-                    "delete_token": delete_token,
-                    "status_url": f"/api/demo/videos/{job_id}/status",
-                    "video_url": f"/demo/videos/{job_id}/video",
-                    "report_url": f"/demo/videos/{job_id}/report",
-                    "annotated_url": f"/demo/videos/{job_id}/annotated"}, status_code=202)
+                # Keep the state lock clear while a remote client streams bytes.
+                # Cancellation and deletion of existing clips must remain usable.
+                with lock:
+                    if not visitor_quota_open(request):
+                        return reply(429, "upload_rate_limited")
+                    if not free_upload_slot():
+                        return reply(429, "analysis_capacity_reached")
+                    job_id = secrets.token_hex(24)
+                    folder = visitor_root / job_id
+                    folder.mkdir(mode=0o700)
+                    media_path = folder / ("input" + name[1])
+                    os.chmod(pending, 0o600)
+                    os.replace(pending, media_path)
+                    pending = None
+                    created = time.time()
+                    delete_token = secrets.token_urlsafe(32)
+                    (folder / "upload.json").write_text(json.dumps({
+                        "name": name[0], "display_name": display_name, "created": created,
+                        "delete_token": delete_token, "auto_start": True, "cancelled": False,
+                    }))
+                    state = HostedDemoState(media_path, folder / "outputs", command_factory=command_factory)
+                    with analysis_gate:
+                        queued = analysis_busy() or queue_pending()
+                        if not queued and not state.begin():
+                            return reply(503, "unable_to_start_analysis")
+                        data["uploads"][job_id] = {"name": display_name, "filename": name[0],
+                                                    "created": created, "state": state,
+                                                    "video": media_path, "root": folder,
+                                                    "delete_token": delete_token, "queued": queued,
+                                                    "cancelled": False}
+                        upload_history.append((created, request.client.host if request.client else "unknown"))
+                    if queued:
+                        ensure_queue_worker()
+                    folder = None
+                    return JSONResponse({"id": job_id, "name": display_name,
+                        "started": not queued, "queued": queued,
+                        "delete_token": delete_token,
+                        "status_url": f"/api/demo/videos/{job_id}/status",
+                        "video_url": f"/demo/videos/{job_id}/video",
+                        "report_url": f"/demo/videos/{job_id}/report",
+                        "annotated_url": f"/demo/videos/{job_id}/annotated"}, status_code=202)
             finally:
                 if pending is not None:
                     pending.unlink(missing_ok=True)
                 if folder is not None:
                     shutil.rmtree(folder)
-                lock.release()
+                upload_gate.release()
         if route == "/api/owner/demo-video" and request.method == "POST":
             if not owner_ok(request):
                 return reply(403,"owner_key_required")
@@ -852,7 +858,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             declared=int(lengths[0])
             if not 0 < declared <= upper:
                 return reply(413,"video_too_large")
-            if not lock.acquire(blocking=False):
+            if not upload_gate.acquire(blocking=False):
                 return reply(409,"upload_in_progress")
             temp = None
             try:
@@ -879,16 +885,19 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     return reply(422,"incomplete_video")
                 if not plausible_container(bytes(header),".mp4",total_size=total):
                     return reply(422,"invalid_video_container")
-                os.chmod(temp,0o600)
-                os.replace(temp,video_path)
-                temp=None
-                data["demo"] = fresh_state()
-                return JSONResponse({"prepared":True,"size_bytes":total,
-                    "sha256":digest.hexdigest(),"next":"/demo"},status_code=201)
+                with lock:
+                    if data["demo"] is not None or video_path.exists():
+                        return reply(409,"demo_already_prepared")
+                    os.chmod(temp,0o600)
+                    os.replace(temp,video_path)
+                    temp=None
+                    data["demo"] = fresh_state()
+                    return JSONResponse({"prepared":True,"size_bytes":total,
+                        "sha256":digest.hexdigest(),"next":"/demo"},status_code=201)
             finally:
                 if temp is not None:
                     temp.unlink(missing_ok=True)
-                lock.release()
+                upload_gate.release()
         return reply(404,"not_found")
 
     async def security_headers(request, call_next):

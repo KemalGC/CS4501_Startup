@@ -1,6 +1,7 @@
 """Offline visitor upload/cancel contract tests: no actual pose model required."""
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -148,6 +150,42 @@ class HostedVisitorCancelTests(unittest.TestCase):
             self.cancel(clip)
             self.wait_status(clip, "cancelled")
             self.assertEqual(self.post(url, headers=headers).status_code, 429)
+
+    def test_slow_upload_does_not_block_existing_video_deletion(self):
+        clip = self.upload()
+        self.cancel(clip)
+        self.wait_status(clip, "cancelled")
+
+        async def exercise():
+            first_chunk_sent = asyncio.Event()
+            release_upload = asyncio.Event()
+
+            async def slow_video():
+                yield FAKE_MP4[:8]
+                first_chunk_sent.set()
+                await release_upload.wait()
+                yield FAKE_MP4[8:]
+
+            async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=self.app), base_url=self.origin) as client:
+                upload_task = asyncio.create_task(client.post("/api/demo/videos",
+                    content=slow_video(), headers={"origin": self.origin,
+                        "x-demo-csrf": self.csrf, "content-type": "video/mp4",
+                        "x-demo-filename": "slow.mp4"}))
+                await asyncio.wait_for(first_chunk_sent.wait(), timeout=3)
+                try:
+                    deleted = await asyncio.wait_for(client.delete(
+                        f"/api/demo/videos/{clip['id']}", headers={
+                            "origin": self.origin, "x-demo-csrf": self.csrf,
+                            "x-demo-delete-token": clip["delete_token"]}), timeout=3)
+                    self.assertEqual(deleted.status_code, 200, deleted.text)
+                finally:
+                    release_upload.set()
+                response = await asyncio.wait_for(upload_task, timeout=3)
+                self.assertEqual(response.status_code, 202, response.text)
+                self.uploads.append(response.json())
+
+        asyncio.run(exercise())
 
     def test_csp_nonce_changes_for_each_page(self):
         first = self.client.get("/setup")

@@ -59,7 +59,6 @@ VISITOR_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_CLIENT_HOURLY_LIMIT = 6
 UPLOAD_DEADLINE_SECONDS = 180
 ANALYSIS_GLOBAL_HOURLY_LIMIT = 24
-ANALYSIS_CLIENT_HOURLY_LIMIT = 8
 VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 VISITOR_ID = re.compile(r"[0-9a-f]{48}\Z")
 
@@ -301,16 +300,14 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         return (len(upload_history) < VISITOR_GLOBAL_HOURLY_LIMIT and
                 sum(previous == client for _, previous in upload_history) < VISITOR_CLIENT_HOURLY_LIMIT)
 
-    def analysis_quota_open(request):
+    def analysis_quota_open():
         """Limit public inference starts, including reruns of the prepared clip."""
         now = time.time()
-        analysis_history[:] = [(at, client) for at, client in analysis_history if now - at < 3600]
-        client = request.client.host if request.client else "unknown"
-        return (len(analysis_history) < ANALYSIS_GLOBAL_HOURLY_LIMIT and
-                sum(previous == client for _, previous in analysis_history) < ANALYSIS_CLIENT_HOURLY_LIMIT)
+        analysis_history[:] = [at for at in analysis_history if now - at < 3600]
+        return len(analysis_history) < ANALYSIS_GLOBAL_HOURLY_LIMIT
 
-    def record_analysis_start(request):
-        analysis_history.append((time.time(), request.client.host if request.client else "unknown"))
+    def record_analysis_start():
+        analysis_history.append(time.time())
 
     def load_uploads():
         # A Render restart must not silently swap an uploaded report with the
@@ -629,11 +626,11 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if demo is None:
                 return reply(409,"video_not_ready")
             with analysis_gate:
-                if not analysis_quota_open(request):
+                if not analysis_quota_open():
                     return reply(429, "analysis_rate_limited")
                 if analysis_busy() or queue_pending() or not demo.begin():
                     return reply(409,"analysis_already_started")
-                record_analysis_start(request)
+                record_analysis_start()
             return JSONResponse({"started":True},status_code=202)
         visitor_analyze = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/analyze", route)
         if visitor_analyze and request.method == "POST":
@@ -655,7 +652,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     request.headers.get("x-demo-delete-token", ""), delete_token):
                 return reply(403, "delete_token_required")
             with analysis_gate:
-                if not analysis_quota_open(request):
+                if not analysis_quota_open():
                     return reply(429, "analysis_rate_limited")
                 if entry.get("queued") or analysis_busy() or queue_pending():
                     return reply(409, "analysis_in_progress")
@@ -666,7 +663,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                         return reply(503, "unable_to_restart_analysis")
                 if not entry["state"].begin():
                     return reply(409, "analysis_in_progress")
-                record_analysis_start(request)
+                record_analysis_start()
                 entry["cancelled"] = False
             return JSONResponse({"started": True}, status_code=202)
         visitor_cancel = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/cancel", route)

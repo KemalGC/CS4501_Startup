@@ -143,7 +143,7 @@ class HostedVisitorCancelTests(unittest.TestCase):
         self.wait_status(clip, "cancelled")
         url = f"/api/demo/videos/{clip['id']}/analyze"
         headers = {"content-type": "application/json", "x-demo-delete-token": clip["delete_token"]}
-        with patch("strokesense.web_demo_hosted.ANALYSIS_CLIENT_HOURLY_LIMIT", 1):
+        with patch("strokesense.web_demo_hosted.ANALYSIS_GLOBAL_HOURLY_LIMIT", 1):
             self.assertEqual(self.post(url, headers=headers).status_code, 202)
             self.cancel(clip)
             self.wait_status(clip, "cancelled")

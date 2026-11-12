@@ -212,6 +212,26 @@ class HostedVisitorCancelTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_idle_upload_times_out_and_releases_slot(self):
+        async def exercise():
+            async def stalled_video():
+                yield FAKE_MP4[:8]
+                await asyncio.sleep(1)
+                yield FAKE_MP4[8:]
+
+            async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=self.app), base_url=self.origin) as client:
+                with patch("strokesense.web_demo_hosted.UPLOAD_IDLE_SECONDS", .02):
+                    response = await client.post("/api/demo/videos", content=stalled_video(),
+                        headers={"origin": self.origin, "x-demo-csrf": self.csrf,
+                            "content-type": "video/mp4", "x-demo-filename": "slow.mp4"})
+                self.assertEqual(response.status_code, 408, response.text)
+                self.assertEqual(response.json()["error"], "upload_timed_out")
+
+        asyncio.run(exercise())
+        clip = self.upload()
+        self.assertTrue(clip["id"])
+
     def test_csp_nonce_changes_for_each_page(self):
         first = self.client.get("/setup")
         second = self.client.get("/setup")

@@ -58,6 +58,7 @@ VISITOR_UPLOAD_TTL = 60 * 60 * 2
 VISITOR_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_CLIENT_HOURLY_LIMIT = 6
 UPLOAD_DEADLINE_SECONDS = 180
+UPLOAD_IDLE_SECONDS = 20
 CONTROL_BODY_DEADLINE_SECONDS = 10
 ANALYSIS_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
@@ -454,6 +455,16 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     raise OverflowError("oversize")
         return bytes(data)
 
+    async def upload_chunks(request: Request):
+        """Release the upload slot if a client stops sending body data."""
+        stream = request.stream().__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(stream.__anext__(), UPLOAD_IDLE_SECONDS)
+            except StopAsyncIteration:
+                return
+            yield chunk
+
     def video_response(request, path: Path):
         if not path.is_file() or path.is_symlink():
             return reply(404,"media_not_ready")
@@ -790,7 +801,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     header = bytearray()
                     try:
                         async with asyncio.timeout(UPLOAD_DEADLINE_SECONDS):
-                            async for chunk in request.stream():
+                            async for chunk in upload_chunks(request):
                                 total += len(chunk)
                                 if total > limit:
                                     return reply(413, "video_too_large")
@@ -874,7 +885,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     header=bytearray()
                     try:
                         async with asyncio.timeout(UPLOAD_DEADLINE_SECONDS):
-                            async for chunk in request.stream():
+                            async for chunk in upload_chunks(request):
                                 total+=len(chunk)
                                 if total > upper:
                                     return reply(413,"video_too_large")

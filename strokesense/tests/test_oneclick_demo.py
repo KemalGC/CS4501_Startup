@@ -69,6 +69,7 @@ class OneClickDemoTests(unittest.TestCase):
         self.assertEqual(self.call('/video',method='HEAD',extra={'Range':'bytes=0-4'})[0],206)
         self.assertEqual(self.call('/video',extra={'Range':'bytes=999-1000'})[0],416)
         self.assertEqual(self.call('/video',extra={'Range':'bytes=0-0,2-2'})[0],416)
+        self.assertEqual(self.call('/video',extra={'Range':'bytes='+'9'*5000+'-'})[0],416)
 
     def test_one_click_runs_fresh_subprocess_and_returns_real_file_paths(self):
         self.assertEqual(self.start()[0],202)

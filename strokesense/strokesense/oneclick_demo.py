@@ -81,6 +81,9 @@ def _safe_media(path, raw_range, *, head=False, writer=None, mime="video/mp4"):
         return (416, 0, 0, {"Content-Range": "bytes */0"})
     first, last, status = 0, n - 1, 200
     if raw_range is not None:
+        # Bound decimal parsing before converting attacker-controlled ranges.
+        if len(raw_range) > 64:
+            return (416, 0, 0, {"Content-Range": f"bytes */{n}"})
         match = re.fullmatch(r"bytes=(\d*)-(\d*)", raw_range)
         if match is None or not any(match.groups()):
             return (416, 0, 0, {"Content-Range": f"bytes */{n}"})

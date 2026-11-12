@@ -41,22 +41,25 @@ from .hosted_dashboard import build_dashboard, _snapshot_path
 
 PUBLIC_CSP = ("default-src 'none'; script-src 'nonce-{nonce}'; "
               "style-src 'nonce-{nonce}'; frame-src 'self'; media-src 'self'; connect-src 'self'; "
-              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app; "
+              "img-src 'self' data:; frame-ancestors 'self' https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app; "
               "base-uri 'none'; form-action 'self'")
 DEFAULT_CSP = ("default-src 'none'; frame-ancestors 'self' "
-               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
+               "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 MEDIA_CSP = ("default-src 'none'; media-src 'self'; frame-ancestors 'self' "
-             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
+             "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 IMAGE_CSP = MEDIA_CSP.replace("media-src 'self'", "img-src 'self'")
 REPORT_CSP = ("sandbox; default-src 'none'; img-src data:; "
               "style-src 'unsafe-inline'; frame-ancestors 'self' "
-              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app https://strokesense-review-buh688zsc-stroke-sense.vercel.app https://strokesense-review-dnu9h8obu-stroke-sense.vercel.app https://strokesense-review-qa-stroke-sense.vercel.app")
+              "https://strokesense-review.kemalgcortuk.chatgpt.site https://strokesense-review.vercel.app")
 DEMO_SOURCE_URL = "https://strokesense-review.kemalgcortuk.chatgpt.site/demo-media/strokesense-demo.mp4"
 VISITOR_UPLOAD_BYTES = 100 * 1024 * 1024
 VISITOR_UPLOAD_COUNT = 3
 VISITOR_UPLOAD_TTL = 60 * 60 * 2
 VISITOR_GLOBAL_HOURLY_LIMIT = 24
 VISITOR_CLIENT_HOURLY_LIMIT = 6
+UPLOAD_DEADLINE_SECONDS = 180
+ANALYSIS_GLOBAL_HOURLY_LIMIT = 24
+ANALYSIS_CLIENT_HOURLY_LIMIT = 8
 VISITOR_MEDIA_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 VISITOR_ID = re.compile(r"[0-9a-f]{48}\Z")
 
@@ -244,7 +247,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
     data = {"demo": None, "uploads": {}}
     upload_history = []
     csrf = secrets.token_urlsafe(32)
-    nonce = secrets.token_urlsafe(18)
+    analysis_history = []
     bootstrap_status = {"state": "not_configured"}
 
     def fresh_state():
@@ -297,6 +300,17 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         client = request.client.host if request.client else "unknown"
         return (len(upload_history) < VISITOR_GLOBAL_HOURLY_LIMIT and
                 sum(previous == client for _, previous in upload_history) < VISITOR_CLIENT_HOURLY_LIMIT)
+
+    def analysis_quota_open(request):
+        """Limit public inference starts, including reruns of the prepared clip."""
+        now = time.time()
+        analysis_history[:] = [(at, client) for at, client in analysis_history if now - at < 3600]
+        client = request.client.host if request.client else "unknown"
+        return (len(analysis_history) < ANALYSIS_GLOBAL_HOURLY_LIMIT and
+                sum(previous == client for _, previous in analysis_history) < ANALYSIS_CLIENT_HOURLY_LIMIT)
+
+    def record_analysis_start(request):
+        analysis_history.append((time.time(), request.client.host if request.client else "unknown"))
 
     def load_uploads():
         # A Render restart must not silently swap an uploaded report with the
@@ -496,8 +510,9 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
         if route == "/" and request.method in ("GET","HEAD"):
             return RedirectResponse("/demo",status_code=307)
         if route == "/demo/bridge" and request.method in ("GET","HEAD"):
-            return HTMLResponse(bridge_page(csrf, nonce) if request.method == "GET" else "",
-                headers={"Content-Security-Policy": PUBLIC_CSP.format(nonce=nonce)})
+            page_nonce = secrets.token_urlsafe(18)
+            return HTMLResponse(bridge_page(csrf, page_nonce) if request.method == "GET" else "",
+                headers={"Content-Security-Policy": PUBLIC_CSP.format(nonce=page_nonce)})
         if route == "/demo" and request.method in ("GET","HEAD"):
             if data["demo"] is None:
                 return HTMLResponse(
@@ -510,11 +525,13 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                      "<h1>Demo video not loaded yet</h1><p>The owner must prepare the video before visitors can run the model.</p>") +
                     "<a href='/setup'>Prepare the demo video</a></main></html>"
                 )
-            return HTMLResponse(_page(csrf,nonce),
-                headers={"Content-Security-Policy":PUBLIC_CSP.format(nonce=nonce)})
+            page_nonce = secrets.token_urlsafe(18)
+            return HTMLResponse(_page(csrf,page_nonce),
+                headers={"Content-Security-Policy":PUBLIC_CSP.format(nonce=page_nonce)})
         if route == "/setup" and request.method in ("GET","HEAD"):
-            return HTMLResponse(_setup_page(nonce),
-                headers={"Content-Security-Policy":PUBLIC_CSP.format(nonce=nonce)})
+            page_nonce = secrets.token_urlsafe(18)
+            return HTMLResponse(_setup_page(page_nonce),
+                headers={"Content-Security-Policy":PUBLIC_CSP.format(nonce=page_nonce)})
         if route == "/api/demo/status" and request.method in ("GET","HEAD"):
             return JSONResponse(data["demo"].snapshot()) if data["demo"] else reply(409,"video_not_ready")
         visitor_status = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/status", route)
@@ -612,8 +629,11 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             if demo is None:
                 return reply(409,"video_not_ready")
             with analysis_gate:
+                if not analysis_quota_open(request):
+                    return reply(429, "analysis_rate_limited")
                 if analysis_busy() or queue_pending() or not demo.begin():
                     return reply(409,"analysis_already_started")
+                record_analysis_start(request)
             return JSONResponse({"started":True},status_code=202)
         visitor_analyze = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/analyze", route)
         if visitor_analyze and request.method == "POST":
@@ -630,7 +650,13 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
             entry = visitor_entry(visitor_analyze.group(1))
             if entry is None:
                 return reply(404, "video_not_found")
+            delete_token = entry.get("delete_token")
+            if delete_token and not hmac.compare_digest(
+                    request.headers.get("x-demo-delete-token", ""), delete_token):
+                return reply(403, "delete_token_required")
             with analysis_gate:
+                if not analysis_quota_open(request):
+                    return reply(429, "analysis_rate_limited")
                 if entry.get("queued") or analysis_busy() or queue_pending():
                     return reply(409, "analysis_in_progress")
                 if entry.get("cancelled"):
@@ -640,6 +666,7 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                         return reply(503, "unable_to_restart_analysis")
                 if not entry["state"].begin():
                     return reply(409, "analysis_in_progress")
+                record_analysis_start(request)
                 entry["cancelled"] = False
             return JSONResponse({"started": True}, status_code=202)
         visitor_cancel = re.fullmatch(r"/api/demo/videos/([0-9a-f]{48})/cancel", route)
@@ -760,13 +787,17 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     pending = Path(stream.name)
                     total = 0
                     header = bytearray()
-                    async for chunk in request.stream():
-                        total += len(chunk)
-                        if total > limit:
-                            return reply(413, "video_too_large")
-                        if len(header) < 4096:
-                            header.extend(chunk[:4096 - len(header)])
-                        stream.write(chunk)
+                    try:
+                        async with asyncio.timeout(UPLOAD_DEADLINE_SECONDS):
+                            async for chunk in request.stream():
+                                total += len(chunk)
+                                if total > limit:
+                                    return reply(413, "video_too_large")
+                                if len(header) < 4096:
+                                    header.extend(chunk[:4096 - len(header)])
+                                stream.write(chunk)
+                    except TimeoutError:
+                        return reply(408, "upload_timed_out")
                 if total < 1 or (lengths and total != int(lengths[0])):
                     return reply(422, "incomplete_video")
                 if not plausible_container(bytes(header), name[1], total_size=total):
@@ -835,14 +866,18 @@ def create_app(*, data_dir=None, origin=None, owner_key=None,
                     total=0
                     digest=hashlib.sha256()
                     header=bytearray()
-                    async for chunk in request.stream():
-                        total+=len(chunk)
-                        if total > upper:
-                            return reply(413,"video_too_large")
-                        if len(header)<4096:
-                            header.extend(chunk[:4096-len(header)])
-                        digest.update(chunk)
-                        fp.write(chunk)
+                    try:
+                        async with asyncio.timeout(UPLOAD_DEADLINE_SECONDS):
+                            async for chunk in request.stream():
+                                total+=len(chunk)
+                                if total > upper:
+                                    return reply(413,"video_too_large")
+                                if len(header)<4096:
+                                    header.extend(chunk[:4096-len(header)])
+                                digest.update(chunk)
+                                fp.write(chunk)
+                    except TimeoutError:
+                        return reply(408,"upload_timed_out")
                 if total != declared:
                     return reply(422,"incomplete_video")
                 if not plausible_container(bytes(header),".mp4",total_size=total):

@@ -196,6 +196,8 @@ def add_video_tabs(page: str) -> str:
         "const crew = document.getElementById('crew-summary');\n" + TABS_SCRIPT, 1)
     page = page.replace("fetch('/api/demo/status'", 'fetch(statusEndpoint()', 1)
     page = page.replace("fetch('/api/demo/analyze'", 'fetch(analyzeEndpoint()', 1)
+    page = page.replace("'x-demo-csrf':token},body:'{}'",
+        "'x-demo-csrf':token,...(activeVideoId?{'x-demo-delete-token':uploadedClips.find(item=>item.id===activeVideoId)?.deleteToken||''}:{})},body:'{}'", 1)
     page = page.replace("async function refresh(){", "async function refresh(){\n if(uploadInProgress)return;\n const requestedVideoId=activeVideoId;", 1)
     page = page.replace("if(!response.ok)throw Error('Status request failed');", """if(requestedVideoId!==activeVideoId)return;
   if(response.status===404&&requestedVideoId){

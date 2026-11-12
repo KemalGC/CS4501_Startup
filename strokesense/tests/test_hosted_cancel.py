@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import quote
 
@@ -126,12 +127,38 @@ class HostedVisitorCancelTests(unittest.TestCase):
         clip = self.upload()
         self.cancel(clip)
         self.wait_status(clip, "cancelled")
-        restarted = self.post(f"/api/demo/videos/{clip['id']}/analyze",
+        denied = self.post(f"/api/demo/videos/{clip['id']}/analyze",
             headers={"content-type": "application/json"})
+        self.assertEqual(denied.status_code, 403)
+        restarted = self.post(f"/api/demo/videos/{clip['id']}/analyze",
+            headers={"content-type": "application/json", "x-demo-delete-token": clip["delete_token"]})
         self.assertEqual(restarted.status_code, 202, restarted.text)
         self.assertTrue(restarted.json()["started"])
         self.assertIn(self.cancel(clip).status_code, (200, 202))
         self.wait_status(clip, "cancelled")
+
+    def test_analysis_reruns_have_a_rate_limit(self):
+        clip = self.upload()
+        self.cancel(clip)
+        self.wait_status(clip, "cancelled")
+        url = f"/api/demo/videos/{clip['id']}/analyze"
+        headers = {"content-type": "application/json", "x-demo-delete-token": clip["delete_token"]}
+        with patch("strokesense.web_demo_hosted.ANALYSIS_CLIENT_HOURLY_LIMIT", 1):
+            self.assertEqual(self.post(url, headers=headers).status_code, 202)
+            self.cancel(clip)
+            self.wait_status(clip, "cancelled")
+            self.assertEqual(self.post(url, headers=headers).status_code, 429)
+
+    def test_csp_nonce_changes_for_each_page(self):
+        first = self.client.get("/setup")
+        second = self.client.get("/setup")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_csp = first.headers["content-security-policy"]
+        second_csp = second.headers["content-security-policy"]
+        self.assertNotEqual(first_csp, second_csp)
+        self.assertIn(first_csp.split("script-src 'nonce-")[1].split("'")[0], first.text)
+        self.assertIn(second_csp.split("script-src 'nonce-")[1].split("'")[0], second.text)
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ jobs:
       - name: Install test dependencies without model wheels
         run: |
           python -m pip install -r strokesense/requirements-hosted.txt
-          python -m pip install numpy scipy opencv-python-headless
+          python -m pip install numpy scipy opencv-python-headless matplotlib
       - name: Verify hosted request controls and model integrity
         working-directory: strokesense
         run: |

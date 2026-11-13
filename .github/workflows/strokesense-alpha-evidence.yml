@@ -1,0 +1,89 @@
+name: StrokeSense Alpha reproducible evidence
+on:
+  push:
+    branches: ['dev/2026-11-04-alpha-finalization', 'codex/alpha-readiness']
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Record exact source and public issue inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/alpha-evidence
+          git rev-parse HEAD > /tmp/alpha-evidence/source-sha.txt
+          git archive --format=zip HEAD -o /tmp/alpha-evidence/source.zip
+          git log --format='%H%x09%aI%x09%s' --name-status > /tmp/alpha-evidence/history.txt
+          gh api --paginate --slurp 'repos/${{ github.repository }}/issues?state=all&per_page=100' > /tmp/alpha-evidence/issues-pages.json
+      - name: Install test dependencies
+        run: |
+          python -m pip install -r strokesense/requirements.txt -r strokesense/requirements-hosted.txt coverage==7.10.7
+      - name: Run issue 122 acceptance tests
+        working-directory: strokesense
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p test_alpha_metrics.py -v 2>&1 | tee /tmp/alpha-evidence/issue-122.log
+      - name: Run full Python suite and line coverage
+        working-directory: strokesense
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m coverage run --branch --source=strokesense -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee /tmp/alpha-evidence/unit-tests.log
+          python -m coverage json -o /tmp/alpha-evidence/coverage.json
+          python -m coverage report > /tmp/alpha-evidence/coverage.txt
+          python -m unittest discover -s hosting_tests -p 'test_*.py' -v 2>&1 | tee /tmp/alpha-evidence/hosted-tests.log
+      - name: Summarize evidence at this commit
+        working-directory: strokesense
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from strokesense.alpha_metrics import coverage_metrics, issue_metrics, parse_unittest_log, test_provenance
+
+          root = Path('/tmp/alpha-evidence')
+          unit = parse_unittest_log((root / 'unit-tests.log').read_text())
+          hosted = parse_unittest_log((root / 'hosted-tests.log').read_text())
+          assert unit['complete'] and hosted['complete']
+          test_ids = set(unit.pop('test_ids')) | set(hosted.pop('test_ids'))
+          modules = json.loads(Path('../docs/alpha-finalization/core-test-modules.json').read_text())
+          mapping = {number: [case for case in test_ids if any(case.startswith(module + '.') for module in names)]
+                     for number, names in modules.items()}
+          issues = [issue for page in json.loads((root / 'issues-pages.json').read_text())
+                    for issue in page if 'pull_request' not in issue]
+          closed = [issue['number'] for issue in issues if issue['state'] == 'closed']
+          mapped = issue_metrics(mapping, test_ids, closed)
+          mapped.pop('mapping')
+          ai_modules = ('test_alpha_metrics.', 'test_alpha_metrics_multiline.', 'test_review_demo.')
+          provenance = test_provenance(test_ids, {case: 'ai_generated' for case in test_ids if case.startswith(ai_modules)})
+          summary = {'commit': (root / 'source-sha.txt').read_text().strip(), 'unit': unit, 'hosted': hosted,
+                     'coverage': coverage_metrics(json.loads((root / 'coverage.json').read_text())),
+                     'issue_inventory': {'total': len(issues), 'closed': len(closed)},
+                     'issue_mapping': mapped, 'unmapped_test_issues': [n for n, cases in mapping.items() if not cases],
+                     'provenance': provenance}
+          (root / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print('ALPHA_SUMMARY ' + json.dumps(summary, separators=(',', ':')))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: strokesense-alpha-evidence-${{ github.sha }}
+          path: /tmp/alpha-evidence/
+          retention-days: 14

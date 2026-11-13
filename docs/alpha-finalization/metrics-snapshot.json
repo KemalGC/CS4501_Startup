@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "tested_commit": "9f37e9172c39ac7dec901f7a02369d609c454595",
+  "evidence_run": 41939439412,
+  "unit": {"executions": 750, "unique_tests": 675, "repeated_executions": 75, "passed": 750, "failures": 0, "errors": 0, "skipped": 0, "pass_rate_pct": 100.0},
+  "hosted": {"executions": 24, "unique_tests": 24, "passed": 24, "pass_rate_pct": 100.0},
+  "coverage": {"covered_lines": 6490, "executable_lines": 8044, "line_coverage_pct": 80.68125310790651, "covered_branches": 2373, "branches": 3278, "branch_coverage_pct": 72.39170225747407},
+  "issues_checkpoint": {"non_pr_issues": 109, "closed": 77, "open": 32},
+  "core_scope": {"story_groups": 9, "mapped_issues": 21, "closed_at_checkpoint": 10, "open_at_checkpoint": 11, "test_issue_links": 292, "average_tests_per_mapped_issue": 13.904761904761905},
+  "provenance": {"unique_python_tests": 675, "recorded_ai_authored": 18, "recorded_human_refined_or_added": 0, "unknown": 657, "overall_ai_manual_ratio": null},
+  "validation": {"specified_cohort": 7, "prior_coaching_subset": 2, "participant_results_available": false, "decision": "not_yet_validated"}
+}

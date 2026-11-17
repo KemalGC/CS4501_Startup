@@ -1,0 +1,10 @@
+{
+  "name": "strokesense-aws-dev-preview",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --check assets/aws-client.js && node --check build.mjs"
+  }
+}

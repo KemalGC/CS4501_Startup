@@ -1,0 +1,61 @@
+/* AWS development-only preview. Production StrokeSense styles remain untouched. */
+.aws-hero { min-height: 430px; }
+.aws-hero h1 { max-width: 900px; }
+.aws-hero p { max-width: 770px; }
+.aws-workspace { display: grid; gap: 28px; padding-bottom: 58px; }
+.aws-environment-banner { display: flex; gap: 18px; align-items: flex-start; padding: 21px 24px; background: var(--soft-blue); border: 1px solid var(--line); border-radius: 20px; }
+.aws-environment-banner strong { display: block; font-size: 16px; }
+.aws-environment-banner p { color: var(--muted); font-size: 14px; margin: 5px 0 0; line-height: 1.6; }
+.aws-dev-badge { display: inline-flex; flex: 0 0 auto; align-items: center; font-size: 12px; letter-spacing: .08em; font-weight: 800; padding: 7px 11px; background: #0b4977; color: white; border-radius: 999px; }
+.aws-workspace-heading { display: flex; gap: 30px; justify-content: space-between; align-items: end; }
+.aws-workspace-heading .section-heading { margin-bottom: 0; }
+.aws-workspace-heading > p { max-width: 370px; color: var(--muted); margin: 0 0 6px; }
+.aws-auth-panel,.aws-upload-panel,.aws-action-panel { padding: clamp(22px, 3.8vw, 38px); background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
+.aws-auth-panel { display: flex; justify-content: space-between; align-items: center; gap: 22px; }
+.aws-auth-panel h3,.aws-section-heading h3 { font-size: clamp(21px, 2.4vw, 29px); letter-spacing: -.035em; line-height: 1.24; margin: 10px 0 0; }
+.aws-auth-panel p { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+.aws-auth-actions,.aws-run-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.aws-button { display: inline-flex; gap: 10px; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; border-radius: 999px; min-height: 48px; padding: 11px 21px; border: 1px solid transparent; cursor: pointer; text-decoration: none; transition: transform .2s, background .2s; }
+.aws-button:hover:not(:disabled) { transform: translateY(-1px); }
+.aws-button:disabled { opacity: .55; cursor: not-allowed; }
+.aws-button-primary { color: white; background: #0a4875; border-color: #0a4875; }
+.aws-button-primary:hover:not(:disabled) { background: #0d5e96; }
+.aws-button-outline { color: var(--ink); border-color: var(--line); background: var(--soft); }
+.aws-tier-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+.aws-tier-card { position: relative; display: flex; flex-direction: column; gap: 10px; padding: clamp(22px,3.4vw,34px); cursor: pointer; background: var(--surface); border: 2px solid var(--line); border-radius: 25px; transition: border-color .2s, box-shadow .2s; }
+.aws-tier-card.is-selected { border-color: #1e77ab; box-shadow: 0 14px 35px #0755861c; }
+.aws-tier-card input { position: absolute; right: 26px; top: 29px; width: 19px; height: 19px; accent-color: #1476b0; }
+.aws-tier-label,.studio-label { color: var(--coral-text); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.aws-tier-card strong { font-size: clamp(26px,3.3vw,38px); line-height: 1.15; letter-spacing: -.04em; }
+.aws-tier-compute { font-size: 13px; font-weight: 800; color: #2670a7; }
+html[data-theme="dark"] .aws-tier-compute { color: #8ed1f8; }
+.aws-tier-card p { font-size: 15px; color: var(--muted); margin: 7px 0 0; }
+.aws-tier-card ul { margin: 5px 0 14px; padding-left: 21px; display: grid; gap: 5px; color: var(--ink); font-size: 14px; }
+.aws-tier-footer { margin-top: auto; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 800; }
+.aws-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.aws-allowed-size { color: #1d6697; background: var(--soft-blue); padding: 8px 13px; font-weight: 800; font-size: 12px; border-radius: 99px; white-space: nowrap; }
+.aws-dropzone { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 7px; margin-top: 26px; border: 2px dashed #8bb7d3; background: var(--soft); border-radius: 21px; padding: 36px 20px; cursor: pointer; }
+.aws-dropzone:hover,.aws-dropzone.is-dragover { background: var(--soft-blue); border-color: #287db0; }
+.aws-dropzone strong { font-size: 17px; }
+.aws-dropzone span:not(.aws-upload-symbol) { color: var(--muted); font-size: 13px; }
+.aws-upload-symbol { display: grid; place-items: center; color: white; background: #0b6297; border-radius: 50%; width: 45px; height: 45px; font-size: 25px; font-weight: 700; margin-bottom: 8px; }
+.aws-file-review { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-top: 20px; background: var(--soft); border-radius: 14px; padding: 14px 18px; }
+.aws-file-review p { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+.aws-video-preview { display: block; width: 100%; max-height: 380px; margin-top: 18px; background: #001331; border-radius: 16px; }
+.aws-privacy-note { font-size: 12px; color: var(--muted); line-height: 1.7; margin: 20px 0 0; }
+.aws-action-panel > p { color: var(--muted); }
+.aws-run-button { min-width: 200px; }
+.aws-progress-wrap { margin-top: 24px; }
+.aws-progress-line { display: flex; justify-content: space-between; gap: 15px; font-size: 14px; }
+.aws-progress-wrap progress { width: 100%; height: 12px; accent-color: #0c77b9; margin-top: 12px; }
+.aws-progress-wrap p { color: var(--muted); font-size: 13px; }
+.aws-feedback { min-height: 22px; margin: 15px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.aws-feedback[data-tone="error"] { color: var(--coral-text); }
+.aws-feedback[data-tone="success"] { color: #16835c; }
+.aws-result { margin-top: 25px; border-radius: 17px; border: 1px solid #82bdad; background: var(--soft); padding: 23px; }
+.aws-result h3 { margin: 0 0 7px; }
+.aws-result p { color: var(--muted); font-size: 14px; }
+.aws-result .aws-button { margin-top: 7px; }
+[hidden] { display: none !important; }
+@media (max-width: 860px) { .aws-workspace-heading,.aws-auth-panel { flex-direction: column; align-items: stretch; } .aws-workspace-heading > p { max-width: none; } }
+@media (max-width: 680px) { .aws-tier-grid { grid-template-columns: 1fr; } .aws-section-heading { align-items: flex-start; } .aws-environment-banner { flex-direction: column; } .aws-dropzone { padding: 28px 12px; } }

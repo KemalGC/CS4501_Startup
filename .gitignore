@@ -1,3 +1,12 @@
 # Private participant feedback and access keys must never be committed.
 **/.feedback/
 /private-study/
+
+# Generated AWS development website output and local-only credentials.
+/website-aws-dev/dist/
+/website-aws-dev/node_modules/
+**/.env.local
+**/.env.*.local
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#001e4a">
+  <meta name="description" content="StrokeSense AWS development preview: free CPU analysis and planned GPU Deep Analysis.">
+  <title>StrokeSense AWS Dev — Analyzer</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/aws-dev.css">
+  <script src="/assets/site.js" defer></script>
+  <script src="/assets/aws-config.js" defer></script>
+  <script src="/assets/aws-client.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="StrokeSense AWS development home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a>
+      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/demos/" aria-current="page">AWS analyzer</a><a href="/study/">Feedback study</a><a href="https://strokesense-review.vercel.app/">Live website</a></nav>
+      <div class="header-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span class="theme-label">Dark mode</span></button><a class="pill pill-coral" href="#analysis-studio">Open studio ↗</a><button class="menu-toggle" data-menu-toggle type="button" aria-label="Toggle navigation" aria-controls="mobile-nav" aria-expanded="false">☰</button></div>
+    </div>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/demos/">AWS analyzer</a><a href="/study/">Feedback study</a><a href="https://strokesense-review.vercel.app/">Live website</a></nav>
+  </header>
+
+  <main id="main">
+    <section class="interior-hero aws-hero" aria-labelledby="demo-heading">
+      <div class="container"><span class="eyebrow">AWS development environment · aws-dev</span><h1 id="demo-heading">Test the next <span class="accent">StrokeSense.</span></h1><p>CPU-powered Free Analysis and planned GPU-powered Deep Analysis. This is a separate preview; it does not change the live site or process videos on Render.</p></div>
+    </section>
+    <section class="page-section" id="analysis-studio" aria-labelledby="studio-heading">
+      <div class="container aws-workspace">
+        <div class="aws-environment-banner" role="status" aria-live="polite">
+          <span class="aws-dev-badge">AWS DEV</span>
+          <div><strong id="backend-status">Checking AWS configuration</strong><p id="backend-detail">No AWS resources will start from this preview unless the backend is configured and a signed-in user requests analysis.</p></div>
+        </div>
+
+        <div class="aws-workspace-heading"><div><span class="eyebrow">StrokeSense studio</span><h2 id="studio-heading" class="section-heading">Video analysis <span class="accent">workspace.</span></h2></div><p>Choose a tier, sign in with Google, and upload your rowing footage when the AWS backend is ready.</p></div>
+
+        <section class="aws-auth-panel" aria-labelledby="account-heading">
+          <div><span class="studio-label">01 · Your account</span><h3 id="account-heading">Sign in to save your allowance and reports.</h3><p id="account-status">Google sign-in will be enabled once the Cognito configuration is connected.</p></div>
+          <div class="aws-auth-actions"><button id="google-login" class="aws-button aws-button-primary" type="button" disabled>Continue with Google</button><button id="google-logout" class="aws-button aws-button-outline" type="button" hidden>Sign out</button></div>
+        </section>
+
+        <div class="aws-tier-grid" role="radiogroup" aria-label="Choose an analysis tier">
+          <label class="aws-tier-card is-selected" for="tier-free"><input id="tier-free" type="radio" name="analysis-tier" value="free" checked><span class="aws-tier-label">FREE TRIAL</span><strong>Free Analysis</strong><span class="aws-tier-compute">CPU · AWS Fargate</span><p>Core stroke metrics, technique cues, and a coaching report.</p><ul><li>300 MB total per account, for life</li><li>100 MB maximum per video</li><li>Reports available for 3 days</li><li>Failed analyses return your allowance</li></ul><span id="free-allowance" class="aws-tier-footer">Quota available after sign-in</span></label>
+          <label class="aws-tier-card" for="tier-paid"><input id="tier-paid" type="radio" name="analysis-tier" value="paid"><span class="aws-tier-label">PLANNED · CREDITS</span><strong>Deep Analysis</strong><span class="aws-tier-compute">GPU · EC2 G6f.large</span><p>Deeper pose tracking and individualized coaching.</p><ul><li>750 MB maximum per video</li><li>Advanced rower-by-rower and stroke comparisons</li><li>Annotated motion-tracking video</li><li>More detailed AI coaching report</li><li>Reports available for 30 days</li></ul><span class="aws-tier-footer">Purchases disabled until pricing is approved</span></label>
+        </div>
+
+        <section class="aws-upload-panel" aria-labelledby="upload-heading">
+          <div class="aws-section-heading"><div><span class="studio-label">02 · Footage</span><h3 id="upload-heading">Upload your rowing video</h3></div><span class="aws-allowed-size" id="file-limit">Up to 100 MB</span></div>
+          <label for="video-upload" class="aws-dropzone" id="dropzone"><span class="aws-upload-symbol" aria-hidden="true">↑</span><strong>Choose an MP4, MOV, or WebM recording</strong><span>Or drag a video here. Files are checked locally before any upload.</span></label>
+          <input id="video-upload" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" hidden>
+          <div id="file-review" class="aws-file-review" hidden><div><strong id="selected-file-name"></strong><p id="selected-file-size"></p></div><button id="clear-file" class="aws-button aws-button-outline" type="button">Remove</button></div>
+          <video id="local-preview" class="aws-video-preview" controls playsinline preload="metadata" hidden aria-label="Selected rowing video preview"></video>
+          <p class="aws-privacy-note">Video uploads will go directly to private Amazon S3 storage. Free reports expire after 3 days; Deep Analysis reports expire after 30 days. No footage is uploaded while AWS is unconfigured.</p>
+        </section>
+
+        <section class="aws-action-panel" aria-labelledby="run-heading">
+          <div class="aws-section-heading"><div><span class="studio-label">03 · Analysis</span><h3 id="run-heading">Run the analysis</h3></div></div>
+          <p id="run-helper">Connect Cognito and the AWS API to enable processing. You can test file-size and tier selection now.</p>
+          <div class="aws-run-buttons"><button id="run-analysis" class="aws-button aws-button-primary aws-run-button" type="button" disabled>Analyze with AWS</button><button id="cancel-upload" class="aws-button aws-button-outline" type="button" hidden>Cancel upload</button></div>
+          <div id="analysis-progress" class="aws-progress-wrap" hidden><div class="aws-progress-line"><strong id="analysis-status">Waiting</strong><span id="analysis-percentage">0%</span></div><progress id="analysis-progress-bar" max="100" value="0"></progress><p id="analysis-detail"></p></div>
+          <p id="upload-feedback" class="aws-feedback" role="status" aria-live="polite"></p>
+          <div id="analysis-result" class="aws-result" hidden><h3>Analysis complete</h3><p>Your report is ready. Use the link below to download it before its retention period ends.</p><a id="download-report" class="aws-button aws-button-primary" href="#" rel="noopener noreferrer" target="_blank">Download report</a></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>AWS development preview for rowing video analysis.</p></div><nav class="footer-nav"><a href="/">Home</a><a href="/demos/">AWS analyzer</a><a href="https://strokesense-review.vercel.app/">Current live site</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental coaching feedback</span><span>This preview is separate from production.</span></div></div></footer>
+</body>
+</html>

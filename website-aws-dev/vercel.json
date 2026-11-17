@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "trailingSlash": true,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Content-Security-Policy", "value": "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; frame-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com; media-src 'self' blob: https://*.s3.us-east-1.amazonaws.com https://*.s3.amazonaws.com; connect-src 'self' https://*.auth.us-east-1.amazoncognito.com https://*.execute-api.us-east-1.amazonaws.com https://*.s3.us-east-1.amazonaws.com https://*.s3.amazonaws.com; upgrade-insecure-requests" }
+      ]
+    }
+  ]
+}

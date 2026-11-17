@@ -1,0 +1,38 @@
+# Public configuration only. NEVER place the Google client secret in this file.
+# If copied to terraform.tfvars, that file is excluded by .gitignore.
+
+aws_region  = "us-east-1"
+environment = "aws-dev"
+
+allowed_origins = [
+  "https://strokesense-aws-dev.vercel.app",
+  "http://localhost:8000",
+  "http://localhost:3000",
+  "http://localhost:5173",
+]
+
+cognito_callback_urls = [
+  "https://strokesense-aws-dev.vercel.app/demos/",
+  "http://localhost:8000/demos/",
+  "http://localhost:3000/demos/",
+  "http://localhost:5173/demos/",
+]
+
+cognito_logout_urls = [
+  "https://strokesense-aws-dev.vercel.app/",
+  "http://localhost:8000/",
+  "http://localhost:3000/",
+  "http://localhost:5173/",
+]
+
+free_lifetime_bytes  = 300000000
+free_max_video_bytes  = 100000000
+paid_max_video_bytes  = 750000000
+cpu_max_vcpus         = 6
+monthly_budget_usd    = 30
+
+# Uncomment ONLY after confirming the recipient has access to AWS bill alerts.
+# alert_email = "your-address@example.com"
+# google_oauth_client_id is safe to expose in a web client, but Terraform treats
+# it as sensitive along with the private google_oauth_client_secret. Supply both
+# through environment variables, not committed .tfvars files.

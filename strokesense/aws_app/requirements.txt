@@ -1,0 +1,3 @@
+# AWS Lambda Python runtimes provide boto3, but package it explicitly in the
+# deployment ZIP to control the tested SDK version in production.
+boto3>=1.34,<2

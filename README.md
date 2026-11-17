@@ -16,8 +16,22 @@ The Vercel website provides the full visible analyzer: choose the prepared rowin
 | --- | --- | --- |
 | `dev-consolidated` | `strokesense-alpha` | Reviewer feedback study; retains the study's persistent data and settings. |
 | `strokesense-render-live` | `strokesense-real-analysis-demo` | Paid compute-backed video uploads, cancellation, tracking, and coaching reports for the Vercel site. |
+| `aws-dev` | Inherited Render configuration, **not connected to Render** | Separate AWS Terraform/API development and an isolated Vercel testing site; no AWS infrastructure has been applied. |
 
 The application code and related tests are kept aligned across these branches, while their active Render Blueprints stay separate. To deploy a **second** compute service from `dev-consolidated`, review the optional [`render-demo.yaml`](render-demo.yaml), which uses its own `strokesense-dev-analysis-demo` service and `strokesense-dev-demo` disk names, and approve any paid resource changes in Render yourself. Merging code does not switch either running service or migrate stored videos, reports, or study data.
+
+### AWS development branch (not live)
+
+[`aws-dev`](https://github.com/KemalGC/CS4501_Startup/tree/aws-dev) contains an isolated
+[Vercel preview website](website-aws-dev/README.md),
+[Terraform infrastructure](infra/aws/README.md) and a Python AWS API scaffold.
+It is intended for a **separate** Vercel project, not the existing
+`strokesense-review` production project. The preview exposes CPU Free Analysis
+(300 MB lifetime quota, 100 MB per video) and a **disabled** GPU Deep Analysis
+(750 MB per video). The local UI can validate video limits without uploading
+any footage; AWS login, computation and credit purchases are unavailable until
+the owner authorizes provisioning and completes setup. The existing Render
+site remains unchanged.
 
 ## Report preview
 

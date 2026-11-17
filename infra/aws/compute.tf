@@ -1,0 +1,136 @@
+# AWS Batch/Fargate remains at zero running containers while the queue is idle.
+# This stack intentionally creates NO GPU compute environment, NAT gateway,
+# load balancer, or long-lived container service.
+resource "aws_ecr_repository" "cpu_worker" {
+  name                 = "${local.prefix}-cpu-worker"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = false
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cpu_worker" {
+  repository = aws_ecr_repository.cpu_worker.name
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Remove stale untagged worker images after one week"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 7
+        }
+        action = { type = "expire" }
+      }
+    ]
+  })
+}
+
+resource "aws_security_group" "batch_jobs" {
+  name_prefix            = "${local.prefix}-batch-"
+  description            = "Outbound-only Fargate inference jobs; no inbound ports"
+  vpc_id                 = local.vpc_id
+  revoke_rules_on_delete = true
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "ECR, AWS APIs and model-package endpoints over public egress"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_cloudwatch_log_group" "batch_jobs" {
+  name              = "/aws/batch/${local.prefix}-cpu"
+  retention_in_days = 14
+}
+
+resource "aws_batch_compute_environment" "cpu" {
+  compute_environment_name_prefix = "${local.prefix}-cpu-"
+  type                            = "MANAGED"
+  state                           = "ENABLED"
+
+  compute_resources {
+    type               = "FARGATE"
+    max_vcpus          = var.cpu_max_vcpus
+    security_group_ids = [aws_security_group.batch_jobs.id]
+    subnets            = local.subnet_ids
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_batch_job_queue" "cpu" {
+  name     = "${local.prefix}-cpu"
+  state    = "ENABLED"
+  priority = 10
+
+  compute_environment_order {
+    order               = 1
+    compute_environment = aws_batch_compute_environment.cpu.arn
+  }
+}
+
+# This definition references a worker image that must be built, benchmarked,
+# security-reviewed and pushed BEFORE a successful apply. The current Python
+# aws_app.worker exits nonzero until its real inference adapter is configured.
+resource "aws_batch_job_definition" "cpu" {
+  name                  = "${local.prefix}-cpu"
+  type                  = "container"
+  platform_capabilities = ["FARGATE"]
+  propagate_tags        = true
+
+  container_properties = jsonencode({
+    image            = "${aws_ecr_repository.cpu_worker.repository_url}:${var.worker_image_tag}"
+    command          = var.worker_command
+    jobRoleArn       = aws_iam_role.cpu_job.arn
+    executionRoleArn = aws_iam_role.batch_execution.arn
+    resourceRequirements = [
+      { type = "VCPU", value = "2" },
+      { type = "MEMORY", value = "4096" }
+    ]
+    fargatePlatformConfiguration = {
+      platformVersion = "LATEST"
+    }
+    networkConfiguration = {
+      assignPublicIp = "ENABLED"
+    }
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.batch_jobs.name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "analysis"
+      }
+    }
+    environment = [
+      { name = "S3_BUCKET", value = aws_s3_bucket.media.bucket },
+      { name = "JOBS_TABLE", value = aws_dynamodb_table.jobs.name },
+      { name = "AWS_DEFAULT_REGION", value = var.aws_region },
+      { name = "STROKESENSE_PIPELINE_COMMAND", value = "" }
+    ]
+  })
+
+  retry_strategy {
+    attempts = 1
+  }
+
+  timeout {
+    attempt_duration_seconds = var.cpu_job_timeout_seconds
+  }
+}

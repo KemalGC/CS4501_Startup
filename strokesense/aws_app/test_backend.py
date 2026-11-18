@@ -16,6 +16,7 @@ from aws_app.core import (
     _item,
 )
 from aws_app.handler import lambda_handler
+from aws_app.reconcile import reconcile_due, lambda_handler as reconciliation_lambda_handler
 
 
 class FakeAwsError(Exception):
@@ -44,13 +45,36 @@ class MemoryDynamo:
         return {"Item": _item(self.jobs[job_id])} if job_id in self.jobs else {}
 
     def query(self, **kwargs):
-        uid = kwargs["ExpressionAttributeValues"][":uid"]["S"]
-        now = int(kwargs["ExpressionAttributeValues"][":now"]["N"])
-        return {"Items": [
-            _item(job)
-            for job in self.jobs.values()
-            if job["user_id"] == uid and job["status"] == "uploading" and job["expires_at"] < now
-        ]}
+        values = kwargs["ExpressionAttributeValues"]
+        now = int(values[":now"]["N"])
+        if kwargs["IndexName"] == "user_id-created_at-index":
+            uid = values[":uid"]["S"]
+            return {"Items": [
+                _item(job)
+                for job in self.jobs.values()
+                if job["user_id"] == uid
+                and job["status"] in ("uploading", "uploaded")
+                and job["expires_at"] < now
+            ]}
+        assert kwargs["IndexName"] == "status-expires_at-index"
+        state = values[":state"]["S"]
+        records = sorted(
+            (job for job in self.jobs.values() if job["status"] == state and job["expires_at"] < now),
+            key=lambda job: (job["expires_at"], job["job_id"]),
+        )
+        if kwargs.get("ExclusiveStartKey"):
+            last = kwargs["ExclusiveStartKey"]
+            marker = (int(last["expires_at"]["N"]), last["job_id"]["S"])
+            records = [job for job in records if (job["expires_at"], job["job_id"]) > marker]
+        limit = kwargs.get("Limit", len(records))
+        page = records[:limit]
+        result = {"Items": [_item(job) for job in page]}
+        if len(records) > limit:
+            result["LastEvaluatedKey"] = {
+                "job_id": {"S": page[-1]["job_id"]},
+                "expires_at": {"N": str(page[-1]["expires_at"])},
+            }
+        return result
 
     @staticmethod
     def _conditional_failure():
@@ -103,6 +127,8 @@ class MemoryDynamo:
                 if record["status"] not in expected:
                     self._conditional_failure()
                 record["status"] = values[":next"]["S"]
+                if ":ttl" in values:
+                    record["ttl_epoch"] = int(values[":ttl"]["N"])
                 if ":report_expires" in values:
                     record["report_expires_at"] = int(values[":report_expires"]["N"])
         self.transactions.append(changes)
@@ -278,6 +304,15 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.ddb.jobs[old]["status"], "aborted")
         self.assertEqual(self.ddb.accounts["alice"]["free_reserved_bytes"], 100_000_000)
 
+    def test_stale_completed_upload_without_analysis_refunds(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.now += UPLOAD_TTL_SECONDS + 1
+        self.backend.start_upload("alice", self.free_body)
+        self.assertEqual(self.ddb.jobs[old]["status"], "aborted")
+        self.assertIn(self.ddb.jobs[old]["s3_key"], self.s3.deleted)
+        self.assertEqual(self.ddb.accounts["alice"]["free_available_bytes"], 200_000_000)
+
     def test_success_charges_only_after_report_and_enforces_expiry(self):
         video = self.backend.start_upload("alice", self.free_body)["video_id"]
         self._complete(video)
@@ -305,6 +340,17 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.backend.job_status("alice", video)["status"], "failed")
         self.assertEqual(self.ddb.accounts["alice"]["free_available_bytes"], 300_000_000)
 
+    def test_temporary_s3_error_does_not_refund_successful_batch(self):
+        video = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(video)
+        self.backend.submit_analysis("alice", {"video_id": video})
+        self.batch.status = "SUCCEEDED"
+        with patch.object(self.s3, "head_object", side_effect=FakeAwsError("ServiceUnavailable")):
+            with self.assertRaises(FakeAwsError):
+                self.backend.job_status("alice", video)
+        self.assertEqual(self.ddb.jobs[video]["status"], "submitted")
+        self.assertEqual(self.ddb.accounts["alice"]["free_reserved_bytes"], 100_000_000)
+
     def test_batch_failure_refunds_quota_once(self):
         video = self.backend.start_upload("alice", self.free_body)["video_id"]
         self._complete(video)
@@ -313,6 +359,127 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.backend.job_status("alice", video)["status"], "failed")
         self.assertEqual(self.backend.job_status("alice", video)["status"], "failed")
         self.assertEqual(self.ddb.accounts["alice"]["free_available_bytes"], 300_000_000)
+
+    def test_terminal_records_have_ttl_pending_records_do_not(self):
+        uploading = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self.assertNotIn("ttl_epoch", self.ddb.jobs[uploading])
+        self.backend.abort_upload("alice", {"video_id": uploading})
+        self.assertGreater(self.ddb.jobs[uploading]["ttl_epoch"], self.now)
+        succeeded = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(succeeded)
+        self.backend.submit_analysis("alice", {"video_id": succeeded})
+        self.batch.status = "SUCCEEDED"
+        self.s3.objects[self.ddb.jobs[succeeded]["report_key"]] = 1024
+        self.backend.job_status("alice", succeeded)
+        self.assertGreater(self.ddb.jobs[succeeded]["ttl_epoch"], self.ddb.jobs[succeeded]["report_expires_at"])
+
+
+class ReconciliationTests(unittest.TestCase):
+    def setUp(self):
+        BackendTests.setUp(self)
+
+    def _complete(self, video_id):
+        return BackendTests._complete(self, video_id)
+
+    def test_background_refunds_abandoned_upload_without_polling(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self.now += UPLOAD_TTL_SECONDS + 1
+        first = reconcile_due(self.backend)
+        self.assertEqual(first["aborted"], 1)
+        self.assertEqual(self.ddb.jobs[old]["status"], "aborted")
+        self.assertEqual(self.ddb.accounts["alice"]["free_available_bytes"], 300_000_000)
+        second = reconcile_due(self.backend)
+        self.assertEqual(second["aborted"], 0)
+
+    def test_background_refunds_uploaded_clip_without_analysis(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.now += UPLOAD_TTL_SECONDS + 1
+        result = reconcile_due(self.backend)
+        self.assertEqual(result["aborted"], 1)
+        self.assertEqual(self.ddb.jobs[old]["status"], "aborted")
+        self.assertIn(self.ddb.jobs[old]["s3_key"], self.s3.deleted)
+
+    def test_background_refunds_failed_batch_without_browser_poll(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.backend.submit_analysis("alice", {"video_id": old})
+        self.batch.status = "FAILED"
+        self.now += UPLOAD_TTL_SECONDS + 1
+        result = reconcile_due(self.backend)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(self.ddb.jobs[old]["status"], "failed")
+        self.assertEqual(self.ddb.accounts["alice"]["free_available_bytes"], 300_000_000)
+        self.assertEqual(reconcile_due(self.backend)["failed"], 0)
+
+    def test_background_consumes_only_verified_success(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.backend.submit_analysis("alice", {"video_id": old})
+        self.s3.objects[self.ddb.jobs[old]["report_key"]] = 1024
+        self.batch.status = "SUCCEEDED"
+        self.now += UPLOAD_TTL_SECONDS + 1
+        result = reconcile_due(self.backend)
+        self.assertEqual(result["succeeded"], 1)
+        self.assertEqual(self.ddb.accounts["alice"]["free_used_bytes"], 100_000_000)
+
+    def test_background_does_not_refund_running_batch(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.backend.submit_analysis("alice", {"video_id": old})
+        self.batch.status = "RUNNING"
+        self.now += UPLOAD_TTL_SECONDS + 1
+        result = reconcile_due(self.backend)
+        self.assertEqual(result["pending"], 1)
+        self.assertEqual(self.ddb.jobs[old]["status"], "submitted")
+        self.assertEqual(self.ddb.accounts["alice"]["free_reserved_bytes"], 100_000_000)
+
+    def test_background_preserves_ambiguous_submit(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.ddb.jobs[old]["status"] = "submitting"
+        self.now += UPLOAD_TTL_SECONDS + 1
+        with patch("aws_app.reconcile.LOGGER.warning"):
+            result = reconcile_due(self.backend)
+        self.assertEqual(result["manual_review"], 1)
+        self.assertEqual(self.ddb.accounts["alice"]["free_reserved_bytes"], 100_000_000)
+
+    def test_background_preserves_submitted_record_without_batch_id(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.ddb.jobs[old]["status"] = "submitted"
+        self.now += UPLOAD_TTL_SECONDS + 1
+        with patch("aws_app.reconcile.LOGGER.warning"):
+            result = reconcile_due(self.backend)
+        self.assertEqual(result["manual_review"], 1)
+        self.assertEqual(self.ddb.accounts["alice"]["free_reserved_bytes"], 100_000_000)
+
+    def test_background_transient_head_failure_keeps_reservation(self):
+        old = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(old)
+        self.backend.submit_analysis("alice", {"video_id": old})
+        self.batch.status = "SUCCEEDED"
+        self.now += UPLOAD_TTL_SECONDS + 1
+        with patch.object(self.s3, "head_object", side_effect=FakeAwsError("ServiceUnavailable")):
+            with patch("aws_app.reconcile.LOGGER.exception"):
+                result = reconcile_due(self.backend)
+        self.assertEqual(result["errors"], 1)
+        self.assertEqual(self.ddb.jobs[old]["status"], "submitted")
+        self.assertEqual(self.ddb.accounts["alice"]["free_reserved_bytes"], 100_000_000)
+
+    def test_background_limits_each_state_batch(self):
+        for _ in range(3):
+            self.backend.start_upload("alice", self.free_body)
+        self.now += UPLOAD_TTL_SECONDS + 1
+        result = reconcile_due(self.backend, per_state_limit=2)
+        self.assertEqual(result["aborted"], 2)
+        self.assertEqual(result["truncated_states"], 1)
+        second = reconcile_due(self.backend, per_state_limit=2)
+        self.assertEqual(second["aborted"], 1)
+
+    def test_reconcile_lambda_rejects_untrusted_direct_invocation(self):
+        with self.assertRaises(ValueError):
+            reconciliation_lambda_handler({}, None)
 
     def test_abort_race_with_submit_does_not_claim_quota_refund(self):
         video = self.backend.start_upload("alice", self.free_body)["video_id"]

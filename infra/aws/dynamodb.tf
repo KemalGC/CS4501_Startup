@@ -38,6 +38,18 @@ resource "aws_dynamodb_table" "jobs" {
     type = "S"
   }
 
+  # Sparse, time-bounded reconciliation queries avoid scanning every user's
+  # historical reports on each scheduled cleanup pass.
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "expires_at"
+    type = "N"
+  }
+
   global_secondary_index {
     name            = "user_id-created_at-index"
     hash_key        = "user_id"
@@ -45,6 +57,15 @@ resource "aws_dynamodb_table" "jobs" {
     projection_type = "ALL"
   }
 
+  global_secondary_index {
+    name            = "status-expires_at-index"
+    hash_key        = "status"
+    range_key       = "expires_at"
+    projection_type = "ALL"
+  }
+
+  # Terminal records set ttl_epoch transactionally. Pending reservations
+  # deliberately have no TTL, so quota cannot leak if a job is orphaned.
   ttl {
     attribute_name = "ttl_epoch"
     enabled        = true

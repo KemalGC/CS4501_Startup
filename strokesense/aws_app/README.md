@@ -55,9 +55,10 @@ multipart uploads as a backstop.
   creation: payment, Stripe webhooks, idempotent credit grants, and GPU compute
   **are not implemented**. Do not enable paid until that is built and tested.
 - The upload authorization expires after 1 hour; incomplete reservations are
-  reconciled on the owner's next new upload. Future production work should
-  also include a scheduled reconciliation task for abandoned accounts, Batch
-  jobs nobody polls, and stale records.
+  reconciled on the owner's next new upload **and** by the scheduled
+  `aws_app.reconcile` Lambda every 15 minutes, independently of browser polls.
+  Ambiguous in-flight Batch submissions raise an operations alarm and require
+  manual review rather than risking a double refund.
 - Report links are presigned for at most 15 minutes and are accessible only
   before **72 hours (free)** or **30 days (paid)** after successful settlement.
   API checks expiry server-side. S3 lifecycle/deletion policy should also

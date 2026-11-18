@@ -1,11 +1,10 @@
-# Optional email subscription; no email is sent until the recipient confirms
-# the AWS SNS subscription. A topic alone has no always-running compute.
+# Required email subscription; SNS alarm email delivery begins only after the
+# recipient confirms the AWS SNS subscription. No always-running compute.
 resource "aws_sns_topic" "ops" {
   name = "${local.prefix}-ops"
 }
 
 resource "aws_sns_topic_subscription" "email" {
-  count     = var.alert_email == null ? 0 : 1
   topic_arn = aws_sns_topic.ops.arn
   protocol  = "email"
   endpoint  = var.alert_email
@@ -58,8 +57,9 @@ resource "aws_cloudwatch_metric_alarm" "http_api_5xx" {
   alarm_actions       = [aws_sns_topic.ops.arn]
 }
 
-# Alerts on failures, but does not refund quota on its own. A separate durable
-# reaper/reconciler is required before any paid production launch.
+# Alerts on Batch failures; the independent scheduled Lambda in
+# reconciliation.tf performs actual quota reconciliation. An EventBridge
+# notification is not itself a refund.
 resource "aws_cloudwatch_event_rule" "batch_failed" {
   name        = "${local.prefix}-cpu-failures"
   description = "Notify when a CPU Batch job fails"
@@ -106,6 +106,36 @@ data "aws_iam_policy_document" "sns_events" {
       values   = [aws_cloudwatch_event_rule.batch_failed.arn]
     }
   }
+
+  # Alarm actions call SNS as the CloudWatch service principal. Without this
+  # explicit grant, the alarm can enter ALARM but email delivery can fail.
+  statement {
+    sid       = "AllowOnlyStrokeSenseCloudWatchAlarms"
+    actions   = ["SNS:Publish"]
+    resources = [aws_sns_topic.ops.arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values = [
+        aws_cloudwatch_metric_alarm.lambda_errors.arn,
+        aws_cloudwatch_metric_alarm.lambda_throttles.arn,
+        aws_cloudwatch_metric_alarm.http_api_5xx.arn,
+        aws_cloudwatch_metric_alarm.reconcile_errors.arn,
+      ]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
 }
 
 resource "aws_sns_topic_policy" "allow_events" {
@@ -117,12 +147,17 @@ resource "aws_sns_topic_policy" "allow_events" {
 # covers the entire AWS account; AWS cost-allocation tags need activation to
 # create a trustworthy project-only budget later.
 resource "aws_budgets_budget" "account_alert" {
-  count        = var.alert_email == null ? 0 : 1
   name         = "${local.prefix}-account-monthly-alert"
   budget_type  = "COST"
   limit_amount = tostring(var.monthly_budget_usd)
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
+
+  # Track pre-credit usage. Otherwise the $100 promotional credit could hide
+  # accumulating Fargate/S3 charges until the credit is exhausted.
+  cost_types {
+    include_credit = false
+  }
 
   notification {
     comparison_operator        = "GREATER_THAN"

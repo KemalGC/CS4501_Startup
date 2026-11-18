@@ -1,0 +1,52 @@
+name: StrokeSense AWS Development Checks
+
+on:
+  push:
+    branches: [aws-dev]
+  pull_request:
+    branches: [aws-dev]
+
+# Static validation only. No AWS credentials, terraform plan/apply, image push,
+# deployment, or paid resources may be invoked by this workflow.
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Verify Python backend and quota logic
+        working-directory: strokesense
+        run: python3 -m unittest discover -s aws_app -p 'test_*.py' -q
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check AWS frontend syntax
+        working-directory: website-aws-dev
+        run: npm run test
+      - name: Build the separate AWS preview
+        working-directory: website-aws-dev
+        run: npm run build
+
+  terraform-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.9.8
+      - name: Check Terraform formatting
+        working-directory: infra/aws
+        run: terraform fmt -check -recursive
+      - name: Initialize providers without configuring a backend
+        working-directory: infra/aws
+        run: terraform init -backend=false -input=false -no-color
+      - name: Validate Terraform without accessing AWS
+        working-directory: infra/aws
+        run: terraform validate -no-color

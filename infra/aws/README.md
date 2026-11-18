@@ -28,7 +28,10 @@ does not provision resources, but it can require AWS account read access.
    is 6 vCPUs (at most 3 simultaneous jobs, subject to AWS quotas). Docker
    images live in private **ECR**. S3 is the source of truth for reports.
 6. **CloudWatch, EventBridge and SNS** notify on API throttles/errors and CPU
-   Batch failures. Optional AWS Budgets emails cover the *whole account*.
+   Batch failures. A separate scheduled Lambda reconciles failed jobs and
+   abandoned reservations every 15 minutes, including when users stop polling.
+   **Required AWS Budgets email alerts** monitor gross daily and monthly usage
+   across the *entire account*, before promotional credits.
 
 GPU Deep Analysis is **not** deployed, enabled, or billable by this stack:
 `enable_gpu=false` rejects attempts to enable it. The [GPU_PLAN.md](GPU_PLAN.md)
@@ -48,15 +51,55 @@ required model benchmarks and EC2/ECS scheduling risks.
 | Raw uploaded videos | Temporary | S3 lifecycle delete after 7 days; incomplete multipart after 1 day |
 | Paid credits and GPU processing | Disabled | `PAID_BILLING_ENABLED=false`, `PAID_GPU_ENABLED=false` |
 
+## Cost alerts and pre-deployment safety gate
+
+Terraform **requires a real `alert_email`** before `terraform plan` or
+`terraform apply`. Set `TF_VAR_alert_email` in your local shell or another
+private variable provider; do not commit your email address as a deployment
+default. Confirm the separate SNS subscription email for operational alarms.
+
+- **Daily gross-cost budget:** `$3/day` by default, with actual-cost emails at
+  25% ($0.75), 50% ($1.50), 80% ($2.40), and 100% ($3.00).
+- **Monthly gross-cost budget:** `$30/month` by default, with an actual-cost
+  email at 80% ($24) and a 100% forecasted alert. The forecast may not be
+  available until AWS has accumulated several weeks of billing history.
+- **Credits excluded:** `cost_types { include_credit = false }` makes the
+  budgets measure usage before the $100 promotional credit is applied.
+- **Account-wide:** Costs from *other* AWS workloads in this account also
+  count. These are not isolated StrokeSense budgets until billing tags are
+  activated and the spend allocation is independently verified.
+
+AWS Budgets emails are monitoring-only and free, but **neither a budget nor
+an alert stops a running Fargate task, EC2 instance, or future charge**.
+AWS billing information is delayed (typically 8–12 hours between budget
+refreshes), so these alerts are not real-time circuit breakers. The Fargate
+job timeout and max-vCPU setting limit individual-job and concurrent capacity,
+not the month's spend. AWS may offer separate account-level spending controls;
+review them in Billing before deployment instead of assuming an alarm is a cap.
+
+The AWS **Free Plan expiration and the promotional credit expiration are
+different dates**. The screenshot shows a $100 credit expiring May 22, 2027,
+but does *not* establish that the account remains on the Free Plan until then.
+Check the actual Free Plan time remaining in the AWS console before deploying;
+the account's Free Plan may end earlier, regardless of unused credits.
+
+References: [AWS Budgets pricing](https://aws.amazon.com/aws-cost-management/aws-budgets/pricing/),
+[AWS Budget alert update cadence](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-best-practices.html),
+[AWS Free Tier plans](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-plans.html).
+
 **The worker is not functional yet.** `strokesense/aws_app/worker.py` is a
 deliberate fail-closed stub: every Batch job exits nonzero and does not create
 a fake report. Integrate and benchmark the existing ONNX/llama-cpp pipeline
 with S3 input/output in a CPU container before applying this stack, and make
-the worker check real report output before returning success. The API currently
-reconciles failed Batch state when the user polls job status; a background
-reconciliation/event consumer must be added before a production launch to
-refund reservations even if the user closes the tab. The EventBridge rule
-here only sends an alert; it does not perform reconciliation.
+the worker check real report output before returning success. The API
+reconciles failed Batch state when the user polls job status. The scheduled
+`aws_app.reconcile` Lambda independently checks overdue upload reservations and
+Batch jobs every 15 minutes; failed jobs are refunded transactionally even
+when a user closes the tab. Ambiguous `submitting` transitions are **flagged
+for operator review**, not blindly refunded, to avoid a concurrent paid job.
+The separate Batch failure EventBridge rule sends an operations alert; it does
+not perform quota reconciliation itself. Integration tests against real AWS
+services are still required before production use.
 
 ## API contract and frontend configuration
 
@@ -125,6 +168,7 @@ screen/testing audience and the real SPA redirect path before deployment.
 3. Keep the Google secret outside source control and shared output. Example:
 
    ```bash
+   export TF_VAR_alert_email='you@example.com'
    export TF_VAR_google_oauth_client_id='your-google-web-client-id'
    # Load TF_VAR_google_oauth_client_secret from a private secret manager.
    # Never echo it, commit it, or pass it on a public CLI command line.
@@ -133,6 +177,8 @@ screen/testing audience and the real SPA redirect path before deployment.
 4. Run the backend unit tests from the repo root (`PYTHONPATH=strokesense
    python -m unittest aws_app.test_backend`), and build a local Lambda ZIP from the
    repo root using `bash infra/aws/build_lambda.sh`.
+   The `aws-dev` GitHub Actions workflow also checks backend tests, frontend
+   tests/build and Terraform formatting/validation without AWS credentials.
 5. In `infra/aws`, run `terraform fmt -check -recursive`, `terraform init
    -backend=false`, and `terraform validate`. Review `terraform plan` only
    with appropriate AWS read-only credentials and after provider installation.
@@ -158,10 +204,10 @@ recoverable on the local disk. Do not put secrets into `.tf` or examples.
   runtime; duration, frame count, decoding and AI model complexity do.
 - Default 6 max vCPUs caps **parallel CPU capacity**, not total monthly cost;
   the 1-hour per-attempt timeout is a backstop, not a budget limit.
-- `monthly_budget_usd = 30` creates email notifications **only when
-  `alert_email` is set**, and does not enforce a hard spend cap. Confirm the
-  actual AWS account billing/Free Plan expiration and cost allocation before
-  moving to Paid Plan. Do not assume $100 promotional credits cover every fee.
+- Both account-wide budgets use gross cost (before credits), with
+  `daily_budget_usd = 3` and `monthly_budget_usd = 30`. The email recipient
+  is required, but alerts remain delayed and do not enforce a hard spend cap.
+  Check AWS Free Plan expiration and eligible credit coverage before deployment.
 - S3 lifecycle expiration is asynchronous. The API must deny report access at
   its exact 72-hour or 30-day deadline, regardless of physical deletion time.
 - 750 MB uploads need multipart upload and S3 direct transfer; incomplete
@@ -184,5 +230,6 @@ recoverable on the local disk. Do not put secrets into `.tf` or examples.
       container CPU/memory limits, retry behavior and cost alerts are tested.
 - [ ] Quota reconciliation runs even when the user never polls; CloudWatch
       monitoring identifies idle stuck reservations and job failures.
-- [ ] AWS account Spend Limit, billing alert recipient, credit expiration,
+- [ ] AWS account spending controls, verified billing alert recipient, Free Plan
+      expiry and credit expiration,
       account plan, and GPU hardware costs are approved before charges.

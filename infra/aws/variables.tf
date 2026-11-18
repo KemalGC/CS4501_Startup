@@ -168,12 +168,33 @@ variable "raw_upload_ttl_days" {
 
 variable "alert_email" {
   type        = string
-  default     = null
-  description = "Optional email for Lambda error/failed job alarms and a monthly budget notification. Confirmation is required for SNS email."
+  nullable    = false
+  description = "Required billing/operational alert recipient. Set TF_VAR_alert_email privately before any Terraform plan/apply; SNS email subscription requires confirmation."
+
+  validation {
+    condition     = can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.alert_email))
+    error_message = "alert_email must be a valid recipient email address; configure notifications before deployment."
+  }
 }
 
 variable "monthly_budget_usd" {
   type        = number
   default     = 30
-  description = "Monthly billing alert level, NOT an enforced spending cap. A paid-plan project Spend Limit is configured separately in AWS Settings."
+  description = "Account-wide monthly gross-cost alert level in USD; not a hard cap or remaining promotional credit balance."
+
+  validation {
+    condition     = var.monthly_budget_usd > 0
+    error_message = "monthly_budget_usd must be positive."
+  }
+}
+
+variable "daily_budget_usd" {
+  type        = number
+  default     = 3
+  description = "Account-wide DAILY gross-cost budget in USD. Actual-cost alerts at 25%, 50%, 80%, and 100%; not a hard cap."
+
+  validation {
+    condition     = var.daily_budget_usd > 0
+    error_message = "daily_budget_usd must be positive."
+  }
 }

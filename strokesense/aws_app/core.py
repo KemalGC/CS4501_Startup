@@ -10,6 +10,7 @@ explicitly configured.
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 import re
@@ -30,6 +31,8 @@ FREE_REPORT_TTL_SECONDS = 72 * 60 * 60
 PAID_REPORT_TTL_SECONDS = 30 * 24 * 60 * 60
 CONTENT_TYPES = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm"}
 ETAG_RE = re.compile(r'^[^\x00-\x1f\x7f]{1,256}$')
+LOGGER = logging.getLogger(__name__)
+TERMINAL_RECORD_GRACE_SECONDS = 7 * 24 * 60 * 60
 
 
 class ApiError(Exception):
@@ -229,7 +232,14 @@ class AwsBackend:
                 values[key] = _s(value)
                 clauses.append(key)
             condition = f"user_id = :uid AND #state IN ({', '.join(clauses)})"
-            update_expr = "SET #state = :next, updated_at = :updated"
+            # Pending reservations must not have a DynamoDB TTL: automatic
+            # deletion without the matching account transaction would leak
+            # reserved quota indefinitely. Only terminal records expire.
+            terminal_ttl = self._now() + TERMINAL_RECORD_GRACE_SECONDS
+            if next_state == "succeeded":
+                terminal_ttl += self._report_ttl(record)
+            values[":ttl"] = _n(terminal_ttl)
+            update_expr = "SET #state = :next, updated_at = :updated, ttl_epoch = :ttl"
             if next_state == "succeeded":
                 values[":report_expires"] = _n(self._now() + self._report_ttl(record))
                 update_expr += ", report_expires_at = :report_expires"
@@ -271,15 +281,20 @@ class AwsBackend:
             "TableName": self.cfg.jobs_table,
             "IndexName": "user_id-created_at-index",
             "KeyConditionExpression": "user_id = :uid",
-            "FilterExpression": "#state = :uploading AND expires_at < :now",
+            "FilterExpression": "#state IN (:uploading, :uploaded) AND expires_at < :now",
             "ExpressionAttributeNames": {"#state": "status"},
-            "ExpressionAttributeValues": {":uid": _s(user_id), ":uploading": _s("uploading"), ":now": _n(self._now())},
+            "ExpressionAttributeValues": {
+                ":uid": _s(user_id),
+                ":uploading": _s("uploading"),
+                ":uploaded": _s("uploaded"),
+                ":now": _n(self._now()),
+            },
         }
         while True:
             page = self.ddb.query(**request)
             for raw in page.get("Items", []):
                 record = _decode(raw)
-                if record.get("user_id") == user_id and record.get("status") == "uploading":
+                if record.get("user_id") == user_id and record.get("status") in ("uploading", "uploaded"):
                     self._abort_record(record)
             if not page.get("LastEvaluatedKey"):
                 break
@@ -556,6 +571,17 @@ class AwsBackend:
         jobs = response.get("jobs", [])
         return str(jobs[0].get("status", "SUBMITTED")) if jobs else "SUBMITTED"
 
+    def _report_exists(self, record: dict[str, Any]) -> bool:
+        try:
+            self.s3.head_object(Bucket=self.cfg.bucket, Key=record["report_key"])
+        except Exception as exc:
+            # A temporary S3 outage/permission error must never cause us to
+            # permanently refund a job that successfully produced a report.
+            if aws_error_code(exc) in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        return True
+
     def _settle(self, record: dict[str, Any], succeeded: bool) -> None:
         state = "succeeded" if succeeded else "failed"
         operation = "consume" if succeeded else "refund"
@@ -579,9 +605,7 @@ class AwsBackend:
                 self._settle(record, succeeded=False)
                 state = "failed"
             elif batch_state == "SUCCEEDED":
-                try:
-                    self.s3.head_object(Bucket=self.cfg.bucket, Key=record["report_key"])
-                except Exception:
+                if not self._report_exists(record):
                     # A worker reporting success without an actual report is a
                     # failed analysis, not a chargeable success.
                     self._settle(record, succeeded=False)

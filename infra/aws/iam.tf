@@ -106,6 +106,15 @@ data "aws_iam_policy_document" "api" {
     resources = ["${aws_s3_bucket.media.arn}/reports/*"]
   }
 
+  # S3 HeadObject returns 403 instead of 404 for a missing report unless the
+  # caller also has ListBucket. The API must distinguish an absent report from
+  # a transient permission/storage failure before settling user quota.
+  statement {
+    sid       = "DistinguishMissingReportFromAccessFailure"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.media.arn]
+  }
+
   statement {
     sid       = "SubmitApprovedCpuJobsOnly"
     actions   = ["batch:SubmitJob"]

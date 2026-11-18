@@ -30,9 +30,13 @@ free_max_video_bytes  = 100000000
 paid_max_video_bytes  = 750000000
 cpu_max_vcpus         = 6
 monthly_budget_usd    = 30
+daily_budget_usd      = 3
 
-# Uncomment ONLY after confirming the recipient has access to AWS bill alerts.
-# alert_email = "your-address@example.com"
+# REQUIRED: configure a real inbox before `terraform plan` / `terraform apply`.
+# Prefer `TF_VAR_alert_email` in your shell rather than committing an address:
+# export TF_VAR_alert_email='you@example.com'
+# AWS Budgets sends direct email; SNS operational alerts separately require
+# the recipient to confirm an email subscription.
 # google_oauth_client_id is safe to expose in a web client, but Terraform treats
 # it as sensitive along with the private google_oauth_client_secret. Supply both
 # through environment variables, not committed .tfvars files.

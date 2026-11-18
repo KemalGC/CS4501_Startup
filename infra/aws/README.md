@@ -27,6 +27,9 @@ does not provision resources, but it can require AWS account read access.
    an always-running ECS service, NAT gateway or ALB. The queue's default max
    is 6 vCPUs (at most 3 simultaneous jobs, subject to AWS quotas). Docker
    images live in private **ECR**. S3 is the source of truth for reports.
+   The queue and API job submission are **disabled by default** until a
+   tested container image exists and `enable_cpu_analysis=true` is separately
+   approved.
 6. **CloudWatch, EventBridge and SNS** notify on API throttles/errors and CPU
    Batch failures. A separate scheduled Lambda reconciles failed jobs and
    abandoned reservations every 15 minutes, including when users stop polling.
@@ -87,12 +90,67 @@ References: [AWS Budgets pricing](https://aws.amazon.com/aws-cost-management/aws
 [AWS Budget alert update cadence](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-best-practices.html),
 [AWS Free Tier plans](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-plans.html).
 
-**The worker is not functional yet.** `strokesense/aws_app/worker.py` is a
-deliberate fail-closed stub: every Batch job exits nonzero and does not create
-a fake report. Integrate and benchmark the existing ONNX/llama-cpp pipeline
-with S3 input/output in a CPU container before applying this stack, and make
-the worker check real report output before returning success. The API
-reconciles failed Batch state when the user polls job status. The scheduled
+## DynamoDB recovery and provider compatibility
+
+Both `users` (lifetime quotas and eventual paid-credit records) and `jobs`
+(report ownership and in-flight processing state) enable **point-in-time
+recovery**. DynamoDB charges separately for continuous backup storage; this
+extra cost must be included in the final deployment review even if the tables
+start small. This setting is code-only until the stack is separately approved
+and deployed.
+
+The AWS provider is constrained to **6.37+** to support the `key_schema`
+blocks on global secondary indexes and avoid earlier provider index drift and
+recreation bugs. The table-level `hash_key` arguments are
+still necessary: `key_schema` is supported **inside** GSI blocks, not at the
+table resource level. Current provider releases can still emit deprecation
+warnings about table-level `hash_key` even though the documented alternative
+is not valid at that location. Do not substitute `key_schema` at the top level
+merely to silence a warning; it prevents `terraform validate` from succeeding.
+
+## Secure Terraform state (separate approval required)
+
+Terraform state contains sensitive values including the Google OAuth **client
+secret**, even when console output masks them. Do not run the first
+`terraform apply` with a local state backend or put state in GitHub. The
+[S3 backend template](backend.s3.tf.example) describes a **separately
+provisioned** backend; creating its S3 bucket can incur charges and is not
+authorized by a read-only `terraform plan`.
+
+Before the separately approved deployment:
+
+1. Use a **dedicated, non-root deployment identity** with access limited to
+   the StrokeSense stack and a separate state bucket. Do not create root
+   access keys; browser/SSO-based temporary credentials are preferred.
+2. Obtain explicit approval to create a dedicated private S3 **state bucket**
+   in `us-east-1`, outside this stack. Enable Block Public Access, versioning,
+   server-side encryption, and narrowly scoped read/write permissions for
+   `strokesense/aws-dev/terraform.tfstate` and its `.tflock` object. Restrict
+   state access to the deployment role and trusted maintainers.
+3. With Terraform **1.10+**, copy `backend.s3.tf.example` to the ignored
+   `backend.tf` and replace the placeholder with that precreated bucket name.
+   The template sets `encrypt = true` and `use_lockfile = true`; S3-native
+   locking avoids creating a second DynamoDB lock table.
+4. From `infra/aws`, run `terraform init -reconfigure` if no state exists, or
+   review `terraform init -migrate-state` if a local state already exists.
+   Inspect the backend and IAM settings before any write to AWS. Do not
+   disclose state files, `terraform show -json`, or saved plan files publicly.
+
+Only use `terraform init -backend=false` for local, backend-free checks before
+the approved S3 state bucket exists. The sample backend file is ignored by
+Terraform until deliberately copied to `backend.tf`.
+
+**The CPU worker is code-complete but not cloud-validated.**
+`strokesense/aws_app/worker.py` streams bounded S3 input, runs the existing
+Render CPU command (10 FPS, 2 threads, bounded media), and verifies measured
+HTML/JSON artifacts before publishing the private `report.json` success
+marker. `strokesense/Dockerfile.aws-cpu` installs inference dependencies and
+FFmpeg and bakes the integrity-checked ONNX model into a non-root image.
+Offline simulated-S3 contract tests pass, but **no Docker image has been
+built or pushed to ECR and no real clip has been benchmarked at 2 vCPU/4 GiB**.
+Do not apply until the image is built, tested with an authorized video sample,
+security-reviewed and approved. The API reconciles failed Batch state when
+the user polls job status. The scheduled
 `aws_app.reconcile` Lambda independently checks overdue upload reservations and
 Batch jobs every 15 minutes; failed jobs are refunded transactionally even
 when a user closes the tab. Ambiguous `submitting` transitions are **flagged
@@ -100,6 +158,28 @@ for operator review**, not blindly refunded, to avoid a concurrent paid job.
 The separate Batch failure EventBridge rule sends an operations alert; it does
 not perform quota reconciliation itself. Integration tests against real AWS
 services are still required before production use.
+
+### Two-stage rollout avoids an empty ECR image
+
+Terraform creates the ECR repository in the same stack as the Batch job
+definition, so the first apply cannot reference an image already uploaded
+to that new repository.
+
+1. **Before any AWS write:** build `strokesense/Dockerfile.aws-cpu` locally
+   and benchmark a permission-cleared rowing clip at 2 vCPU / 4 GiB.
+   Unit tests with simulated S3 do not replace this real-video benchmark.
+2. **With separate deployment approval:** create the encrypted remote-state
+   bucket and apply Terraform with `enable_cpu_analysis=false`. The API
+   refuses analysis submissions and the Batch queue stays disabled.
+3. **With separate image-push approval:** publish the benchmarked image to
+   the new ECR repository using a unique version tag/digest.
+4. **With separate compute-launch approval:** set `worker_image_tag` to
+   the tested image tag and `enable_cpu_analysis=true`, review a fresh
+   Terraform plan, apply, then configure the AWS-dev Vercel API URL.
+
+No AWS resource has been created by these code changes. The previous
+61-resource Terraform plan is now stale; rerun `terraform init -upgrade`,
+`terraform validate` and `terraform plan` before approving deployment.
 
 ## API contract and frontend configuration
 
@@ -159,7 +239,8 @@ screen/testing audience and the real SPA redirect path before deployment.
 
 ## Local-only preparation (no AWS changes)
 
-1. Install Terraform 1.6+ (AWS provider 5.98–6.x), Python, `pip`, and `zip`.
+1. Install Terraform 1.10+ (needed for S3-native backend lockfiles), AWS
+   provider 6.37–6.x, Python, `pip`, and `zip`.
 2. From `infra/aws`, review `terraform.tfvars.example`, Vercel CORS origins,
    Cognito callback/logout routes, the `vpc_id` and **public** `subnet_ids`.
    The default VPC is used if IDs are omitted, but check that every selected
@@ -187,10 +268,9 @@ screen/testing audience and the real SPA redirect path before deployment.
    behavior end to end, accepting an AWS spend limit/billing plan and getting
    explicit approval.
 
-Terraform state contains Google OAuth credentials and other sensitive values.
-Protect state with an encrypted, access-controlled backend for any actual
-deployment; local `.tfstate` and `.tfvars` are ignored by Git but remain
-recoverable on the local disk. Do not put secrets into `.tf` or examples.
+Local `.tfstate` and `.tfvars` are ignored by Git but remain recoverable on
+the local disk. Do not put secrets into `.tf` or example files; follow the
+secure state procedure above before any actual deployment.
 
 ## Cost and safety notes
 

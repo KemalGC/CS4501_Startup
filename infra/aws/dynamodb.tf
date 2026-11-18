@@ -12,7 +12,9 @@ resource "aws_dynamodb_table" "users" {
   }
 
   point_in_time_recovery {
-    enabled = false
+    # Protect lifetime processing allowances and future paid-credit records.
+    # AWS bills PITR backup storage separately from table read/write traffic.
+    enabled = true
   }
 }
 
@@ -52,16 +54,32 @@ resource "aws_dynamodb_table" "jobs" {
 
   global_secondary_index {
     name            = "user_id-created_at-index"
-    hash_key        = "user_id"
-    range_key       = "created_at"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "user_id"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "created_at"
+      key_type       = "RANGE"
+    }
   }
 
   global_secondary_index {
     name            = "status-expires_at-index"
-    hash_key        = "status"
-    range_key       = "expires_at"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "status"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "expires_at"
+      key_type       = "RANGE"
+    }
   }
 
   # Terminal records set ttl_epoch transactionally. Pending reservations
@@ -72,6 +90,6 @@ resource "aws_dynamodb_table" "jobs" {
   }
 
   point_in_time_recovery {
-    enabled = false
+    enabled = true
   }
 }

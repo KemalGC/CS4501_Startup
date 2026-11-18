@@ -3,7 +3,14 @@
 This is an **isolated copy** of the published StrokeSense design for the
 `aws-dev` branch. It does not embed the live Render bridge or send files to the
 production website. Its analyzer shows an honest, local-only preview until
-Cognito and the AWS HTTP API are deployed and configured.
+Cognito and the AWS HTTP API are deployed and configured. When real CPU
+analysis completes, it displays the self-contained HTML technique report
+from private S3 JSON inside a restricted sandboxed iframe, with a separate
+report download link.
+On successful analysis the browser also requests an HTML download automatically,
+with the visible download button as a fallback. If the report preview cannot be
+fetched (for example because of a browser CORS restriction), the button offers
+the signed raw JSON report until that short-lived URL expires.
 
 ## Run locally
 

@@ -18,7 +18,8 @@
     cancel: $('cancel-upload'), helper: $('run-helper'), feedback: $('upload-feedback'),
     progress: $('analysis-progress'), progressBar: $('analysis-progress-bar'),
     percentage: $('analysis-percentage'), status: $('analysis-status'),
-    detail: $('analysis-detail'), result: $('analysis-result'), download: $('download-report')
+    detail: $('analysis-detail'), result: $('analysis-result'), download: $('download-report'),
+    reportPreview: $('report-preview'), reportFrame: $('report-frame')
   };
 
   const sanitizeUrl = value => {
@@ -40,6 +41,18 @@
   let busy = false;
   let abortController = null;
   let activeVideoId = null;
+  let downloadedReportUrl = '';
+
+  function clearReport() {
+    if (downloadedReportUrl) URL.revokeObjectURL(downloadedReportUrl);
+    downloadedReportUrl = '';
+    ui.result.hidden = true;
+    ui.reportPreview.hidden = true;
+    ui.reportFrame.removeAttribute('srcdoc');
+    ui.download.removeAttribute('href');
+    ui.download.removeAttribute('download');
+    ui.download.textContent = 'Download report';
+  }
 
   function feedback(message, tone = '') {
     ui.feedback.textContent = message;
@@ -57,6 +70,7 @@
   }
   function clearAuth() {
     try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
+    clearReport();
   }
   function userLabel(auth) {
     if (!auth || !auth.idToken) return 'Signed in with Google.';
@@ -111,7 +125,7 @@
   function setFile(nextFile) {
     if (localVideoUrl) URL.revokeObjectURL(localVideoUrl);
     file = nextFile || null;
-    ui.result.hidden = true;
+    clearReport();
     ui.video.hidden = !file;
     ui.fileReview.hidden = !file;
     if (!file) {
@@ -264,8 +278,36 @@
           throw Error('The report is complete but a secure download URL is unavailable.');
         }
         ui.download.href = report.download_url;
+        ui.download.textContent = 'Download report data (JSON)';
         ui.result.hidden = false;
-        feedback('Your report is ready. Download it before it expires.', 'success');
+        // S3 links are short-lived, but a successful download is available
+        // even if this optional browser preview fails. The sandbox allows no
+        // scripts, forms, navigation or same-origin privileges.
+        try {
+          const response = await fetch(report.download_url, {
+            method: 'GET', credentials: 'omit', cache: 'no-store', signal
+          });
+          const declaredLength = Number(response.headers.get('Content-Length') || 0);
+          if (!response.ok || declaredLength > 32 * 1024 * 1024) throw Error('preview_unavailable');
+          const document = await response.json();
+          if (document.schema_version !== 'strokesense-free-report-v1' ||
+              document.job_id !== jobId || typeof document.report_html !== 'string' ||
+              document.report_html.length > 24 * 1024 * 1024) throw Error('preview_unavailable');
+          ui.reportFrame.srcdoc = document.report_html;
+          ui.reportPreview.hidden = false;
+          downloadedReportUrl = URL.createObjectURL(new Blob([document.report_html], {
+            type: 'text/html;charset=utf-8'
+          }));
+          ui.download.href = downloadedReportUrl;
+          ui.download.download = 'strokesense-report-' + jobId + '.html';
+          ui.download.textContent = 'Download HTML report';
+          // Browser download policies differ; the visible link always remains.
+          ui.download.click();
+        } catch (_) {
+          ui.reportPreview.hidden = true;
+          ui.reportFrame.removeAttribute('srcdoc');
+        }
+        feedback('Your report is ready. Keep the downloaded HTML file; the online copy expires in 3 days.', 'success');
         return;
       }
       if (['failed', 'cancelled', 'error'].includes(state)) {
@@ -288,7 +330,7 @@
     activeVideoId = null;
     let jobSubmitted = false;
     abortController = new AbortController();
-    ui.result.hidden = true;
+    clearReport();
     ui.cancel.hidden = false;
     render();
     try {

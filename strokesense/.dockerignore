@@ -1,0 +1,25 @@
+# Docker context is strokesense/, NOT the repository root.
+.git/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env*
+*.tfvars
+*.tfstate*
+*.gguf
+*.onnx
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi
+models/
+results/
+output/
+evaluation/
+tests/
+training/
+*.zip
+*.pdf

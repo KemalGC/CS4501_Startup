@@ -77,7 +77,9 @@ resource "aws_batch_compute_environment" "cpu" {
 
 resource "aws_batch_job_queue" "cpu" {
   name     = "${local.prefix}-cpu"
-  state    = "ENABLED"
+  # Initial infrastructure rollout creates ECR first. No jobs are accepted
+  # until a tested image has been pushed and this explicit flag is approved.
+  state    = var.enable_cpu_analysis ? "ENABLED" : "DISABLED"
   priority = 10
 
   compute_environment_order {
@@ -87,8 +89,8 @@ resource "aws_batch_job_queue" "cpu" {
 }
 
 # This definition references a worker image that must be built, benchmarked,
-# security-reviewed and pushed BEFORE a successful apply. The current Python
-# aws_app.worker exits nonzero until its real inference adapter is configured.
+# security-reviewed and pushed BEFORE a successful apply. The S3 CPU adapter
+# is implemented, but live ONNX inference has not been benchmarked on Fargate.
 resource "aws_batch_job_definition" "cpu" {
   name                  = "${local.prefix}-cpu"
   type                  = "container"
@@ -122,7 +124,7 @@ resource "aws_batch_job_definition" "cpu" {
       { name = "S3_BUCKET", value = aws_s3_bucket.media.bucket },
       { name = "JOBS_TABLE", value = aws_dynamodb_table.jobs.name },
       { name = "AWS_DEFAULT_REGION", value = var.aws_region },
-      { name = "STROKESENSE_PIPELINE_COMMAND", value = "" }
+      { name = "STROKESENSE_ANALYSIS_TIMEOUT_SECONDS", value = "3300" }
     ]
   })
 

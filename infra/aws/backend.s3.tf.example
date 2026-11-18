@@ -1,0 +1,20 @@
+# Optional remote-state configuration. Do not copy this into backend.tf until
+# a private, versioned, encrypted S3 bucket has been separately approved and
+# created OUTSIDE this application stack. The backend bucket cannot be managed
+# by the Terraform configuration that depends on it.
+#
+# Terraform >= 1.10 is required for S3 native use_lockfile state locking.
+# The bucket must block all public access; restrict state and .tflock objects
+# to the dedicated deployment identity, and enable server-side encryption.
+#
+# Copy this file to backend.tf locally and replace the placeholder bucket.
+# backend.tf is gitignored. Never store AWS keys or Google OAuth secrets here.
+terraform {
+  backend "s3" {
+    bucket       = "REPLACE_WITH_PRECREATED_PRIVATE_STATE_BUCKET"
+    key          = "strokesense/aws-dev/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}

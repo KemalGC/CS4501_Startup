@@ -1,4 +1,7 @@
 .terraform/
+# Account-specific backend settings (including possible secret backend options)
+# stay local. The reviewed template is backend.s3.tf.example.
+backend.tf
 *.tfstate
 *.tfstate.*
 *.tfplan

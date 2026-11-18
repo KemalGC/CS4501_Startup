@@ -24,7 +24,7 @@ resource "aws_lambda_function" "api" {
       S3_BUCKET                          = aws_s3_bucket.media.bucket
       USERS_TABLE                        = aws_dynamodb_table.users.name
       JOBS_TABLE                         = aws_dynamodb_table.jobs.name
-      CPU_BATCH_JOB_QUEUE                = aws_batch_job_queue.cpu.arn
+      CPU_BATCH_JOB_QUEUE                = var.enable_cpu_analysis ? aws_batch_job_queue.cpu.arn : ""
       CPU_BATCH_JOB_DEFINITION           = aws_batch_job_definition.cpu.arn
       AWS_S3_US_EAST_1_REGIONAL_ENDPOINT = "regional"
       FREE_LIFETIME_BYTES                = tostring(var.free_lifetime_bytes)

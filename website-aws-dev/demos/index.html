@@ -66,7 +66,16 @@
           <div class="aws-run-buttons"><button id="run-analysis" class="aws-button aws-button-primary aws-run-button" type="button" disabled>Analyze with AWS</button><button id="cancel-upload" class="aws-button aws-button-outline" type="button" hidden>Cancel upload</button></div>
           <div id="analysis-progress" class="aws-progress-wrap" hidden><div class="aws-progress-line"><strong id="analysis-status">Waiting</strong><span id="analysis-percentage">0%</span></div><progress id="analysis-progress-bar" max="100" value="0"></progress><p id="analysis-detail"></p></div>
           <p id="upload-feedback" class="aws-feedback" role="status" aria-live="polite"></p>
-          <div id="analysis-result" class="aws-result" hidden><h3>Analysis complete</h3><p>Your report is ready. Use the link below to download it before its retention period ends.</p><a id="download-report" class="aws-button aws-button-primary" href="#" rel="noopener noreferrer" target="_blank">Download report</a></div>
+          <div id="analysis-result" class="aws-result" hidden>
+            <h3>Analysis complete</h3>
+            <p>Your private report is available for 3 days. Download a copy before it expires.</p>
+            <a id="download-report" class="aws-button aws-button-primary" href="#" rel="noopener noreferrer" target="_blank">Download report (JSON)</a>
+            <div id="report-preview" class="aws-report-preview" hidden>
+              <h4>Technique report</h4>
+              <p>CPU-measured coaching cues are preliminary and have not been verified by a rowing coach.</p>
+              <iframe id="report-frame" title="StrokeSense private technique report" sandbox="" referrerpolicy="no-referrer" loading="lazy"></iframe>
+            </div>
+          </div>
         </section>
       </div>
     </section>

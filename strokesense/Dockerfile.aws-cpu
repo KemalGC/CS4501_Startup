@@ -1,0 +1,32 @@
+# Build with: docker build -f Dockerfile.aws-cpu -t strokesense-aws-cpu:dev .
+# from the strokesense/ directory. The image runs one Batch job and exits.
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=2 \
+    OPENBLAS_NUM_THREADS=2 \
+    MKL_NUM_THREADS=2 \
+    MPLCONFIGDIR=/tmp/strokesense-mpl \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+# FFmpeg handles hosted video encoding; libgomp is required by ONNX/OpenCV.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libgomp1 libglib2.0-0 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-hosted.txt requirements-demo-hosted.txt ./
+RUN pip install --no-cache-dir -r requirements-demo-hosted.txt boto3
+
+COPY strokesense/ ./strokesense/
+COPY aws_app/ ./aws_app/
+
+# Pin the verified 11.85 MB YOLO pose model inside the image. Tasks must not
+# depend on downloading weights from GitHub while processing a user's video.
+RUN python -c "from strokesense.pose import ensure_model; ensure_model()"
+
+# Never run untrusted video decoders as root.
+USER 10001:10001
+CMD ["python", "-m", "aws_app.worker"]

@@ -29,6 +29,7 @@ free_lifetime_bytes  = 300000000
 free_max_video_bytes  = 100000000
 paid_max_video_bytes  = 750000000
 cpu_max_vcpus         = 6
+enable_cpu_analysis   = false # Initial rollout: no submissions to empty ECR worker image
 monthly_budget_usd    = 30
 daily_budget_usd      = 3
 

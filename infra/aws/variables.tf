@@ -96,6 +96,12 @@ variable "worker_image_tag" {
   description = "ECR image tag supplied by the existing CPU analysis worker build."
 }
 
+variable "enable_cpu_analysis" {
+  type        = bool
+  default     = false
+  description = "Explicit deployment gate. Leave false while the ECR repository has no benchmarked worker image; enable only in a separately approved follow-up plan."
+}
+
 variable "worker_command" {
   type        = list(string)
   default     = ["python", "-m", "aws_app.worker"]

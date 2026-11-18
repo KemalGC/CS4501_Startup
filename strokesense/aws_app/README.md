@@ -2,9 +2,10 @@
 
 This module is a Python Lambda HTTP API v2.0 handler for an isolated AWS-dev
 environment. It is **not** a replacement for the live Render analyzer. The
-future Batch container in `worker.py` intentionally exits unsuccessfully;
-actual inference and model packaging are not connected yet. No AWS resources,
-user payments, or secrets are created by this code.
+Batch CPU adapter in `worker.py` streams a bounded S3 upload, executes the
+existing Render analysis command, and verifies the real HTML/metrics output
+before publishing a private `report.json`. Simulated S3 contract tests pass,
+but **no real-video Fargate benchmark or AWS deployment has occurred**.
 
 ## Identity and authorization
 
@@ -64,7 +65,30 @@ multipart uploads as a backstop.
   API checks expiry server-side. S3 lifecycle/deletion policy should also
   physically remove expired data; don't rely on URL expiration alone.
 - A missing report after Batch success is treated as failure, and quota is
-  refunded. `worker.py` exits without generating a fake success report.
+  refunded. The worker exits nonzero on decoding failures, invalid measurement
+  artifacts, analysis failures, or failed S3 uploads. No fake reports.
+
+## AWS Batch CPU container (not deployed)
+
+From the repository's `strokesense/` directory, with Docker installed:
+
+```sh
+docker build -f Dockerfile.aws-cpu -t strokesense-aws-cpu:dev .
+```
+
+The CPU image installs the existing inference requirements and FFmpeg, bundles
+the pinned 11.85 MB ONNX model after validating its SHA256, and runs an
+unprivileged container. The 1.1 GB local LLM and GPU libraries are intentionally
+excluded from the free tier until separately benchmarked and approved.
+
+Required Batch variables are `STROKESENSE_JOB_ID`,
+`STROKESENSE_USER_HASH`, `STROKESENSE_S3_BUCKET`,
+`STROKESENSE_INPUT_KEY`, and `STROKESENSE_REPORT_KEY`; they are supplied by
+the authenticated API, not by the browser. Paid keys are rejected. The output
+JSON contains measured metrics and standalone HTML with inline charts/photos
+for the sandboxed Vercel report preview. The success object is written last.
+Do not push to ECR or apply Terraform before a real-video Docker benchmark and
+separate deployment approval.
 
 ## Lambda configuration
 
@@ -93,7 +117,8 @@ python -m unittest discover -s aws_app -p 'test_*.py' -v
 ```
 
 These tests use in-memory stand-ins and require no AWS account or boto3
-installation. Before deployment, add AWS emulator/integration tests with
+installation, including `test_worker.py` for the S3-to-report contract.
+Before deployment, add AWS emulator/integration tests with
 real S3 presigned multipart signatures, IAM, CORS, JWT enforcement, and
-failure/retry races; verify AWS costs and budget alarms. Do not deploy a
-worker until the model adapter can process real clips and write valid reports.
+failure/retry races; verify AWS costs and budget alarms. A successful Docker
+build and real-video inference benchmark are still required.

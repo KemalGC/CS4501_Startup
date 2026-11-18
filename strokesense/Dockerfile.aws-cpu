@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OPENBLAS_NUM_THREADS=2 \
     MKL_NUM_THREADS=2 \
     MPLCONFIGDIR=/tmp/strokesense-mpl \
+    HOME=/tmp \
     PYTHONPATH=/app
 
 WORKDIR /app
@@ -25,8 +26,14 @@ COPY aws_app/ ./aws_app/
 
 # Pin the verified 11.85 MB YOLO pose model inside the image. Tasks must not
 # depend on downloading weights from GitHub while processing a user's video.
-RUN python -c "from strokesense.pose import ensure_model; ensure_model()"
+RUN python -c "from strokesense.pose import ensure_model; ensure_model()" \
+    && chmod 0755 /app/models \
+    && chmod 0444 /app/models/yolo11n-pose.onnx
 
-# Never run untrusted video decoders as root.
+# ensure_model's atomic download creates a root-owned mode-0600 file. Confirm
+# the non-root worker can actually read the pinned weights before publishing
+# the image. The file stays root-owned and read-only during inference.
 USER 10001:10001
+RUN python -c "from strokesense.pose import ensure_model; print('ONNX model readable by worker:', ensure_model())"
+
 CMD ["python", "-m", "aws_app.worker"]

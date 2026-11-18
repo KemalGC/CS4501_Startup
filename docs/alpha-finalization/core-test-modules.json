@@ -1,0 +1,23 @@
+{
+  "29": ["test_upload_analyze"],
+  "88": ["test_form_origin"],
+  "94": ["test_selected_crew", "test_selection_web", "test_selection_edges"],
+  "98": ["test_auto_selection"],
+  "100": ["test_multiframe_review", "test_temporal_handoff", "test_review_routes"],
+  "108": ["test_crew_model", "test_crew_pipeline", "test_crew_web", "test_crew_options_web", "test_boat_cadence"],
+  "95": ["test_fault_pictures"],
+  "111": ["test_feedback_library", "test_study_library"],
+  "14": ["test_evidence", "test_evidence_integrity_invariants"],
+  "15": ["test_validation", "test_release_evidence_integrity"],
+  "16": ["test_correction"],
+  "17": ["test_provider"],
+  "50": ["test_coaching_cli"],
+  "56": ["test_coaching_demo", "test_demo"],
+  "120": ["test_coaching_job_state", "test_web_coaching_state"],
+  "110": ["test_feedback", "test_feedback_evaluation", "test_feedback_quality"],
+  "115": ["test_tester_links", "test_hosted", "test_curated_study"],
+  "117": [],
+  "119": ["test_alpha_validation"],
+  "121": [],
+  "122": ["test_alpha_metrics", "test_alpha_metrics_multiline"]
+}

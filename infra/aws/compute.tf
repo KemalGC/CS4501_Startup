@@ -59,9 +59,9 @@ resource "aws_cloudwatch_log_group" "batch_jobs" {
 }
 
 resource "aws_batch_compute_environment" "cpu" {
-  compute_environment_name_prefix = "${local.prefix}-cpu-"
-  type                            = "MANAGED"
-  state                           = "ENABLED"
+  name_prefix = "${local.prefix}-cpu-"
+  type        = "MANAGED"
+  state       = "ENABLED"
 
   compute_resources {
     type               = "FARGATE"

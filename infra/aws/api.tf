@@ -21,19 +21,19 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      S3_BUCKET                         = aws_s3_bucket.media.bucket
-      USERS_TABLE                       = aws_dynamodb_table.users.name
-      JOBS_TABLE                        = aws_dynamodb_table.jobs.name
-      CPU_BATCH_JOB_QUEUE               = aws_batch_job_queue.cpu.arn
-      CPU_BATCH_JOB_DEFINITION          = aws_batch_job_definition.cpu.arn
+      S3_BUCKET                          = aws_s3_bucket.media.bucket
+      USERS_TABLE                        = aws_dynamodb_table.users.name
+      JOBS_TABLE                         = aws_dynamodb_table.jobs.name
+      CPU_BATCH_JOB_QUEUE                = aws_batch_job_queue.cpu.arn
+      CPU_BATCH_JOB_DEFINITION           = aws_batch_job_definition.cpu.arn
       AWS_S3_US_EAST_1_REGIONAL_ENDPOINT = "regional"
-      FREE_LIFETIME_BYTES               = tostring(var.free_lifetime_bytes)
-      FREE_MAX_VIDEO_BYTES              = tostring(var.free_max_video_bytes)
-      PAID_MAX_VIDEO_BYTES              = tostring(var.paid_max_video_bytes)
-      FREE_REPORT_TTL_SECONDS           = tostring(var.free_report_ttl_days * 86400)
-      PAID_REPORT_TTL_SECONDS           = tostring(var.paid_report_ttl_days * 86400)
-      PAID_BILLING_ENABLED              = "false"
-      PAID_GPU_ENABLED                  = "false"
+      FREE_LIFETIME_BYTES                = tostring(var.free_lifetime_bytes)
+      FREE_MAX_VIDEO_BYTES               = tostring(var.free_max_video_bytes)
+      PAID_MAX_VIDEO_BYTES               = tostring(var.paid_max_video_bytes)
+      FREE_REPORT_TTL_SECONDS            = tostring(var.free_report_ttl_days * 86400)
+      PAID_REPORT_TTL_SECONDS            = tostring(var.paid_report_ttl_days * 86400)
+      PAID_BILLING_ENABLED               = "false"
+      PAID_GPU_ENABLED                   = "false"
     }
   }
 

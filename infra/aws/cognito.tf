@@ -4,7 +4,7 @@ resource "aws_cognito_user_pool" "users" {
   username_attributes      = ["email"]
   # Google federation is available in Lite. The classic hosted UI avoids
   # enabling paid Essentials managed-login functionality by accident.
-  user_pool_tier           = "LITE"
+  user_pool_tier = "LITE"
 
   account_recovery_setting {
     recovery_mechanism {

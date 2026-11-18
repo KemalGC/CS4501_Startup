@@ -43,7 +43,7 @@ jobs:
           terraform_version: 1.9.8
       - name: Check Terraform formatting
         working-directory: infra/aws
-        run: terraform fmt -check -recursive
+        run: terraform fmt -diff -check -recursive
       - name: Initialize providers without configuring a backend
         working-directory: infra/aws
         run: terraform init -backend=false -input=false -no-color

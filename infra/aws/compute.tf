@@ -76,7 +76,7 @@ resource "aws_batch_compute_environment" "cpu" {
 }
 
 resource "aws_batch_job_queue" "cpu" {
-  name     = "${local.prefix}-cpu"
+  name = "${local.prefix}-cpu"
   # Initial infrastructure rollout creates ECR first. No jobs are accepted
   # until a tested image has been pushed and this explicit flag is approved.
   state    = var.enable_cpu_analysis ? "ENABLED" : "DISABLED"

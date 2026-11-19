@@ -10,15 +10,19 @@ explicitly configured.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import os
 import re
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+
+from . import artifacts
 
 
 FREE_BYTES = 300_000_000
@@ -38,6 +42,8 @@ TERMINAL_RECORD_GRACE_SECONDS = 7 * 24 * 60 * 60
 # because a network error does not prove AWS declined to start the paid job.
 DEFAULT_CPU_GLOBAL_DAILY_LIMIT = 5
 DEFAULT_CPU_GLOBAL_MONTHLY_LIMIT = 50
+DEFAULT_RAW_UPLOAD_TTL_SECONDS = 7 * 24 * 60 * 60
+MAX_FILENAME_CHARS = 128
 
 
 class ApiError(Exception):
@@ -113,6 +119,19 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _safe_filename(value: Any) -> str:
+    """Store only a display label, never an untrusted client-side path."""
+    if value is None:
+        return "Rowing video"
+    if not isinstance(value, str):
+        raise ApiError(400, "invalid_filename", "File name must be text")
+    name = unicodedata.normalize("NFKC", value.replace("\\", "/").split("/")[-1]).strip()
+    name = "".join(char for char in name if not unicodedata.category(char).startswith("C"))
+    if not name or len(name) > MAX_FILENAME_CHARS or name in (".", ".."):
+        raise ApiError(400, "invalid_filename", "Choose a file name of up to 128 visible characters")
+    return name
+
+
 @dataclass(frozen=True)
 class Settings:
     bucket: str
@@ -128,6 +147,9 @@ class Settings:
     paid_video_bytes: int = PAID_VIDEO_BYTES
     free_report_ttl: int = FREE_REPORT_TTL_SECONDS
     paid_report_ttl: int = PAID_REPORT_TTL_SECONDS
+    raw_upload_ttl_seconds: int = DEFAULT_RAW_UPLOAD_TTL_SECONDS
+    admin_audit_table: str = ""
+    terminal_record_grace_seconds: int = TERMINAL_RECORD_GRACE_SECONDS
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -149,6 +171,9 @@ class Settings:
             paid_video_bytes=int(os.getenv("PAID_MAX_VIDEO_BYTES", PAID_VIDEO_BYTES)),
             free_report_ttl=int(os.getenv("FREE_REPORT_TTL_SECONDS", FREE_REPORT_TTL_SECONDS)),
             paid_report_ttl=int(os.getenv("PAID_REPORT_TTL_SECONDS", PAID_REPORT_TTL_SECONDS)),
+            raw_upload_ttl_seconds=int(os.getenv("RAW_UPLOAD_TTL_SECONDS", DEFAULT_RAW_UPLOAD_TTL_SECONDS)),
+            admin_audit_table=os.getenv("ADMIN_AUDIT_TABLE", ""),
+            terminal_record_grace_seconds=int(os.getenv("TERMINAL_RECORD_GRACE_SECONDS", TERMINAL_RECORD_GRACE_SECONDS)),
         )
 
 
@@ -222,7 +247,10 @@ class AwsBackend:
             }
         raise ValueError("Unknown quota operation")
 
-    def _quota_transaction(self, record: dict[str, Any], operation: str, *, next_state: str = "") -> None:
+    def _quota_transaction(
+        self, record: dict[str, Any], operation: str, *, next_state: str = "",
+        timings: dict[str, int] | None = None,
+    ) -> None:
         quota = self._quota_update(record, operation)
         quota.update({"TableName": self.cfg.users_table, "Key": {"user_id": _s(record["user_id"])}})
         changes: list[dict[str, Any]] = [{"Update": quota}]
@@ -244,7 +272,7 @@ class AwsBackend:
             # Pending reservations must not have a DynamoDB TTL: automatic
             # deletion without the matching account transaction would leak
             # reserved quota indefinitely. Only terminal records expire.
-            terminal_ttl = self._now() + TERMINAL_RECORD_GRACE_SECONDS
+            terminal_ttl = self._now() + self.cfg.terminal_record_grace_seconds
             if next_state == "succeeded":
                 terminal_ttl += self._report_ttl(record)
             values[":ttl"] = _n(terminal_ttl)
@@ -252,6 +280,15 @@ class AwsBackend:
             if next_state == "succeeded":
                 values[":report_expires"] = _n(self._now() + self._report_ttl(record))
                 update_expr += ", report_expires_at = :report_expires"
+            for field, value in (timings or {}).items():
+                if (field in {
+                    "batch_created_at_ms", "batch_started_at_ms", "batch_stopped_at_ms",
+                    "queue_wait_ms", "batch_run_ms", "analysis_wall_ms", "cpu_time_ms",
+                    "worker_wall_ms", "video_duration_ms", "frames_processed",
+                } and type(value) is int and 0 <= value < 2**53):
+                    placeholder = f":timing_{field}"
+                    update_expr += f", {field} = {placeholder}"
+                    values[placeholder] = _n(value)
             changes.append({"Update": {
                 "TableName": self.cfg.jobs_table,
                 "Key": {"job_id": _s(record["job_id"])},
@@ -311,6 +348,10 @@ class AwsBackend:
 
     def start_upload(self, user_id: str, body: dict[str, Any]) -> dict[str, Any]:
         tier, content_type, size_bytes = self._validate_start(body)
+        filename = _safe_filename(body.get("filename"))
+        allow_admin_review = body.get("allow_admin_review", False)
+        if type(allow_admin_review) is not bool:
+            raise ApiError(400, "invalid_consent", "Administrative video review consent must be true or false")
         self._account(user_id)
         self._expire_stale(user_id)
         video_id = uuid.uuid4().hex
@@ -329,7 +370,12 @@ class AwsBackend:
             "expires_at": expires_at,
             "part_count": math.ceil(size_bytes / PART_BYTES),
             "report_key": f"reports/{tier}/{_user_hash(user_id)}/{video_id}/report.json",
+            "filename": filename,
+            "allow_admin_review": allow_admin_review,
+            "admin_review_decided_at": _utc_now(),
         }
+        if allow_admin_review:
+            record["admin_partition"] = "OPTED_IN"
         # Reserve quota first. S3 create failures are compensated with a
         # conditional refund, preventing an orphan upload from bypassing quota.
         try:
@@ -366,6 +412,8 @@ class AwsBackend:
             "part_count": record["part_count"],
             "expires_at": expires_at,
             "tier": tier,
+            "filename": filename,
+            "allow_admin_review": allow_admin_review,
         }
 
     def _uploading(self, video_id: str, user_id: str) -> dict[str, Any]:
@@ -457,10 +505,14 @@ class AwsBackend:
             self.ddb.update_item(
                 TableName=self.cfg.jobs_table,
                 Key={"job_id": _s(video_id)},
-                UpdateExpression="SET #state = :uploaded, updated_at = :updated",
+                UpdateExpression="SET #state = :uploaded, updated_at = :updated, uploaded_at = :updated, video_expires_at = :video_expiry",
                 ConditionExpression="user_id = :uid AND #state = :uploading",
                 ExpressionAttributeNames={"#state": "status"},
-                ExpressionAttributeValues={":uploaded": _s("uploaded"), ":updated": _s(_utc_now()), ":uid": _s(user_id), ":uploading": _s("uploading")},
+                ExpressionAttributeValues={
+                    ":uploaded": _s("uploaded"), ":updated": _s(_utc_now()),
+                    ":video_expiry": _n(self._now() + self.cfg.raw_upload_ttl_seconds),
+                    ":uid": _s(user_id), ":uploading": _s("uploading"),
+                },
             )
         except Exception as exc:
             if not _is_conditional(exc):
@@ -603,19 +655,23 @@ class AwsBackend:
         self.ddb.update_item(
             TableName=self.cfg.jobs_table,
             Key={"job_id": _s(video_id)},
-            UpdateExpression="SET #state = :submitted, batch_job_id = :batch_id, updated_at = :updated",
+            UpdateExpression="SET #state = :submitted, batch_job_id = :batch_id, updated_at = :updated, submitted_at = :updated",
             ConditionExpression="user_id = :uid AND #state = :submitting",
             ExpressionAttributeNames={"#state": "status"},
             ExpressionAttributeValues={":submitted": _s("submitted"), ":batch_id": _s(job["jobId"]), ":updated": _s(_utc_now()), ":uid": _s(user_id), ":submitting": _s("submitting")},
         )
         return {"job_id": video_id, "video_id": video_id, "status": "submitted"}
 
-    def _batch_status(self, record: dict[str, Any]) -> str:
+    def _batch_detail(self, record: dict[str, Any]) -> dict[str, Any]:
         if not self.batch or not record.get("batch_job_id"):
-            return "SUBMITTED"
+            return {"status": "SUBMITTED"}
         response = self.batch.describe_jobs(jobs=[record["batch_job_id"]])
         jobs = response.get("jobs", [])
-        return str(jobs[0].get("status", "SUBMITTED")) if jobs else "SUBMITTED"
+        return jobs[0] if jobs else {"status": "SUBMITTED"}
+
+    def _batch_status(self, record: dict[str, Any]) -> str:
+        # Compatibility for the background quota reconciler.
+        return str(self._batch_detail(record).get("status", "SUBMITTED"))
 
     def _report_exists(self, record: dict[str, Any]) -> bool:
         try:
@@ -628,11 +684,18 @@ class AwsBackend:
             raise
         return True
 
-    def _settle(self, record: dict[str, Any], succeeded: bool) -> None:
+    def _settle(self, record: dict[str, Any], succeeded: bool, *, batch_detail: dict[str, Any] | None = None) -> None:
         state = "succeeded" if succeeded else "failed"
         operation = "consume" if succeeded else "refund"
+        # Backend-owned AWS timestamps are stored atomically with the quota
+        # transition. A missing worker timing sidecar must not strand quota.
+        from .library import batch_timings, load_worker_timings
+        detail = self._batch_detail(record) if batch_detail is None else batch_detail
+        timings = batch_timings(detail)
+        if succeeded:
+            timings.update(load_worker_timings(self, record))
         try:
-            self._quota_transaction(record, operation, next_state=state)
+            self._quota_transaction(record, operation, next_state=state, timings=timings)
         except Exception as exc:
             if not _is_conditional(exc):
                 raise
@@ -645,26 +708,29 @@ class AwsBackend:
     def job_status(self, user_id: str, job_id: str) -> dict[str, Any]:
         record = self._record(job_id, user_id)
         state = record["status"]
+        batch_detail: dict[str, Any] = {}
         if state == "submitted":
-            batch_state = self._batch_status(record)
+            batch_detail = self._batch_detail(record)
+            batch_state = str(batch_detail.get("status", "SUBMITTED"))
             if batch_state == "FAILED":
-                self._settle(record, succeeded=False)
+                self._settle(record, succeeded=False, batch_detail=batch_detail)
                 state = "failed"
             elif batch_state == "SUCCEEDED":
                 if not self._report_exists(record):
                     # A worker reporting success without an actual report is a
                     # failed analysis, not a chargeable success.
-                    self._settle(record, succeeded=False)
+                    self._settle(record, succeeded=False, batch_detail=batch_detail)
                     state = "failed"
                 else:
-                    self._settle(record, succeeded=True)
+                    self._settle(record, succeeded=True, batch_detail=batch_detail)
                     state = "succeeded"
             elif batch_state in ("STARTING", "RUNNING", "RUNNABLE", "PENDING"):
                 state = batch_state.lower()
-        response: dict[str, Any] = {"job_id": job_id, "video_id": job_id, "status": state, "tier": record["tier"]}
-        if state == "succeeded":
-            current = self._record(job_id, user_id)
-            response["report_expires_at"] = current.get("report_expires_at")
+        from .library import batch_timings, public_job_view
+        current = self._record(job_id, user_id) if state in ("failed", "succeeded") else record
+        response = public_job_view(current, self._now())
+        response["status"] = state
+        response.update(batch_timings(batch_detail))
         return response
 
     def report_url(self, user_id: str, job_id: str) -> dict[str, Any]:
@@ -682,3 +748,78 @@ class AwsBackend:
             HttpMethod="GET",
         )
         return {"job_id": job_id, "download_url": url, "expires_in": ttl, "report_expires_at": record["report_expires_at"]}
+
+    def report_artifacts(self, user_id: str, job_id: str) -> dict[str, Any]:
+        """Presign only verified media belonging to this authenticated report.
+
+        The caller cannot supply object keys, and the manifest contains only
+        tightly constrained basenames. Legacy reports without media return an
+        empty gallery rather than leaking other jobs or failing the report.
+        """
+        current = self.job_status(user_id, job_id)
+        if current["status"] != "succeeded":
+            raise ApiError(409, "report_unavailable", "Analysis has not produced a report")
+        record = self._record(job_id, user_id)
+        remaining = int(record.get("report_expires_at", 0)) - self._now()
+        if remaining <= 0:
+            raise ApiError(410, "report_expired", "This temporary report has expired")
+        ttl = min(PRESIGN_TTL_SECONDS, remaining)
+        response: dict[str, Any] = {
+            "job_id": job_id, "video_url": None, "rowers": {},
+            "expires_in": ttl, "report_expires_at": record["report_expires_at"],
+        }
+        # Never trust a manifest or request to change the object's owner/job.
+        if record.get("tier") != "free" or record.get("report_key") != (
+            f"reports/free/{_user_hash(user_id)}/{job_id}/report.json"
+        ):
+            return response
+        prefix = record["report_key"].removesuffix("report.json")
+        try:
+            obj = self.s3.get_object(Bucket=self.cfg.bucket, Key=prefix + artifacts.MANIFEST_NAME)
+        except Exception as exc:
+            if aws_error_code(exc) in {"NoSuchKey", "404", "NotFound"}:
+                return response
+            raise
+        stream = obj.get("Body")
+        if stream is None or not callable(getattr(stream, "read", None)):
+            raise ApiError(503, "media_unavailable", "The report media are temporarily unavailable")
+        try:
+            if int(obj.get("ContentLength", artifacts.MAX_MANIFEST_BYTES + 1)) > artifacts.MAX_MANIFEST_BYTES:
+                raise artifacts.InvalidArtifactManifest("oversized_manifest")
+            data = stream.read(artifacts.MAX_MANIFEST_BYTES + 1)
+            if not isinstance(data, bytes) or len(data) > artifacts.MAX_MANIFEST_BYTES:
+                raise artifacts.InvalidArtifactManifest("oversized_manifest")
+            published = artifacts.validate_published(json.loads(data))
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise ApiError(503, "media_unavailable", "The report media are temporarily unavailable") from exc
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
+
+        def sign(relative: str) -> str:
+            return self.s3.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self.cfg.bucket, "Key": prefix + relative},
+                ExpiresIn=ttl, HttpMethod="GET",
+            )
+
+        if published["video_available"]:
+            response["video_url"] = sign(artifacts.VIDEO_NAME)
+        signed_frames: dict[str, str] = {}
+
+        def public_frame(frame: dict[str, Any]) -> dict[str, Any]:
+            name = frame["filename"]
+            if name not in signed_frames:
+                signed_frames[name] = sign("frames/" + name)
+            return {"label": frame["label"], "time_seconds": frame["time_seconds"], "url": signed_frames[name]}
+
+        for seat, gallery in published["rowers"].items():
+            response["rowers"][seat] = {
+                "snapshots": [public_frame(frame) for frame in gallery["snapshots"]],
+                "mistake_sequences": [{
+                    "code": item["code"], "stroke": item["stroke"],
+                    "frames": [public_frame(frame) for frame in item["frames"]],
+                } for item in gallery["mistake_sequences"]],
+            }
+        return response

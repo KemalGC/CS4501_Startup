@@ -233,6 +233,40 @@ variable "raw_upload_ttl_days" {
   description = "S3 cleanup period for uploaded raw videos."
 }
 
+variable "terminal_job_record_grace_days" {
+  type        = number
+  default     = 7
+  description = "Days after report expiry (or terminal failure) before owner-only My Analyses metadata expires; default preserves current behavior. Increase only with new privacy consent."
+
+  validation {
+    condition     = var.terminal_job_record_grace_days >= 1 && var.terminal_job_record_grace_days <= 30 && floor(var.terminal_job_record_grace_days) == var.terminal_job_record_grace_days
+    error_message = "Choose an integer from 1 to 30 days and obtain approval before extending retention."
+  }
+}
+
+variable "admin_cognito_subs" {
+  type        = list(string)
+  default     = []
+  description = "Cognito user sub IDs allowed to review opted-in videos, additionally requiring strokesense-admin group membership. Empty denies every admin request; never use email."
+  sensitive   = true
+
+  validation {
+    condition     = length(var.admin_cognito_subs) <= 5 && alltrue([for value in var.admin_cognito_subs : can(regex("^[A-Za-z0-9_-]{1,128}$", value))])
+    error_message = "Allowlist up to five stable Cognito sub identifiers, not email addresses."
+  }
+}
+
+variable "admin_audit_retention_days" {
+  type        = number
+  default     = 90
+  description = "Security audit retention for admin video-link issuance; no raw URLs or emails are recorded."
+
+  validation {
+    condition     = var.admin_audit_retention_days >= 30 && var.admin_audit_retention_days <= 365 && floor(var.admin_audit_retention_days) == var.admin_audit_retention_days
+    error_message = "Admin audit retention must be 30–365 whole days."
+  }
+}
+
 variable "alert_email" {
   type        = string
   nullable    = false

@@ -55,6 +55,41 @@ required model benchmarks and EC2/ECS scheduling risks.
 | Raw uploaded videos | Temporary | S3 lifecycle delete after 7 days; incomplete multipart after 1 day |
 | Paid credits and GPU processing | Disabled | `PAID_BILLING_ENABLED=false`, `PAID_GPU_ENABLED=false` |
 
+### My Analyses, consent and metrics (development only)
+
+The owner JWT protects `GET /analysis/jobs?limit=20&cursor=...` and
+`GET /analysis/jobs/{id}`. The library queries `user_id-created_at-index`
+without a cross-user scan, with a 30-item page cap. Display fields include
+sanitized filename, status, upload size, creation/submission/completion times,
+video duration if measured, Batch queue/run timing, worker CPU/wall time,
+and report/video expiry. **Cards do not guarantee video playback:** original
+files and reports expire independently and may already be physically absent.
+The existing metadata TTL remains seven days after terminal completion or
+seven days *after the three-day report period* on success. The new
+`terminal_job_record_grace_days` variable defaults to seven; do not extend
+without explicit retention consent.
+
+Uploaders can explicitly set `allow_admin_review=true` on `/uploads/start`;
+all existing and omitted values default false. They can revoke with
+`POST /analysis/jobs/{id}/review`. Only opted-in records enter the sparse
+`admin_partition-created_at-index`. `GET /admin/jobs` queries that index;
+`GET /admin/videos/{id}` checks current Dynamo consent, S3 object presence,
+and retention, prefers the bounded manifest-backed annotated MP4 (within the
+report's 3-day window) and falls back to the original, then creates a <=60s
+video URL and atomically writes an `admin_access_audit` record. The audit has a 90-day TTL
+by default and contains no raw URL, JWT or email. Revoke blocks subsequent
+signatures but cannot retract a URL already issued (up to 60s) or a file
+already downloaded.
+
+Admin authentication needs **both** verified membership in the Cognito
+`strokesense-admin` group **and** a separately configured exact Cognito
+`sub` in `admin_cognito_subs` (empty by default = disabled). Do not grant
+admin based solely on any email address string.
+After the intended person signs in with Google, the operator must verify
+the resulting immutable `sub`, assign that specific Cognito user to the
+group, and securely configure the allowlist. No group assignments or AWS
+deployments are performed by these Terraform changes.
+
 ## Cost alerts and pre-deployment safety gate
 
 Terraform **requires a real `alert_email`** before `terraform plan` or

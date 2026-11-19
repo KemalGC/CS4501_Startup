@@ -8,7 +8,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const output = path.join(root, 'dist');
 fs.rmSync(output, { recursive: true, force: true });
 fs.mkdirSync(output, { recursive: true });
-for (const name of ['index.html', 'robots.txt', 'assets', 'demos', 'feedback', 'study']) {
+for (const name of ['index.html', 'robots.txt', 'assets', 'demos', 'feedback', 'library', 'admin', 'study']) {
   fs.cpSync(path.join(root, name), path.join(output, name), { recursive: true });
 }
 

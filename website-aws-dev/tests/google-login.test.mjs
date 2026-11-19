@@ -94,3 +94,17 @@ test('successful Google callback stores short-lived authentication tokens', asyn
   assert.equal(app.elements.get('google-login').hidden, true);
   assert.equal(JSON.parse(app.storage.get('strokesense-aws-dev-auth')).accessToken, 'test-access-token');
 });
+
+test('private history deep link stores only a valid job ID and clears the URL query', async () => {
+  const id = '8d323d41ed3a4ffcaee778201670098e';
+  const app = browserWithOAuthResponse('?job=' + id);
+  await app.settle();
+  assert.equal(app.storage.get('strokesense-aws-dev-active-job'), id);
+  assert.equal(app.replacedUrls[0], 'https://strokesense-aws-dev.vercel.app/demos/');
+  assert.equal(app.requests.length, 0);
+
+  const invalid = browserWithOAuthResponse('?job=..%2Fother-user');
+  await invalid.settle();
+  assert.equal(invalid.storage.has('strokesense-aws-dev-active-job'), false);
+  assert.equal(invalid.requests.length, 0);
+});

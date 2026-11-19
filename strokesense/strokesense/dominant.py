@@ -178,6 +178,49 @@ def decorate_report(path, metrics, validation):
     p.write_text(page.replace('<body>','<body>'+block,1),encoding='utf-8')
 
 
+def _track_measurement_evidence(track):
+    """Rank tracks by observed, measurement-ready body joints, not technique scores.
+
+    Stroke measurements need the shoulder, wrist and hip on *one consistent*
+    side of the body. Count frames where all three are confidently observed,
+    then prefer longer uninterrupted observations and stronger joint confidence.
+    Switching sides from frame to frame would overstate usable coverage.
+    """
+    points = np.asarray(track['kpts'], dtype=float)
+    frames = np.asarray(track['frames'], dtype=int)
+    best = (0, 0, 0.0)
+    for joints in ((5, 9, 11), (6, 10, 12)):
+        side = points[:, joints]
+        confidence = side[:, :, 2]
+        usable = (np.isfinite(side).all(axis=(1, 2))
+                  & (confidence >= .35).all(axis=1))
+        supported_frames = frames[usable]
+        if len(supported_frames):
+            breaks = np.flatnonzero(np.diff(supported_frames) != 1)
+            longest = int(np.diff(np.r_[-1, breaks, len(supported_frames) - 1]).max())
+            confidence_sum = float(np.min(confidence[usable], axis=1).sum())
+        else:
+            longest, confidence_sum = 0, 0.0
+        best = max(best, (int(usable.sum()), longest, confidence_sum))
+    return best + (len(frames),)
+
+
+def _best_eight_tracks(tracks):
+    """Cap a noisy nine-person estimate without choosing by arbitrary slot ID.
+
+    Preserve left-to-right order among winners, then assign contiguous model
+    IDs R1..R8. These are *not* verified physical seat identities.
+    """
+    if len(tracks) <= 8:
+        return tracks
+    selected = sorted(
+        tracks,
+        key=lambda tid: (_track_measurement_evidence(tracks[tid]), -tid),
+        reverse=True,
+    )[:8]
+    return {new_tid: tracks[old_tid] for new_tid, old_tid in enumerate(sorted(selected))}
+
+
 def track_visible_window(detections, fps):
     """Estimate slots only within the observed crew span; preserve source indices.
 
@@ -189,5 +232,6 @@ def track_visible_window(detections, fps):
     if not active:return {},1,0
     first,last=active[0],active[-1]
     tracks,direction,seats=crew_tracks(detections[first:last+1],fps)
+    tracks=_best_eight_tracks(tracks)
     for track in tracks.values():track['frames']=track['frames']+first
     return tracks,direction,seats

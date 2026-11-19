@@ -20,6 +20,7 @@ test('progress panel separates uploading, AWS processing, and report readiness',
       this.id = id;
       this._textContent = '';
       this._value = 0;
+      this._checked = id === 'tier-free';
       this.hidden = false;
       this.disabled = false;
       this.dataset = {};
@@ -44,7 +45,8 @@ test('progress panel separates uploading, AWS processing, and report readiness',
     removeAttribute(name) { this.attributes.delete(name); }
     setAttribute(name, value) { this.attributes.set(name, value); }
     click() {}
-    get checked() { return this.id === 'tier-free'; }
+    get checked() { return this._checked; }
+    set checked(value) { this._checked = Boolean(value); }
   }
   function element(id) {
     if (!elements.has(id)) elements.set(id, new Element(id));

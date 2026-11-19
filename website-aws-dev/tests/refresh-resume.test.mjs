@@ -14,6 +14,7 @@ function loadPage(storage) {
   const elements = new Map();
   const handlers = new Map();
   const requests = [];
+  let renderCount = 0;
   class Element {
     constructor(id) {
       this.id = id;
@@ -44,6 +45,7 @@ function loadPage(storage) {
     requests.push({ url, method: options.method || 'GET' });
     if (url === `${apiBase}/analysis/jobs/${jobId}`) return response({ job_id: jobId, status: 'succeeded' });
     if (url === `${apiBase}/reports/${jobId}`) return response({ download_url: reportUrl });
+    if (url === `${apiBase}/reports/${jobId}/artifacts`) return response({ job_id: jobId, rowers: {} });
     if (url === reportUrl) return response({
       schema_version: 'strokesense-free-report-v1',
       job_id: jobId,
@@ -61,7 +63,11 @@ function loadPage(storage) {
         cognitoDomain: 'https://example.auth.us-east-1.amazoncognito.com',
         cognitoClientId: 'test-client', cpuAnalysisEnabled: true, deepAnalysisEnabled: false
       },
-      location: { origin: 'https://strokesense-aws-dev.vercel.app', search: '', hash: '' }
+      location: { origin: 'https://strokesense-aws-dev.vercel.app', search: '', hash: '' },
+      StrokeSenseMediaViewer: {
+        clear() {},
+        render() { renderCount += 1; }
+      }
     },
     document: { getElementById: element, querySelectorAll: () => [] },
     sessionStorage: {
@@ -73,11 +79,12 @@ function loadPage(storage) {
   });
   return {
     elements, handlers, requests,
+    get renderCount() { return renderCount; },
     async settle() { await new Promise(resolve => setImmediate(resolve)); }
   };
 }
 
-test('a completed private report restores on every refresh without resubmitting or redownloading', async () => {
+test('a completed private job restores on every refresh without resubmitting or redownloading', async () => {
   const storage = new Map([
     [authKey, JSON.stringify({ accessToken: 'owner-access-token', expiresAt: Date.now() + 600_000 })],
     [jobKey, jobId]
@@ -92,7 +99,8 @@ test('a completed private report restores on every refresh without resubmitting 
     assert.match(page.elements.get('report-frame').srcdoc, /Restored coaching report/);
     assert.equal(page.elements.get('download-report').clickCount, 0,
       'refresh must not trigger another automatic download');
-    assert.deepEqual(page.requests.map(request => request.method), ['GET', 'GET', 'GET']);
+    assert.equal(page.renderCount, 1, 'saved media must be rehydrated through owner-scoped routes');
+    assert.deepEqual(page.requests.map(request => request.method), ['GET', 'GET', 'GET', 'GET']);
     assert.equal(page.requests[0].url, `${apiBase}/analysis/jobs/${jobId}`);
   }
 

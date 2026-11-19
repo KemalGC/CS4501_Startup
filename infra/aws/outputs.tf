@@ -39,6 +39,15 @@ output "dynamodb_jobs_table" {
   value = aws_dynamodb_table.jobs.name
 }
 
+output "dynamodb_admin_access_audit_table" {
+  value       = aws_dynamodb_table.admin_access_audit.name
+  description = "Restricted DynamoDB table auditing consent-checked admin video URL issuance."
+}
+
+output "cognito_admin_group_name" {
+  value = aws_cognito_user_group.strokesense_admin.name
+}
+
 output "dynamodb_feedback_table" {
   value       = aws_dynamodb_table.feedback.name
   description = "Private table storing anonymous website usability ratings and optional comments."

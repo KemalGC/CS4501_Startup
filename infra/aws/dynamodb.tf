@@ -52,6 +52,13 @@ resource "aws_dynamodb_table" "jobs" {
     type = "N"
   }
 
+  # Sparse partition: only the owner's expressly opted-in videos enter this
+  # index. An admin cannot enumerate unconsented users through the admin API.
+  attribute {
+    name = "admin_partition"
+    type = "S"
+  }
+
   global_secondary_index {
     name            = "user_id-created_at-index"
     projection_type = "ALL"
@@ -78,6 +85,21 @@ resource "aws_dynamodb_table" "jobs" {
 
     key_schema {
       attribute_name = "expires_at"
+      key_type       = "RANGE"
+    }
+  }
+
+  global_secondary_index {
+    name            = "admin_partition-created_at-index"
+    projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "admin_partition"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "created_at"
       key_type       = "RANGE"
     }
   }
@@ -110,5 +132,28 @@ resource "aws_dynamodb_table" "feedback" {
   ttl {
     attribute_name = "ttl_epoch"
     enabled        = true
+  }
+}
+
+# Every issued administrator video URL is recorded transactionally alongside
+# a fresh DynamoDB consent check. 90-day TTL by default, no raw video URLs,
+# AWS access tokens or user email addresses are placed in this table.
+resource "aws_dynamodb_table" "admin_access_audit" {
+  name         = "${local.prefix}-admin-access-audit"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "audit_id"
+
+  attribute {
+    name = "audit_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl_epoch"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
   }
 }

@@ -17,7 +17,8 @@ test('private job ID survives success and refresh, but is cleared on sign out or
   assert.match(client, /sessionStorage\.setItem\(ACTIVE_JOB_KEY, jobId\)/);
   assert.match(client, /forgetActiveJob\(jobId\)/);
   assert.match(client, /forgetActiveJob\(\);\s*clearReport\(\)/);
-  assert.match(client, /finishSignIn\(\)\.then\(resumeAnalysis\)/);
+  assert.match(client, /finishSignIn\(\)\.then\(\(\) => \{/);
+  assert.match(client, /return resumeAnalysis\(\)/);
   assert.match(client, /waitForAnalysis\(jobId, abortController\.signal, \{ autoDownload: false \}\)/);
   assert.match(client, /90 \* 60 \* 1000/);
 });

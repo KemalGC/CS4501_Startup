@@ -64,7 +64,16 @@
           <div class="aws-section-heading"><div><span class="studio-label">03 · Analysis</span><h3 id="run-heading">Run the analysis</h3></div></div>
           <p id="run-helper">Connect Cognito and the AWS API to enable processing. You can test file-size and tier selection now.</p>
           <div class="aws-run-buttons"><button id="run-analysis" class="aws-button aws-button-primary aws-run-button" type="button" disabled>Analyze with AWS</button><button id="cancel-upload" class="aws-button aws-button-outline" type="button" hidden>Cancel upload</button></div>
-          <div id="analysis-progress" class="aws-progress-wrap" hidden><div class="aws-progress-line"><strong id="analysis-status">Waiting</strong><span id="analysis-percentage">0%</span></div><progress id="analysis-progress-bar" max="100" value="0"></progress><p id="analysis-detail"></p></div>
+          <div id="analysis-progress" class="aws-progress-wrap" hidden>
+            <div class="aws-progress-stages" aria-label="Analysis steps">
+              <span id="analysis-stage-upload">1 · Upload</span>
+              <span id="analysis-stage-analysis">2 · AWS processing</span>
+              <span id="analysis-stage-report">3 · Report</span>
+            </div>
+            <div class="aws-progress-line"><strong id="analysis-status" aria-live="polite">Waiting</strong><span id="analysis-percentage">0%</span></div>
+            <progress id="analysis-progress-bar" max="100" value="0" aria-label="Video upload progress"></progress>
+            <p id="analysis-detail"></p>
+          </div>
           <p id="upload-feedback" class="aws-feedback" role="status" aria-live="polite"></p>
           <div id="analysis-result" class="aws-result" hidden>
             <h3>Analysis complete</h3>

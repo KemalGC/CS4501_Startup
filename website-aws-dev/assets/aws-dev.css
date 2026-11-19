@@ -46,6 +46,11 @@ html[data-theme="dark"] .aws-tier-compute { color: #8ed1f8; }
 .aws-action-panel > p { color: var(--muted); }
 .aws-run-button { min-width: 200px; }
 .aws-progress-wrap { margin-top: 24px; }
+.aws-progress-stages { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-bottom: 18px; }
+.aws-progress-stages span { border: 1px solid var(--line); border-radius: 12px; background: var(--soft); padding: 10px 8px; color: var(--muted); font-size: 12px; font-weight: 800; text-align: center; }
+.aws-progress-stages span.is-current { background: var(--soft-blue); border-color: #247aab; color: var(--ink); }
+.aws-progress-stages span.is-complete { border-color: #63a58c; color: #16835c; }
+html[data-theme="dark"] .aws-progress-stages span.is-complete { color: #85e1c0; }
 .aws-progress-line { display: flex; justify-content: space-between; gap: 15px; font-size: 14px; }
 .aws-progress-wrap progress { width: 100%; height: 12px; accent-color: #0c77b9; margin-top: 12px; }
 .aws-progress-wrap p { color: var(--muted); font-size: 13px; }

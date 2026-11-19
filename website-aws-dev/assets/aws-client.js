@@ -21,7 +21,9 @@
     progress: $('analysis-progress'), progressBar: $('analysis-progress-bar'),
     percentage: $('analysis-percentage'), status: $('analysis-status'),
     detail: $('analysis-detail'), result: $('analysis-result'), download: $('download-report'),
-    reportPreview: $('report-preview'), reportFrame: $('report-frame')
+    reportPreview: $('report-preview'), reportFrame: $('report-frame'),
+    stages: { upload: $('analysis-stage-upload'), analysis: $('analysis-stage-analysis'),
+      report: $('analysis-stage-report') }
   };
 
   const sanitizeUrl = value => {
@@ -139,6 +141,8 @@
     const tooLarge = file && file.size > limit();
     const ready = backendReady && auth && file && !tooLarge && !busy &&
       (selectedTier === 'free' ? cpuAnalysisEnabled : deepAnalysisEnabled);
+    ui.input.disabled = busy;
+    ui.clear.disabled = busy;
     ui.run.disabled = !ready;
     ui.run.textContent = busy ? 'Analysis in progress…' : selectedTier === 'paid' ? 'Start Deep Analysis' : 'Start Free Analysis';
     if (tooLarge) {
@@ -151,15 +155,20 @@
       ui.helper.textContent = 'Local video checks work now. AWS analysis unlocks after the backend and Cognito are provisioned.';
     } else if (!auth) {
       ui.helper.textContent = 'Sign in with Google to upload and start an analysis.';
+    } else if (busy) {
+      ui.helper.textContent = 'Your upload or analysis is in progress. The stages below show what AWS has confirmed.';
     } else {
       ui.helper.textContent = 'Ready to submit a private ' + selectedTier + ' analysis job.';
     }
   }
 
   function setFile(nextFile) {
+    // Do not replace the file halfway through a multipart upload.
+    if (busy) return;
     if (localVideoUrl) URL.revokeObjectURL(localVideoUrl);
     file = nextFile || null;
     clearReport();
+    ui.progress.hidden = true;
     ui.video.hidden = !file;
     ui.fileReview.hidden = !file;
     if (!file) {
@@ -272,24 +281,53 @@
     return payload;
   }
 
-  function progress(label, percentage, detail = '') {
+  const stageOrder = ['upload', 'analysis', 'report'];
+
+  function progress(label, percentage, detail = '', stage = 'analysis') {
     ui.progress.hidden = false;
+    ui.progressBar.hidden = false;
     ui.status.textContent = label;
-    ui.percentage.textContent = percentage + '%';
-    ui.progressBar.value = percentage;
+    // Percentages apply to transferred upload bytes or a finished report.
+    // Batch currently reports states, not frame-level processing progress.
+    if (typeof percentage === 'number' && Number.isFinite(percentage)) {
+      const value = Math.max(0, Math.min(100, Math.round(percentage)));
+      ui.percentage.textContent = value + '%';
+      ui.progressBar.value = value;
+      ui.progressBar.setAttribute('aria-label', stage === 'upload' ? 'Video upload progress' : 'Report readiness');
+    } else {
+      ui.percentage.textContent = 'Working…';
+      ui.progressBar.removeAttribute('value');
+      ui.progressBar.setAttribute('aria-label', 'AWS job active; exact progress is unavailable');
+    }
     ui.detail.textContent = detail;
+    const stageIndex = stage === 'complete' ? stageOrder.length : stageOrder.indexOf(stage);
+    stageOrder.forEach((name, index) => {
+      const marker = ui.stages[name];
+      marker.classList.toggle('is-complete', index < stageIndex);
+      marker.classList.toggle('is-current', index === stageIndex);
+      if (index === stageIndex) marker.setAttribute('aria-current', 'step');
+      else marker.removeAttribute('aria-current');
+    });
   }
 
-  async function uploadMultipart(upload, signal) {
+  function stopProgress(label, detail, stage = 'analysis') {
+    progress(label, null, detail, stage);
+    ui.progressBar.hidden = true;
+    ui.percentage.textContent = 'Stopped';
+  }
+
+  async function uploadMultipart(upload, signal, sourceFile) {
     const partSize = Number(upload.part_size_bytes);
     const partCount = Number(upload.part_count);
     if (!Number.isSafeInteger(partSize) || partSize < 5 * 1024 * 1024 ||
         !Number.isSafeInteger(partCount) || partCount < 1 || partCount > 10000 ||
-        partCount !== Math.ceil(file.size / partSize)) {
+        partCount !== Math.ceil(sourceFile.size / partSize)) {
       throw Error('The AWS backend returned invalid multipart upload configuration.');
     }
     const parts = [];
     let nextPart = 1;
+    let uploadedBytes = 0;
+    progress('Uploading to private storage', 0, '0 of ' + partCount + ' parts uploaded.', 'upload');
     async function worker() {
       while (nextPart <= partCount) {
         const partNumber = nextPart++;
@@ -298,15 +336,18 @@
         });
         const target = new URL(signed.url);
         if (target.protocol !== 'https:') throw Error('The upload URL is not secure.');
+        const start = (partNumber - 1) * partSize;
+        const end = Math.min(partNumber * partSize, sourceFile.size);
         const response = await fetch(target.toString(), {
-          method: 'PUT', body: file.slice((partNumber - 1) * partSize, Math.min(partNumber * partSize, file.size)), signal
+          method: 'PUT', body: sourceFile.slice(start, end), signal
         });
         if (!response.ok) throw Error('An S3 upload part failed (' + response.status + ').');
         const etag = response.headers.get('ETag');
         if (!etag) throw Error('S3 upload response did not expose ETag. Check bucket CORS.');
         parts.push({ part_number: partNumber, etag });
-        progress('Uploading video', Math.round(parts.length / partCount * 90),
-          parts.length + ' of ' + partCount + ' parts uploaded');
+        uploadedBytes += end - start;
+        progress('Uploading to private storage', uploadedBytes / sourceFile.size * 100,
+          parts.length + ' of ' + partCount + ' parts uploaded.', 'upload');
       }
     }
     await Promise.all(Array.from({ length: Math.min(3, partCount) }, worker));
@@ -322,7 +363,7 @@
       const job = await api('/analysis/jobs/' + encodeURIComponent(jobId), { signal });
       const state = String(job.status || '').toLowerCase();
       if (['completed', 'succeeded', 'finished'].includes(state)) {
-        progress('Analysis completed', 100, 'Preparing your private report download.');
+        progress('Preparing your report', null, 'AWS completed the analysis. Retrieving your private report.', 'report');
         const report = await api('/reports/' + encodeURIComponent(jobId), { signal });
         if (!report.download_url || new URL(report.download_url).protocol !== 'https:') {
           throw Error('The report is complete but a secure download URL is unavailable.');
@@ -358,6 +399,7 @@
           ui.reportFrame.removeAttribute('srcdoc');
         }
         feedback('Your report is ready. Keep the downloaded HTML file; the online copy expires in 3 days.', 'success');
+        progress('Report ready', 100, 'Your analysis is complete. You can view or download your report below.', 'complete');
         forgetActiveJob(jobId);
         return;
       }
@@ -365,8 +407,17 @@
         forgetActiveJob(jobId);
         throw Error('Analysis ' + state + '. Your reserved allowance will be returned by the backend.');
       }
-      progress('Analyzing with AWS', Math.max(90, Math.min(99, Number(job.progress || 90))),
-        'Status: ' + (state || 'queued'));
+      // The status endpoint does not expose measured frame/processing progress.
+      // Show the actual Batch lifecycle, with an indeterminate progress bar.
+      const stages = {
+        submitted: ['Job submitted', 'AWS accepted your analysis. Waiting for it to enter the processing queue.'],
+        pending: ['Waiting for AWS', 'AWS is scheduling your private analysis job.'],
+        runnable: ['Queued for processing', 'Waiting for available AWS CPU capacity.'],
+        starting: ['Starting AWS worker', 'An analysis container is starting and loading the model.'],
+        running: ['Processing video on AWS', 'Your video is being processed. This may take several minutes; an exact percentage is not available.']
+      };
+      const [label, detail] = stages[state] || ['Checking AWS job', 'Waiting for the latest status from AWS Batch.'];
+      progress(label, null, detail + ' Status: ' + (state || 'unknown') + '. Checking every 5 seconds.', 'analysis');
       await new Promise((resolve, reject) => {
         const timer = setTimeout(resolve, 5000);
         signal.addEventListener('abort', () => { clearTimeout(timer); reject(Error('Cancelled.')); }, { once: true });
@@ -384,23 +435,26 @@
     let jobSubmitted = false;
     abortController = new AbortController();
     clearReport();
+    feedback('');
     ui.cancel.hidden = false;
     render();
     try {
-      progress('Reserving upload', 0, 'Checking your allowance and creating a private S3 upload.');
+      progress('Preparing secure upload', null, 'Checking your allowance and reserving private S3 storage.', 'upload');
+      const sourceFile = file;
       const upload = await api('/uploads/start', {
         method: 'POST', body: {
-          filename: file.name, content_type: file.type || 'application/octet-stream',
-          size_bytes: file.size, tier: tier()
+          filename: sourceFile.name, content_type: sourceFile.type || 'application/octet-stream',
+          size_bytes: sourceFile.size, tier: tier()
         }, signal: abortController.signal
       });
       activeVideoId = upload.video_id;
-      const parts = await uploadMultipart(upload, abortController.signal);
-      progress('Finalizing upload', 92, 'Verifying your video in private storage.');
+      const parts = await uploadMultipart(upload, abortController.signal, sourceFile);
+      progress('Verifying uploaded video', null, 'All parts transferred. Confirming your file in private S3 storage.', 'upload');
       await api('/uploads/complete', {
         method: 'POST', body: { video_id: upload.video_id, parts }, signal: abortController.signal
       });
-      progress('Submitting analysis', 95, 'Scheduling an independent analysis job.');
+      feedback('Video uploaded privately. Submitting it to AWS for analysis…', 'success');
+      progress('Submitting analysis', null, 'Scheduling an independent AWS processing job.', 'analysis');
       const job = await api('/analysis/jobs', {
         method: 'POST', body: { video_id: upload.video_id }, signal: abortController.signal
       });
@@ -408,6 +462,7 @@
       rememberActiveJob(job.job_id);
       activeVideoId = null;
       ui.cancel.hidden = true;
+      feedback('Video uploaded. Your private AWS analysis job is underway.', 'success');
       await waitForAnalysis(job.job_id, abortController.signal);
     } catch (error) {
       // A timeout after Batch submission may still have launched the worker.
@@ -422,8 +477,9 @@
         catch (_) { /* The backend also reclaims abandoned reservations. */ }
       }
       feedback(error && error.message ? error.message : 'The upload could not be completed.', 'error');
-      progress(jobSubmitted ? 'Awaiting job status' : 'Unable to start analysis', jobSubmitted ? 95 : 0,
-        jobSubmitted ? 'Refresh this tab later to resume checking the same job.' : 'No analysis was started.');
+      stopProgress(jobSubmitted ? 'Status check paused' : 'Unable to start analysis',
+        jobSubmitted ? 'Refresh this tab later to resume checking the same private job.' : 'No analysis was started.',
+        jobSubmitted ? 'analysis' : 'upload');
     } finally {
       busy = false;
       activeVideoId = null;
@@ -441,12 +497,12 @@
     ui.cancel.hidden = true;
     clearReport();
     render();
-    progress('Checking previous analysis', 95, 'Resuming private job ' + jobId.slice(0, 8) + '…');
+    progress('Checking saved AWS job', null, 'Resuming private job ' + jobId.slice(0, 8) + '…', 'analysis');
     try {
       await waitForAnalysis(jobId, abortController.signal);
     } catch (error) {
       feedback(error && error.message ? error.message : 'Could not check the saved job.', 'error');
-      progress('Awaiting job status', 95, 'Refresh this tab later to check the same job.');
+      stopProgress('Status check paused', 'Refresh this tab later to check the same private job.', 'analysis');
     } finally {
       busy = false;
       abortController = null;

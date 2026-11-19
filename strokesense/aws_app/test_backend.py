@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from aws_app.core import (
@@ -96,6 +97,12 @@ class MemoryDynamo:
             values = update["ExpressionAttributeValues"]
             if update["TableName"] == "users":
                 user_id = update["Key"]["user_id"]["S"]
+                if user_id.startswith("__strokesense_cpu_admissions__/"):
+                    counter = accounts.setdefault(user_id, {"cpu_job_count": 0})
+                    if counter["cpu_job_count"] >= int(values[":limit"]["N"]):
+                        self._conditional_failure()
+                    counter["cpu_job_count"] += 1
+                    continue
                 account = accounts[user_id]
                 amount = int(values[":amount"]["N"])
                 is_free = "free_" in expression
@@ -127,6 +134,10 @@ class MemoryDynamo:
                 if record["status"] not in expected:
                     self._conditional_failure()
                 record["status"] = values[":next"]["S"]
+                if ":day" in values:
+                    record["admission_day"] = values[":day"]["S"]
+                if ":month" in values:
+                    record["admission_month"] = values[":month"]["S"]
                 if ":ttl" in values:
                     record["ttl_epoch"] = int(values[":ttl"]["N"])
                 if ":report_expires" in values:
@@ -331,6 +342,72 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(ApiError) as expired:
             self.backend.report_url("alice", video)
         self.assertEqual(expired.exception.status, 410)
+
+    def test_global_daily_limit_admits_five_and_blocks_sixth_without_batch_cost(self):
+        self.s3.final_size = 1_000_000
+        test_body = {**self.free_body, "size_bytes": 1_000_000}
+        for _ in range(5):
+            video = self.backend.start_upload("alice", test_body)["video_id"]
+            self._complete(video)
+            self.backend.submit_analysis("alice", {"video_id": video})
+        counters = [v for k, v in self.ddb.accounts.items() if k.startswith("__strokesense_cpu_admissions__/")]
+        self.assertEqual(len(counters), 2)
+        self.assertEqual([v["cpu_job_count"] for v in counters], [5, 5])
+
+        video = self.backend.start_upload("alice", test_body)["video_id"]
+        self._complete(video)
+        with patch.object(self.batch, "submit_job", wraps=self.batch.submit_job) as submit:
+            with self.assertRaises(ApiError) as denied:
+                self.backend.submit_analysis("alice", {"video_id": video})
+        self.assertEqual((denied.exception.status, denied.exception.code), (429, "analysis_limit_reached"))
+        submit.assert_not_called()
+        self.assertEqual(self.ddb.jobs[video]["status"], "uploaded")
+        self.assertTrue(all(v["cpu_job_count"] == 5 for v in counters))
+
+    def test_global_monthly_limit_persists_across_day_rollover_then_resets(self):
+        self.now = int(datetime(2026, 11, 19, 12, tzinfo=timezone.utc).timestamp())
+        self.s3.final_size = 1_000_000
+        self.backend = AwsBackend(
+            Settings("video-bucket", "users", "jobs", batch_queue="cpu-queue", batch_definition="cpu-def",
+                     cpu_global_daily_limit=3, cpu_global_monthly_limit=2),
+            self.ddb, self.s3, self.batch, clock=lambda: self.now,
+        )
+        test_body = {**self.free_body, "size_bytes": 1_000_000}
+
+        def submit():
+            video = self.backend.start_upload("alice", test_body)["video_id"]
+            self._complete(video)
+            self.backend.submit_analysis("alice", {"video_id": video})
+
+        submit()
+        self.now += 86400
+        submit()
+        self.now += 86400
+        with self.assertRaises(ApiError) as denied:
+            submit()
+        self.assertEqual(denied.exception.code, "analysis_limit_reached")
+        self.now = int(datetime(2026, 12, 1, 12, tzinfo=timezone.utc).timestamp())
+        submit()
+        self.assertEqual(self.ddb.accounts["__strokesense_cpu_admissions__/month/2026-11"]["cpu_job_count"], 2)
+        self.assertEqual(self.ddb.accounts["__strokesense_cpu_admissions__/month/2026-12"]["cpu_job_count"], 1)
+
+    def test_ambiguous_batch_error_holds_job_and_single_admission_slot(self):
+        self.s3.final_size = 1_000_000
+        video = self.backend.start_upload("alice", {**self.free_body, "size_bytes": 1_000_000})["video_id"]
+        self._complete(video)
+        with patch.object(self.batch, "submit_job", side_effect=TimeoutError("network timeout")) as submit:
+            with patch("aws_app.core.LOGGER.exception"):
+                with self.assertRaises(ApiError) as uncertain:
+                    self.backend.submit_analysis("alice", {"video_id": video})
+            with self.assertRaises(ApiError) as repeated:
+                self.backend.submit_analysis("alice", {"video_id": video})
+        self.assertEqual(uncertain.exception.code, "submission_uncertain")
+        self.assertEqual(repeated.exception.code, "invalid_state")
+        self.assertEqual(self.ddb.jobs[video]["status"], "submitting")
+        self.assertEqual(submit.call_count, 1)
+        counters = [v["cpu_job_count"] for k, v in self.ddb.accounts.items()
+                    if k.startswith("__strokesense_cpu_admissions__/")]
+        self.assertEqual(counters, [1, 1])
 
     def test_missing_report_after_batch_success_refunds_as_failure(self):
         video = self.backend.start_upload("alice", self.free_body)["video_id"]

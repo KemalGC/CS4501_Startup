@@ -77,10 +77,26 @@ resource "aws_batch_compute_environment" "cpu" {
 
 resource "aws_batch_job_queue" "cpu" {
   name = "${local.prefix}-cpu"
-  # Initial infrastructure rollout creates ECR first. No jobs are accepted
-  # until a tested image has been pushed and this explicit flag is approved.
-  state    = var.enable_cpu_analysis ? "ENABLED" : "DISABLED"
+  # Smoke mode permits an operator to submit a single test job directly to
+  # Batch while the public API's CPU_BATCH_JOB_QUEUE remains empty. Do not
+  # conflate an enabled Batch queue with public submission authorization.
+  state    = (var.enable_cpu_analysis || var.enable_cpu_smoke_queue) ? "ENABLED" : "DISABLED"
   priority = 10
+
+  lifecycle {
+    precondition {
+      condition     = !var.enable_cpu_smoke_queue || var.cpu_max_vcpus == 2
+      error_message = "CPU smoke testing must cap the compute environment at 2 vCPUs (one Fargate job)."
+    }
+    precondition {
+      condition     = !(var.enable_cpu_smoke_queue && var.enable_cpu_analysis)
+      error_message = "Operator-only smoke mode and public API submissions cannot be enabled together."
+    }
+    precondition {
+      condition     = !(var.enable_cpu_analysis || var.enable_cpu_smoke_queue) || var.worker_image_tag != "cpu-latest"
+      error_message = "Set worker_image_tag to the unique tag of a locally benchmarked ECR image before enabling CPU Batch."
+    }
+  }
 
   compute_environment_order {
     order               = 1

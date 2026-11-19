@@ -39,6 +39,11 @@ output "dynamodb_jobs_table" {
   value = aws_dynamodb_table.jobs.name
 }
 
+output "dynamodb_feedback_table" {
+  value       = aws_dynamodb_table.feedback.name
+  description = "Private table storing anonymous website usability ratings and optional comments."
+}
+
 output "cpu_batch_queue_arn" {
   value = aws_batch_job_queue.cpu.arn
 }

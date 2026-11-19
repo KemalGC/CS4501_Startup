@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#001e4a">
+  <meta name="description" content="Rate how easy StrokeSense is to use and share optional website feedback.">
+  <title>Website Feedback — StrokeSense</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/site.css">
+  <script src="/assets/site.js" defer></script>
+  <script src="/assets/aws-config.js" defer></script>
+  <script src="/assets/feedback.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header solid">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a>
+      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/#features">Features</a><a href="/#how-it-works">How it works</a><a href="/demos/">Analyzer</a><a href="/feedback/" aria-current="page">Feedback</a></nav>
+      <div class="header-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span class="theme-label">Dark mode</span></button><a class="pill pill-coral" href="/demos/">Try analyzer ↗</a><button class="menu-toggle" data-menu-toggle type="button" aria-label="Toggle navigation" aria-controls="mobile-nav" aria-expanded="false">☰</button></div>
+    </div>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/#features">Features</a><a href="/#how-it-works">How it works</a><a href="/demos/">Analyzer</a><a href="/feedback/">Feedback</a></nav>
+  </header>
+
+  <main id="main">
+    <section class="interior-hero" aria-labelledby="feedback-heading"><div class="container"><span class="eyebrow">Help us improve</span><h1 id="feedback-heading">How was your <span class="accent">StrokeSense experience?</span></h1><p>Tell us how easy the website was to use. Your response helps us make the experience clearer and more useful for rowers.</p></div></section>
+    <section class="page-section" aria-labelledby="feedback-form-heading">
+      <div class="container">
+        <div class="feedback-layout">
+          <section class="feedback-panel">
+            <span class="eyebrow">Website feedback</span>
+            <h2 id="feedback-form-heading">Your feedback <span class="accent">matters.</span></h2>
+            <p class="feedback-intro">This takes less than a minute. No account is needed, and the comment is optional.</p>
+            <form id="feedback-form">
+              <fieldset class="feedback-rating-group">
+                <legend>How easy was StrokeSense to use? <span class="feedback-required">Required</span></legend>
+                <p class="feedback-rating-help">Choose one number from 1 (very difficult) to 5 (very easy).</p>
+                <div class="feedback-rating-options">
+                  <label class="feedback-rating-choice"><input type="radio" name="rating" value="1" required><span class="feedback-rating-number">1</span><span class="feedback-rating-caption">Very difficult</span></label>
+                  <label class="feedback-rating-choice"><input type="radio" name="rating" value="2" required><span class="feedback-rating-number">2</span><span class="feedback-rating-caption">Difficult</span></label>
+                  <label class="feedback-rating-choice"><input type="radio" name="rating" value="3" required><span class="feedback-rating-number">3</span><span class="feedback-rating-caption">Okay</span></label>
+                  <label class="feedback-rating-choice"><input type="radio" name="rating" value="4" required><span class="feedback-rating-number">4</span><span class="feedback-rating-caption">Easy</span></label>
+                  <label class="feedback-rating-choice"><input type="radio" name="rating" value="5" required><span class="feedback-rating-number">5</span><span class="feedback-rating-caption">Very easy</span></label>
+                </div>
+              </fieldset>
+              <div class="feedback-comment-group">
+                <label for="feedback-comment">Anything we could improve? <span class="feedback-optional">Optional</span></label>
+                <textarea id="feedback-comment" name="comment" rows="5" maxlength="1000" placeholder="Tell us what worked, what was confusing, or what you'd change..."></textarea>
+                <p class="feedback-field-hint">Up to 1,000 characters. Please don't include personal or sensitive information. Submissions are kept for about 90 days.</p>
+              </div>
+              <div class="feedback-form-actions"><button class="pill pill-coral feedback-submit" id="feedback-submit" type="submit">Submit feedback <span aria-hidden="true">→</span></button><p id="feedback-status" class="feedback-form-status" role="status" aria-live="polite"></p></div>
+            </form>
+          </section>
+          <aside class="feedback-aside" aria-label="StrokeSense rowing photography and feedback note">
+            <div class="feedback-photo"><img src="https://images.unsplash.com/photo-1674479036051-dd1b23312eeb?auto=format&fit=crop&w=1150&q=84" alt="Close-up of oars gliding through the water during rowing"></div>
+            <div class="feedback-aside-note"><span class="eyebrow">Keep improving</span><p>Clear uploads, straightforward reports, and a smooth experience are what we're working toward.</p></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>Rowing video analysis, annotated playback, and coaching reports.</p></div><nav class="footer-nav" aria-label="Footer navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/feedback/">Feedback</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental analysis, not coach-validated measurement</span><span>Thanks for helping us improve.</span></div></div></footer>
+</body>
+</html>

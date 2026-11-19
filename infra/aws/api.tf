@@ -24,8 +24,11 @@ resource "aws_lambda_function" "api" {
       S3_BUCKET                          = aws_s3_bucket.media.bucket
       USERS_TABLE                        = aws_dynamodb_table.users.name
       JOBS_TABLE                         = aws_dynamodb_table.jobs.name
+      FEEDBACK_TABLE                     = aws_dynamodb_table.feedback.name
       CPU_BATCH_JOB_QUEUE                = var.enable_cpu_analysis ? aws_batch_job_queue.cpu.arn : ""
       CPU_BATCH_JOB_DEFINITION           = aws_batch_job_definition.cpu.arn
+      CPU_GLOBAL_DAILY_LIMIT             = tostring(var.cpu_global_daily_limit)
+      CPU_GLOBAL_MONTHLY_LIMIT           = tostring(var.cpu_global_monthly_limit)
       AWS_S3_US_EAST_1_REGIONAL_ENDPOINT = "regional"
       FREE_LIFETIME_BYTES                = tostring(var.free_lifetime_bytes)
       FREE_MAX_VIDEO_BYTES               = tostring(var.free_max_video_bytes)
@@ -101,6 +104,15 @@ resource "aws_apigatewayv2_route" "health" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+# Explicit public route: no Cognito account is required to rate site usability.
+# Lambda validates a tiny JSON schema and caps daily writes transactionally.
+resource "aws_apigatewayv2_route" "feedback" {
+  api_id             = aws_apigatewayv2_api.public.id
+  route_key          = "POST /feedback"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.public.id
   name        = "$default"
@@ -109,6 +121,12 @@ resource "aws_apigatewayv2_stage" "default" {
   default_route_settings {
     throttling_burst_limit = 40
     throttling_rate_limit  = 20
+  }
+
+  route_settings {
+    route_key              = aws_apigatewayv2_route.feedback.route_key
+    throttling_burst_limit = 4
+    throttling_rate_limit  = 1
   }
 }
 

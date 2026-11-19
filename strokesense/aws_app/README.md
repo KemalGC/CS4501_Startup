@@ -1,20 +1,22 @@
-# StrokeSense AWS API scaffold (not deployed)
+# StrokeSense AWS API
 
 This module is a Python Lambda HTTP API v2.0 handler for an isolated AWS-dev
 environment. It is **not** a replacement for the live Render analyzer. The
 Batch CPU adapter in `worker.py` streams a bounded S3 upload, executes the
-existing Render analysis command, and verifies the real HTML/metrics output
-before publishing a private `report.json`. Simulated S3 contract tests pass,
-but **no real-video Fargate benchmark or AWS deployment has occurred**.
+existing analysis command, and verifies the real HTML/metrics output before
+publishing a private `report.json`. The operator-only 2-vCPU Fargate smoke
+test completed successfully on November 19, 2026; public compute stays gated
+until server-side admissions and public-user flows have been reviewed.
 
 ## Identity and authorization
 
 Configure an API Gateway HTTP API JWT authorizer with the intended Cognito user
 pool issuer, audience, and JWT scopes as appropriate. Authenticate **every**
-API route except `GET /health`. Lambda uses the verified
+user-data route. Only `GET /health` and the strictly validated, rate-limited
+`POST /feedback` usability survey are public. Lambda uses the verified
 `requestContext.authorizer.jwt.claims.sub` as the account key; it does not trust
 user IDs from incoming JSON. Do not expose this Lambda directly via a public
-Function URL or attach a route without its authorizer. The AWS execution role
+Function URL or attach additional routes without their authorizer. The AWS execution role
 provides credentials to boto3; never ship AWS keys to Vercel or the browser.
 
 ## API contract
@@ -33,6 +35,16 @@ opaque 32-hex ID, and all record lookups require the matching Cognito owner.
 | `GET /analysis/jobs/{job_id}` | None | `200 {job_id,video_id,status,tier,report_expires_at?}` |
 | `GET /reports/{job_id}` | None | `200 {job_id,download_url,expires_in,report_expires_at}` only for successful, non-expired reports |
 | `GET /health` | None | `200 {status:"ok"}` public |
+| `POST /feedback` | `{ "rating": 1, "comment": "Optional short comment" }` | `201 {submitted:true}` public |
+
+Website usability ratings are anonymous: a 1–5 integer is required, a comment
+of at most 1000 characters is optional, and unknown fields are rejected.
+Neither Cognito identity nor the originating raw IP is stored in a review.
+Per-source (10/day) and global (100/day) DynamoDB transaction limits plus API
+Gateway route throttling reduce anonymous spam. Short-lived daily limit keys
+expire after three days; feedback records expire after roughly 90 days by
+DynamoDB TTL. The public API exposes no feedback-reading endpoint. Operators
+can inspect the private feedback table using their AWS console permissions.
 
 The browser slices `File` into `part_size_bytes` blobs, calls `/uploads/part`
 for every 1-based part, `PUT`s each blob to the returned S3 URL and captures
@@ -68,7 +80,7 @@ multipart uploads as a backstop.
   refunded. The worker exits nonzero on decoding failures, invalid measurement
   artifacts, analysis failures, or failed S3 uploads. No fake reports.
 
-## AWS Batch CPU container (not deployed)
+## AWS Batch CPU container (operator smoke-tested)
 
 From the repository's `strokesense/` directory, with Docker installed:
 
@@ -87,8 +99,9 @@ Required Batch variables are `STROKESENSE_JOB_ID`,
 the authenticated API, not by the browser. Paid keys are rejected. The output
 JSON contains measured metrics and standalone HTML with inline charts/photos
 for the sandboxed Vercel report preview. The success object is written last.
-Do not push to ECR or apply Terraform before a real-video Docker benchmark and
-separate deployment approval.
+The isolated AWS-dev registry contains the versioned smoke-tested image. Public
+visitor submissions still require reviewed server-side admission caps, a
+controlled Terraform apply, and an authenticated browser-to-report test.
 
 ## Lambda configuration
 
@@ -97,6 +110,8 @@ ZIP root must contain `aws_app/`, and Lambda's handler setting is
 deployment artifact or use a Python runtime that already contains boto3.
 
 Required environment variables: `S3_BUCKET`, `USERS_TABLE`, `JOBS_TABLE`.
+`FEEDBACK_TABLE` is required to enable public feedback collection; without it
+only that endpoint returns `503`.
 Optional (defaults in parentheses): `CPU_BATCH_JOB_QUEUE` (empty),
 `CPU_BATCH_JOB_DEFINITION` (empty), `FREE_LIFETIME_BYTES` (300000000),
 `FREE_MAX_VIDEO_BYTES` (100000000), `PAID_MAX_VIDEO_BYTES` (750000000),
@@ -107,6 +122,8 @@ environment variables and an actual valid inference container.
 DynamoDB tables: `users` PK `user_id`; `jobs` PK `job_id`, GSI
 `user_id-created_at-index` on PK `user_id` and SK `created_at`. S3 prefixes:
 `uploads/`, `reports/free/`, `reports/paid/`.
+Anonymous reviews use a separate private `feedback` table keyed by
+`feedback_id` and automatically expire after about 90 days.
 
 ## Local tests
 

@@ -341,7 +341,7 @@
     ui.signIn.hidden = false;
     ui.refresh.hidden = true;
     ui.more.hidden = true;
-    setNotice(message || 'Sign in with Google on the analyzer page, then return here to see only your analyses.');
+    setNotice(message || 'Sign in with Google to open your private analysis library.');
   }
 
   async function loadHistory(reset = false) {

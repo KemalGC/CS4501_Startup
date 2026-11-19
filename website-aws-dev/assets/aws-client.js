@@ -8,6 +8,7 @@
   const AUTH_KEY = 'strokesense-aws-dev-auth';
   const PKCE_KEY = 'strokesense-aws-dev-pkce';
   const ACTIVE_JOB_KEY = 'strokesense-aws-dev-active-job';
+  const LIBRARY_RETURN_PATH = '/library/';
   const $ = id => document.getElementById(id);
   const ui = {
     backendStatus: $('backend-status'), backendDetail: $('backend-detail'),
@@ -106,6 +107,17 @@
     query.delete('job');
     const remaining = query.toString();
     history.replaceState(null, '', redirectUri + (remaining ? '?' + remaining : '') + window.location.hash);
+  }
+  function acceptLibraryLoginRequest() {
+    // The library links to /demos/?login=library because /demos/ is the
+    // Cognito callback already authorized for this OAuth client.
+    // Remove the one-shot flag before leaving for Google, avoiding loops.
+    const query = new URLSearchParams(window.location.search);
+    if (query.get('login') !== 'library' || query.has('code') || query.has('error')) return false;
+    query.delete('login');
+    const rest = query.toString();
+    history.replaceState(null, '', redirectUri + (rest ? '?' + rest : '') + window.location.hash);
+    return true;
   }
   function forgetActiveJob(jobId) {
     if (jobId && readActiveJobId() !== jobId) return;
@@ -212,12 +224,17 @@
   const base64url = bytes => btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-  async function signIn() {
+  async function signIn(returnTo = '') {
     if (!loginReady) return;
     const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
     const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
-    try { sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, createdAt: Date.now() })); }
+    try {
+      sessionStorage.setItem(PKCE_KEY, JSON.stringify({
+        verifier, state, createdAt: Date.now(),
+        returnTo: returnTo === LIBRARY_RETURN_PATH ? LIBRARY_RETURN_PATH : ''
+      }));
+    }
     catch (_) { signInFeedback('Browser storage is required to complete Google sign-in.', 'error'); return; }
     const url = new URL(cognitoDomain + '/oauth2/authorize');
     url.searchParams.set('client_id', clientId);
@@ -268,6 +285,13 @@
         expiresAt: Date.now() + Math.max(0, Number(result.expires_in || 3600) - 60) * 1000
       }));
       signInFeedback('Google sign-in successful.', 'success');
+      // Return only to this fixed same-origin path, never an arbitrary URL
+      // supplied in a query string. The stored intent is used only after
+      // OAuth state and PKCE verification have succeeded.
+      if (pending.returnTo === LIBRARY_RETURN_PATH) {
+        window.location.replace(LIBRARY_RETURN_PATH);
+        return;
+      }
     } catch (error) {
       signInFeedback('Unable to complete Google sign-in: ' +
         (oauthFailure(error && error.message) || 'check the Cognito callback and public client configuration.'), 'error');
@@ -540,7 +564,7 @@
     }
   }
 
-  ui.login.addEventListener('click', signIn);
+  ui.login.addEventListener('click', () => signIn());
   ui.logout.addEventListener('click', () => { clearAuth(); signInFeedback('Signed out of this preview.'); render(); });
   ui.tierFree.addEventListener('change', render);
   ui.tierPaid.addEventListener('change', render);
@@ -556,11 +580,21 @@
   ui.cancel.addEventListener('click', () => abortController?.abort());
   ui.run.addEventListener('click', startAnalysis);
   acceptLinkedJob();
+  const returnToLibrary = acceptLibraryLoginRequest();
   render();
   finishSignIn().then(() => {
     // The recent-history script may have loaded before Cognito finished the
     // code exchange, so refresh its owner-only view once tokens are available.
     window.StrokeSenseRecentAnalyses?.refresh();
+    if (returnToLibrary) {
+      // Clicking the sign-in control on the library either returns an
+      // already-authenticated visitor or starts the Google flow immediately.
+      if (readAuth()) {
+        window.location.replace(LIBRARY_RETURN_PATH);
+        return;
+      }
+      return signIn(LIBRARY_RETURN_PATH);
+    }
     return resumeAnalysis();
   });
 })();

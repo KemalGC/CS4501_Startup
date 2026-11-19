@@ -132,7 +132,13 @@ variable "worker_image_tag" {
 variable "enable_cpu_analysis" {
   type        = bool
   default     = false
-  description = "Explicit deployment gate. Leave false while the ECR repository has no benchmarked worker image; enable only in a separately approved follow-up plan."
+  description = "Enable user-facing CPU submissions through the API and its Batch queue. Leave false during the operator-only smoke test."
+}
+
+variable "enable_cpu_smoke_queue" {
+  type        = bool
+  default     = false
+  description = "Enable only the Batch queue for a manual operator-submitted test, without authorizing public API submissions. Set cpu_max_vcpus=2 and use a benchmarked worker_image_tag."
 }
 
 variable "worker_command" {

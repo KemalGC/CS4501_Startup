@@ -354,9 +354,10 @@
     return parts.sort((a, b) => a.part_number - b.part_number);
   }
 
-  async function waitForAnalysis(jobId, signal) {
+  async function waitForAnalysis(jobId, signal, { autoDownload = true } = {}) {
     // A Fargate job can run for an hour; queueing and cold start add time.
-    // The job ID survives page refresh so the user can check it again later.
+    // Keep the most recent successful job ID as well, so the owner can reopen
+    // the report after a refresh while it remains within its retention window.
     const deadline = Date.now() + 90 * 60 * 1000;
     while (Date.now() < deadline) {
       if (signal.aborted) throw Error('Upload cancelled.');
@@ -393,14 +394,13 @@
           ui.download.download = 'strokesense-report-' + jobId + '.html';
           ui.download.textContent = 'Download HTML report';
           // Browser download policies differ; the visible link always remains.
-          ui.download.click();
+          if (autoDownload) ui.download.click();
         } catch (_) {
           ui.reportPreview.hidden = true;
           ui.reportFrame.removeAttribute('srcdoc');
         }
         feedback('Your report is ready. Keep the downloaded HTML file; the online copy expires in 3 days.', 'success');
         progress('Report ready', 100, 'Your analysis is complete. You can view or download your report below.', 'complete');
-        forgetActiveJob(jobId);
         return;
       }
       if (['failed', 'cancelled', 'error'].includes(state)) {
@@ -499,7 +499,7 @@
     render();
     progress('Checking saved AWS job', null, 'Resuming private job ' + jobId.slice(0, 8) + '…', 'analysis');
     try {
-      await waitForAnalysis(jobId, abortController.signal);
+      await waitForAnalysis(jobId, abortController.signal, { autoDownload: false });
     } catch (error) {
       feedback(error && error.message ? error.message : 'Could not check the saved job.', 'error');
       stopProgress('Status check paused', 'Refresh this tab later to check the same private job.', 'analysis');

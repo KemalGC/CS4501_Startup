@@ -12,11 +12,12 @@ test('public CPU analysis stays unavailable until the explicit frontend switch i
   assert.match(client, /if \(tier\(\) === 'free' && !cpuAnalysisEnabled\) return/);
 });
 
-test('pending private job ID survives a refresh, but is cleared on sign out or completion', () => {
+test('private job ID survives success and refresh, but is cleared on sign out or failure', () => {
   assert.match(client, /const ACTIVE_JOB_KEY = 'strokesense-aws-dev-active-job'/);
   assert.match(client, /sessionStorage\.setItem\(ACTIVE_JOB_KEY, jobId\)/);
   assert.match(client, /forgetActiveJob\(jobId\)/);
   assert.match(client, /forgetActiveJob\(\);\s*clearReport\(\)/);
   assert.match(client, /finishSignIn\(\)\.then\(resumeAnalysis\)/);
+  assert.match(client, /waitForAnalysis\(jobId, abortController\.signal, \{ autoDownload: false \}\)/);
   assert.match(client, /90 \* 60 \* 1000/);
 });

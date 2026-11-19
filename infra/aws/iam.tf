@@ -99,8 +99,8 @@ data "aws_iam_policy_document" "api" {
   }
 
   statement {
-    sid = "AuditAdminReviewWithConditionalConsent"
-    actions = ["dynamodb:PutItem", "dynamodb:TransactWriteItems"]
+    sid       = "AuditAdminReviewWithConditionalConsent"
+    actions   = ["dynamodb:PutItem", "dynamodb:TransactWriteItems"]
     resources = [aws_dynamodb_table.admin_access_audit.arn]
   }
 

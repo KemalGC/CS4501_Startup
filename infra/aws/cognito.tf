@@ -37,6 +37,23 @@ resource "aws_cognito_identity_provider" "google" {
     email          = "email"
     email_verified = "email_verified"
     name           = "name"
+    # Cognito always maps username to Google's sub; declare it so plans
+    # don't try to remove it.
+    username = "sub"
+  }
+
+  # Cognito populates these Google endpoint fields server-side; ignore them so
+  # every plan doesn't show a spurious diff. client_id, client_secret and
+  # authorize_scopes remain managed by Terraform.
+  lifecycle {
+    ignore_changes = [
+      provider_details["attributes_url"],
+      provider_details["attributes_url_add_attributes"],
+      provider_details["authorize_url"],
+      provider_details["oidc_issuer"],
+      provider_details["token_request_method"],
+      provider_details["token_url"],
+    ]
   }
 }
 

@@ -159,7 +159,7 @@ The separate Batch failure EventBridge rule sends an operations alert; it does
 not perform quota reconciliation itself. Integration tests against real AWS
 services are still required before production use.
 
-### Two-stage rollout avoids an empty ECR image
+### Operator-only CPU smoke test before public rollout
 
 Terraform creates the ECR repository in the same stack as the Batch job
 definition, so the first apply cannot reference an image already uploaded
@@ -168,18 +168,36 @@ to that new repository.
 1. **Before any AWS write:** build `strokesense/Dockerfile.aws-cpu` locally
    and benchmark a permission-cleared rowing clip at 2 vCPU / 4 GiB.
    Unit tests with simulated S3 do not replace this real-video benchmark.
+   On Windows, the repository includes a non-deploying PowerShell preflight:
+   `./infra/aws/benchmark-cpu-worker.ps1 -VideoPath 'C:\path\to\rowing.mp4'`
+   from the repository root. It builds `linux/amd64` and refuses to pass
+   unless the container produces an HTML report and real stroke metrics.
 2. **With separate deployment approval:** create the encrypted remote-state
    bucket and apply Terraform with `enable_cpu_analysis=false`. The API
    refuses analysis submissions and the Batch queue stays disabled.
 3. **With separate image-push approval:** publish the benchmarked image to
    the new ECR repository using a unique version tag/digest.
-4. **With separate compute-launch approval:** set `worker_image_tag` to
-   the tested image tag and `enable_cpu_analysis=true`, review a fresh
-   Terraform plan, apply, then configure the AWS-dev Vercel API URL.
+4. **For an isolated one-job smoke test:** set `worker_image_tag` to the
+   tested image tag, `cpu_max_vcpus=2`, `enable_cpu_smoke_queue=true` and
+   **keep `enable_cpu_analysis=false`**. Review and apply the plan. The Batch
+   queue can run an operator-submitted job, but the public Lambda still has
+   `CPU_BATCH_JOB_QUEUE=""` and rejects all analysis submissions. Never
+   set the public flag just to run a smoke test.
+5. Use an authorized clip uploaded privately to S3 and submit exactly one
+   Batch job as the deployment administrator. Verify the Batch exit status,
+   CloudWatch logs and ownership-scoped S3 `report.json`, then return
+   `enable_cpu_smoke_queue=false`. No public visitor can submit jobs during
+   this test. The 2-vCPU limit constrains concurrency, **not total job count**;
+   never leave a manual test loop running unattended.
+6. **Public launch is a separate decision:** implement and verify an
+   account-wide admission/spending guardrail before setting
+   `enable_cpu_analysis=true`. Per-user byte quotas and AWS Budgets alert
+   emails alone do not impose a hard dollar cap.
 
-No AWS resource has been created by these code changes. The previous
-61-resource Terraform plan is now stale; rerun `terraform init -upgrade`,
-`terraform validate` and `terraform plan` before approving deployment.
+The initial AWS-dev infrastructure already exists. Continue using its
+configured encrypted S3 Terraform backend; never initialize a separate local
+state or re-create existing resources. Run `terraform validate` and review a
+fresh `terraform plan -out` against the current remote state before any apply.
 
 ## API contract and frontend configuration
 

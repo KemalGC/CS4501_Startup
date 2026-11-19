@@ -33,6 +33,11 @@ CONTENT_TYPES = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": "
 ETAG_RE = re.compile(r'^[^\x00-\x1f\x7f]{1,256}$')
 LOGGER = logging.getLogger(__name__)
 TERMINAL_RECORD_GRACE_SECONDS = 7 * 24 * 60 * 60
+# These are global admission limits, not per-user allowances. Every attempted
+# Batch submission consumes one slot, including failed/ambiguous submissions,
+# because a network error does not prove AWS declined to start the paid job.
+DEFAULT_CPU_GLOBAL_DAILY_LIMIT = 5
+DEFAULT_CPU_GLOBAL_MONTHLY_LIMIT = 50
 
 
 class ApiError(Exception):
@@ -115,6 +120,8 @@ class Settings:
     jobs_table: str
     batch_queue: str = ""
     batch_definition: str = ""
+    cpu_global_daily_limit: int = DEFAULT_CPU_GLOBAL_DAILY_LIMIT
+    cpu_global_monthly_limit: int = DEFAULT_CPU_GLOBAL_MONTHLY_LIMIT
     paid_billing_enabled: bool = False
     free_lifetime_bytes: int = FREE_BYTES
     free_video_bytes: int = FREE_VIDEO_BYTES
@@ -134,6 +141,8 @@ class Settings:
             jobs_table=os.environ["JOBS_TABLE"],
             batch_queue=os.getenv("CPU_BATCH_JOB_QUEUE", ""),
             batch_definition=os.getenv("CPU_BATCH_JOB_DEFINITION", ""),
+            cpu_global_daily_limit=int(os.getenv("CPU_GLOBAL_DAILY_LIMIT", DEFAULT_CPU_GLOBAL_DAILY_LIMIT)),
+            cpu_global_monthly_limit=int(os.getenv("CPU_GLOBAL_MONTHLY_LIMIT", DEFAULT_CPU_GLOBAL_MONTHLY_LIMIT)),
             paid_billing_enabled=os.getenv("PAID_BILLING_ENABLED", "false").lower() == "true",
             free_lifetime_bytes=int(os.getenv("FREE_LIFETIME_BYTES", FREE_BYTES)),
             free_video_bytes=int(os.getenv("FREE_MAX_VIDEO_BYTES", FREE_VIDEO_BYTES)),
@@ -507,6 +516,57 @@ class AwsBackend:
             raise ApiError(409, "invalid_state", "Upload has already moved to analysis")
         return {"video_id": video_id, "status": "aborted"}
 
+    def _reserve_cpu_admission(self, record: dict[str, Any]) -> None:
+        """Atomically admit exactly one Batch attempt against global UTC caps.
+
+        Counters live in the existing users table under reserved, non-Cognito
+        identifiers. Two concurrent Lambda invocations cannot both take the
+        final slot: DynamoDB serializes the conditional transaction. We do
+        not reset these counters after a Batch error (which may be ambiguous).
+        """
+        if self.cfg.cpu_global_daily_limit <= 0 or self.cfg.cpu_global_monthly_limit <= 0:
+            raise ApiError(503, "compute_not_configured", "Analysis admission limits are not configured")
+
+        utc = datetime.fromtimestamp(self._now(), timezone.utc)
+        day = utc.strftime("%Y-%m-%d")
+        month = utc.strftime("%Y-%m")
+        counter_updates = []
+        for period, limit in ((f"day/{day}", self.cfg.cpu_global_daily_limit),
+                              (f"month/{month}", self.cfg.cpu_global_monthly_limit)):
+            counter_updates.append({"Update": {
+                "TableName": self.cfg.users_table,
+                "Key": {"user_id": _s(f"__strokesense_cpu_admissions__/{period}")},
+                "UpdateExpression": "SET #count = if_not_exists(#count, :zero) + :one, updated_at = :updated",
+                "ConditionExpression": "attribute_not_exists(#count) OR #count < :limit",
+                "ExpressionAttributeNames": {"#count": "cpu_job_count"},
+                "ExpressionAttributeValues": {
+                    ":zero": _n(0), ":one": _n(1), ":limit": _n(limit), ":updated": _s(_utc_now()),
+                },
+            }})
+
+        counter_updates.append({"Update": {
+            "TableName": self.cfg.jobs_table,
+            "Key": {"job_id": _s(record["job_id"])},
+            "UpdateExpression": "SET #state = :next, updated_at = :updated, admission_day = :day, admission_month = :month",
+            "ConditionExpression": "user_id = :uid AND #state = :state0",
+            "ExpressionAttributeNames": {"#state": "status"},
+            "ExpressionAttributeValues": {
+                ":uid": _s(record["user_id"]), ":state0": _s("uploaded"),
+                ":next": _s("submitting"), ":updated": _s(_utc_now()),
+                ":day": _s(day), ":month": _s(month),
+            },
+        }})
+
+        try:
+            self.ddb.transact_write_items(TransactItems=counter_updates)
+        except Exception as exc:
+            if not _is_conditional(exc):
+                raise
+            latest = self._record(record["job_id"], record["user_id"])
+            if latest.get("status") != "uploaded":
+                raise ApiError(409, "invalid_state", "This video has already moved to analysis") from exc
+            raise ApiError(429, "analysis_limit_reached", "The public beta has reached its daily or monthly analysis limit. Please try again later.") from exc
+
     def submit_analysis(self, user_id: str, body: dict[str, Any]) -> dict[str, Any]:
         if not self.cfg.batch_queue or not self.cfg.batch_definition or self.batch is None:
             raise ApiError(503, "compute_not_configured", "AWS analysis compute is not configured")
@@ -516,16 +576,9 @@ class AwsBackend:
         record = self._record(video_id, user_id)
         if record.get("status") != "uploaded":
             raise ApiError(409, "invalid_state", "Complete this upload before starting analysis")
-        # Only one Batch job may be created for each video. A conditional state
-        # transition makes concurrent browser retries fail rather than double bill.
-        self.ddb.update_item(
-            TableName=self.cfg.jobs_table,
-            Key={"job_id": _s(video_id)},
-            UpdateExpression="SET #state = :submitting, updated_at = :updated",
-            ConditionExpression="user_id = :uid AND #state = :uploaded",
-            ExpressionAttributeNames={"#state": "status"},
-            ExpressionAttributeValues={":submitting": _s("submitting"), ":updated": _s(_utc_now()), ":uid": _s(user_id), ":uploaded": _s("uploaded")},
-        )
+        # One transaction enforces the job's one-shot state transition and
+        # *both* account-wide job-count limits before any paid Batch API call.
+        self._reserve_cpu_admission(record)
         try:
             job = self.batch.submit_job(
                 jobName=f"stroke-{video_id}",
@@ -539,9 +592,12 @@ class AwsBackend:
                     {"name": "STROKESENSE_REPORT_KEY", "value": record["report_key"]},
                 ]},
             )
-        except Exception:
-            self._restore_uploaded(video_id, user_id)
-            raise
+        except Exception as exc:
+            # SubmitJob offers no idempotency token. An HTTP timeout may occur
+            # AFTER AWS accepted the job; resetting to `uploaded` would allow
+            # a duplicate charge. Preserve `submitting` for operator review.
+            LOGGER.exception("Batch admission outcome uncertain for job %s", video_id)
+            raise ApiError(503, "submission_uncertain", "Submission could not be confirmed. This video is held for review; please do not upload it again yet.") from exc
         # If this update fails after SubmitJob, a retry would not submit a
         # second job (state remains "submitting"); ops can reconcile by name.
         self.ddb.update_item(
@@ -553,16 +609,6 @@ class AwsBackend:
             ExpressionAttributeValues={":submitted": _s("submitted"), ":batch_id": _s(job["jobId"]), ":updated": _s(_utc_now()), ":uid": _s(user_id), ":submitting": _s("submitting")},
         )
         return {"job_id": video_id, "video_id": video_id, "status": "submitted"}
-
-    def _restore_uploaded(self, job_id: str, user_id: str) -> None:
-        self.ddb.update_item(
-            TableName=self.cfg.jobs_table,
-            Key={"job_id": _s(job_id)},
-            UpdateExpression="SET #state = :uploaded",
-            ConditionExpression="user_id = :uid AND #state = :submitting",
-            ExpressionAttributeNames={"#state": "status"},
-            ExpressionAttributeValues={":uploaded": _s("uploaded"), ":uid": _s(user_id), ":submitting": _s("submitting")},
-        )
 
     def _batch_status(self, record: dict[str, Any]) -> str:
         if not self.batch or not record.get("batch_job_id"):

@@ -1,11 +1,10 @@
 # StrokeSense AWS development infrastructure (Terraform)
 
-**No AWS resources have been created.** This directory describes a proposed
-isolated `aws-dev` environment in `us-east-1`. The existing Vercel/Render live
-deployment must remain untouched. **Do not run `terraform apply` until the real
-inference adapter, cost controls, Google OAuth registration, and account billing
-plan have been explicitly reviewed and approved.** A Terraform plan itself
-does not provision resources, but it can require AWS account read access.
+This directory manages the existing isolated `aws-dev` environment in
+`us-east-1`. The existing Vercel/Render production deployment must remain
+untouched. **Do not run an unreviewed `terraform apply`.** Review the saved
+plan, expected billing, CPU admission controls, and the exact remote-state
+backend before changing the deployed stack.
 
 ## Architecture
 
@@ -14,7 +13,9 @@ does not provision resources, but it can require AWS account read access.
    authorization code with PKCE, then present a Cognito JWT to API Gateway.
 2. **API Gateway HTTP API** validates Cognito JWTs for all user operations;
    a small **Lambda** owns sessions, upload integrity, records, quotas,
-   short-lived presigned S3 URLs, Batch submission and status polling.
+   short-lived presigned S3 URLs, Batch submission and status polling. An
+   explicitly public, throttled `/feedback` route stores anonymous usability
+   ratings and optional comments in a separate private DynamoDB table.
 3. The browser uploads directly to a private **S3** bucket with multipart PUTs.
    This avoids API Gateway's 10 MB request-body limitation and makes 750 MB
    paid videos possible without proxying through Lambda or Vercel.
@@ -25,9 +26,9 @@ does not provision resources, but it can require AWS account read access.
    managed compute environment uses existing public subnets with outbound-only
    security groups and a public IP assigned to ephemeral containers, without
    an always-running ECS service, NAT gateway or ALB. The queue's default max
-   is 6 vCPUs (at most 3 simultaneous jobs, subject to AWS quotas). Docker
+   is 10 vCPUs (at most 5 simultaneous jobs, subject to AWS quotas). Docker
    images live in private **ECR**. S3 is the source of truth for reports.
-   The queue and API job submission are **disabled by default** until a
+The queue and API job submission are **disabled by default** until a
    tested container image exists and `enable_cpu_analysis=true` is separately
    approved.
 6. **CloudWatch, EventBridge and SNS** notify on API throttles/errors and CPU
@@ -140,16 +141,17 @@ Only use `terraform init -backend=false` for local, backend-free checks before
 the approved S3 state bucket exists. The sample backend file is ignored by
 Terraform until deliberately copied to `backend.tf`.
 
-**The CPU worker is code-complete but not cloud-validated.**
+**The CPU worker passed an isolated AWS Batch smoke test.**
 `strokesense/aws_app/worker.py` streams bounded S3 input, runs the existing
 Render CPU command (10 FPS, 2 threads, bounded media), and verifies measured
 HTML/JSON artifacts before publishing the private `report.json` success
 marker. `strokesense/Dockerfile.aws-cpu` installs inference dependencies and
 FFmpeg and bakes the integrity-checked ONNX model into a non-root image.
-Offline simulated-S3 contract tests pass, but **no Docker image has been
-built or pushed to ECR and no real clip has been benchmarked at 2 vCPU/4 GiB**.
-Do not apply until the image is built, tested with an authorized video sample,
-security-reviewed and approved. The API reconciles failed Batch state when
+The benchmarked Docker image was pushed to private ECR and processed an
+authorized 239-frame rowing clip successfully on November 19, 2026, producing
+a private S3 report. This does not by itself validate public Cognito-to-report
+flows, concurrency or rate caps; review those separately before enabling the
+public queue. The API reconciles failed Batch state when
 the user polls job status. The scheduled
 `aws_app.reconcile` Lambda independently checks overdue upload reservations and
 Batch jobs every 15 minutes; failed jobs are refunded transactionally even
@@ -201,8 +203,9 @@ fresh `terraform plan -out` against the current remote state before any apply.
 
 ## API contract and frontend configuration
 
-All routes besides `GET /health` require Cognito JWT authorization at the
-API Gateway layer *and* server-side ownership checks in Lambda:
+All video, account, analysis and report routes require Cognito JWT authorization
+at API Gateway *and* server-side ownership checks in Lambda. Only `GET /health`
+and `POST /feedback` are public:
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -214,6 +217,13 @@ API Gateway layer *and* server-side ownership checks in Lambda:
 | GET | `/analysis/jobs/{id}` | Fetch own job state and reconcile Batch completion/failure |
 | GET | `/reports/{id}` | Return short-lived link only for own unexpired report |
 | GET | `/health` | Public no-user-data liveness check |
+| POST | `/feedback` | Public 1–5 usability rating, optional ≤1000-character comment; no user/video records exposed |
+
+`/feedback` has 1 request/second API Gateway route throttling (burst 4), plus
+atomic DynamoDB caps of 10 submissions/source IP/day and 100 globally/day.
+The source IP is hashed and used only for a short-lived daily rate counter;
+feedback entries store no raw source IP, account ID or email and expire after
+approximately 90 days. There is no public feedback-reading API.
 
 After infrastructure deployment the `terraform output` values are the
 appropriate frontend *public* environment settings:
@@ -224,8 +234,11 @@ appropriate frontend *public* environment settings:
 - `aws_region` and `cognito_user_pool_id` → corresponding public client values
   if the OAuth client requires them.
 
-The website build also accepts `STROKESENSE_ENABLE_DEEP_ANALYSIS=false`, which
-must stay false until the paid GPU path is explicitly implemented. The current
+The website build uses `STROKESENSE_ENABLE_CPU_ANALYSIS=false` as a separate
+browser-side safety gate. Set it to `true` and redeploy the AWS-dev Vercel
+project **only after** AWS compute is enabled and verified. It also accepts
+`STROKESENSE_ENABLE_DEEP_ANALYSIS=false`, which must stay false until the
+paid GPU path is explicitly implemented. The current
 AWS-dev frontend completes Google sign-in on `/demos/`; all callback URLs above
 are exact `/demos/` paths, not the root domain.
 
@@ -274,9 +287,11 @@ to unreserved (`-1`):
 | `api_reserved_concurrency` | `-1` | `10` (API cost/abuse ceiling) |
 | `reconcile_reserved_concurrency` | `-1` | `1` (no overlapping reconciler runs) |
 
-While unreserved, API spend is still bounded by HTTP API stage throttling
-(20 req/s, burst 40), JWT authorization on every route except `GET /health`,
-and the account concurrency limit itself. Check the quota with
+While unreserved, requests are rate-limited by the HTTP API stage
+(20 req/s, burst 40), plus a stricter feedback-only route limit
+(1 req/s, burst 4). JWT authorization protects every route except
+`GET /health` and `POST /feedback`. These limits reduce abuse but are
+not account spending caps. Check the quota with
 `aws lambda get-account-settings`. Once the Service Quotas "Concurrent
 executions" value (`L-B99A9384`) is raised, set the variables (for example
 `TF_VAR_api_reserved_concurrency=10`) and run a reviewed plan/apply.
@@ -299,18 +314,20 @@ executions" value (`L-B99A9384`) is raised, set the variables (for example
    # Never echo it, commit it, or pass it on a public CLI command line.
    ```
 
-4. Run the backend unit tests from the repo root (`PYTHONPATH=strokesense
-   python -m unittest aws_app.test_backend`), and build a local Lambda ZIP from the
-   repo root using `bash infra/aws/build_lambda.sh`.
+4. Run the backend unit tests from `strokesense/` with `python -m unittest
+   discover -s aws_app -p 'test_*.py'`, and build a local Lambda ZIP from the
+   repo root using `bash infra/aws/build_lambda.sh`, or on Windows PowerShell
+   using `./infra/aws/build_lambda.ps1`.
    The `aws-dev` GitHub Actions workflow also checks backend tests, frontend
    tests/build and Terraform formatting/validation without AWS credentials.
 5. In `infra/aws`, run `terraform fmt -check -recursive`, `terraform init
    -backend=false`, and `terraform validate`. Review `terraform plan` only
    with appropriate AWS read-only credentials and after provider installation.
-6. Do **not** push a worker image, create a Vercel production deployment, or
-   run `terraform apply` before implementing the worker, verifying quota/refund
-   behavior end to end, accepting an AWS spend limit/billing plan and getting
-   explicit approval.
+6. The operator-only worker smoke test is complete. **Do not enable public
+   analysis or apply unreviewed infrastructure changes** until verifying the
+   global 5/day and 50/month admission caps, the 10-vCPU five-job ceiling,
+   refund behavior, cost alerts, and browser-to-report flow. Keep paid/GPU
+   processing disabled.
 
 Local `.tfstate` and `.tfvars` are ignored by Git but remain recoverable on
 the local disk. Do not put secrets into `.tf` or example files; follow the
@@ -326,8 +343,11 @@ secure state procedure above before any actual deployment.
   data; the 3-minute existing Render benchmark is **not** guaranteed on a
   2-vCPU/4-GiB Fargate task. 750 MB video input does not establish inference
   runtime; duration, frame count, decoding and AI model complexity do.
-- Default 6 max vCPUs caps **parallel CPU capacity**, not total monthly cost;
-  the 1-hour per-attempt timeout is a backstop, not a budget limit.
+- Default 10 max vCPUs permits **up to five parallel 2-vCPU workers** (if AWS
+  Fargate account quotas permit). This caps concurrent CPU capacity, not total
+  monthly cost. DynamoDB admission limits separately bound all public CPU
+  submissions to 5 per UTC day and 50 per UTC month; the 1-hour per-attempt
+  timeout is a backstop, not a dollar cap.
 - Both account-wide budgets use gross cost (before credits), with
   `daily_budget_usd = 3` and `monthly_budget_usd = 30`. The email recipient
   is required, but alerts remain delayed and do not enforce a hard spend cap.
@@ -344,6 +364,11 @@ secure state procedure above before any actual deployment.
       user-owned clips and never reports success without output.
 - [ ] Free 300 MB lifetime limit works with concurrent browser sessions;
       failed/aborted/expired uploads and failed jobs refund deterministically.
+- [ ] Global CPU limits reject a sixth submission on the same UTC day and a
+      51st in the same UTC month, including across separate Cognito accounts;
+      five 2-vCPU jobs do not exceed the 10-vCPU compute cap.
+- [ ] Anonymous `/feedback` accepts 1–5 ratings and optional comments, safely
+      rejects malformed/spam submissions, and cannot expose private feedback.
 - [ ] Expired report downloads return a useful 4xx message; own reports work,
       other users' job IDs never grant access to another report.
 - [ ] 750 MB paid uploads and paid-credit ledger are implemented and tested;

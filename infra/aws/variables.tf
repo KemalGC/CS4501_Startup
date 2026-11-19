@@ -159,13 +159,35 @@ variable "enable_gpu" {
 }
 
 variable "cpu_max_vcpus" {
-  description = "Fargate Batch maximum concurrent vCPUs. 6 permits up to three 2-vCPU jobs (subject to account service quotas)."
+  description = "Fargate Batch maximum concurrent vCPUs. 10 permits up to five 2-vCPU jobs (subject to account Fargate quotas)."
   type        = number
-  default     = 6
+  default     = 10
 
   validation {
     condition     = var.cpu_max_vcpus >= 2 && var.cpu_max_vcpus <= 32 && floor(var.cpu_max_vcpus) == var.cpu_max_vcpus
     error_message = "cpu_max_vcpus must be an integer between 2 and 32."
+  }
+}
+
+variable "cpu_global_daily_limit" {
+  description = "Hard global cap on CPU Batch submissions per UTC day. Applied atomically in DynamoDB; not a dollar cap."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.cpu_global_daily_limit >= 1 && var.cpu_global_daily_limit <= 100 && floor(var.cpu_global_daily_limit) == var.cpu_global_daily_limit
+    error_message = "cpu_global_daily_limit must be an integer from 1 to 100."
+  }
+}
+
+variable "cpu_global_monthly_limit" {
+  description = "Hard global cap on CPU Batch submissions per UTC calendar month. Applied atomically in DynamoDB."
+  type        = number
+  default     = 50
+
+  validation {
+    condition     = var.cpu_global_monthly_limit >= 1 && var.cpu_global_monthly_limit <= 1000 && floor(var.cpu_global_monthly_limit) == var.cpu_global_monthly_limit
+    error_message = "cpu_global_monthly_limit must be an integer from 1 to 1000."
   }
 }
 

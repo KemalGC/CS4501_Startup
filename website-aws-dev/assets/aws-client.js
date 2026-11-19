@@ -7,6 +7,7 @@
   const PAID_VIDEO_BYTES = 750_000_000;
   const AUTH_KEY = 'strokesense-aws-dev-auth';
   const PKCE_KEY = 'strokesense-aws-dev-pkce';
+  const ACTIVE_JOB_KEY = 'strokesense-aws-dev-active-job';
   const $ = id => document.getElementById(id);
   const ui = {
     backendStatus: $('backend-status'), backendDetail: $('backend-detail'),
@@ -34,6 +35,7 @@
   const clientId = typeof config.cognitoClientId === 'string' ? config.cognitoClientId.trim() : '';
   const loginReady = Boolean(cognitoDomain && clientId);
   const backendReady = Boolean(loginReady && apiBase);
+  const cpuAnalysisEnabled = config.cpuAnalysisEnabled === true;
   const deepAnalysisEnabled = config.deepAnalysisEnabled === true;
   const redirectUri = window.location.origin + '/demos/';
   let file = null;
@@ -68,8 +70,23 @@
       return result && result.accessToken && result.expiresAt > Date.now() + 15_000 ? result : null;
     } catch (_) { return null; }
   }
+  function readActiveJobId() {
+    try {
+      const jobId = sessionStorage.getItem(ACTIVE_JOB_KEY) || '';
+      return /^[0-9a-f]{32}$/.test(jobId) ? jobId : '';
+    } catch (_) { return ''; }
+  }
+  function rememberActiveJob(jobId) {
+    if (!/^[0-9a-f]{32}$/.test(String(jobId || ''))) return;
+    try { sessionStorage.setItem(ACTIVE_JOB_KEY, jobId); } catch (_) {}
+  }
+  function forgetActiveJob(jobId) {
+    if (jobId && readActiveJobId() !== jobId) return;
+    try { sessionStorage.removeItem(ACTIVE_JOB_KEY); } catch (_) {}
+  }
   function clearAuth() {
     try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
+    forgetActiveJob();
     clearReport();
   }
   function userLabel(auth) {
@@ -100,19 +117,24 @@
     } else if (!loginReady) {
       ui.backendStatus.textContent = 'AWS API configured; Google login is not configured';
       ui.backendDetail.textContent = 'Configure the Cognito domain and public client ID before submitting private analysis jobs.';
+    } else if (!cpuAnalysisEnabled) {
+      ui.backendStatus.textContent = 'AWS connected — Free Analysis is not yet open';
+      ui.backendDetail.textContent = 'Google sign-in and the feedback form are available. Public CPU analysis will open after cost limits and AWS capacity are verified.';
     } else {
-      ui.backendStatus.textContent = 'AWS configuration present';
-      ui.backendDetail.textContent = 'This staging website uses its own AWS endpoint, separate from the Render-backed production site.';
+      ui.backendStatus.textContent = 'AWS analysis available · limited public beta';
+      ui.backendDetail.textContent = 'Up to 5 analysis submissions per day and 50 per month globally, subject to remaining capacity. Each private job runs independently.';
     }
     const tooLarge = file && file.size > limit();
     const ready = backendReady && auth && file && !tooLarge && !busy &&
-      (selectedTier === 'free' || deepAnalysisEnabled);
+      (selectedTier === 'free' ? cpuAnalysisEnabled : deepAnalysisEnabled);
     ui.run.disabled = !ready;
     ui.run.textContent = busy ? 'Analysis in progress…' : selectedTier === 'paid' ? 'Start Deep Analysis' : 'Start Free Analysis';
     if (tooLarge) {
       ui.helper.textContent = 'The selected video exceeds the ' + formatMB(limit()) + ' per-video limit.';
     } else if (selectedTier === 'paid' && !deepAnalysisEnabled) {
       ui.helper.textContent = 'Deep Analysis credit purchases and GPU processing remain disabled until billing and compute are approved.';
+    } else if (selectedTier === 'free' && !cpuAnalysisEnabled) {
+      ui.helper.textContent = 'Free Analysis is temporarily closed. The AWS site is public, but processing must pass the cost and capacity checks first.';
     } else if (!backendReady) {
       ui.helper.textContent = 'Local video checks work now. AWS analysis unlocks after the backend and Cognito are provisioned.';
     } else if (!auth) {
@@ -218,9 +240,13 @@
     });
     let payload;
     try { payload = await response.json(); } catch (_) { payload = {}; }
-    if (!response.ok) throw Error(typeof payload.message === 'string' ? payload.message :
+    if (!response.ok) {
+      const error = Error(typeof payload.message === 'string' ? payload.message :
       typeof payload.error?.message === 'string' ? payload.error.message :
         typeof payload.error === 'string' ? payload.error : 'AWS request failed (' + response.status + ').');
+      error.code = payload.error?.code || '';
+      throw error;
+    }
     return payload;
   }
 
@@ -266,7 +292,9 @@
   }
 
   async function waitForAnalysis(jobId, signal) {
-    const deadline = Date.now() + 30 * 60 * 1000;
+    // A Fargate job can run for an hour; queueing and cold start add time.
+    // The job ID survives page refresh so the user can check it again later.
+    const deadline = Date.now() + 90 * 60 * 1000;
     while (Date.now() < deadline) {
       if (signal.aborted) throw Error('Upload cancelled.');
       const job = await api('/analysis/jobs/' + encodeURIComponent(jobId), { signal });
@@ -308,9 +336,11 @@
           ui.reportFrame.removeAttribute('srcdoc');
         }
         feedback('Your report is ready. Keep the downloaded HTML file; the online copy expires in 3 days.', 'success');
+        forgetActiveJob(jobId);
         return;
       }
       if (['failed', 'cancelled', 'error'].includes(state)) {
+        forgetActiveJob(jobId);
         throw Error('Analysis ' + state + '. Your reserved allowance will be returned by the backend.');
       }
       progress('Analyzing with AWS', Math.max(90, Math.min(99, Number(job.progress || 90))),
@@ -320,11 +350,12 @@
         signal.addEventListener('abort', () => { clearTimeout(timer); reject(Error('Cancelled.')); }, { once: true });
       });
     }
-    throw Error('Analysis is still running. Return later after the backend supports job history.');
+    throw Error('Analysis is still pending. Refresh this tab later to resume checking your private job.');
   }
 
   async function startAnalysis() {
     if (busy || !backendReady || !readAuth() || !file || file.size > limit()) return;
+    if (tier() === 'free' && !cpuAnalysisEnabled) return;
     if (tier() === 'paid' && !deepAnalysisEnabled) return;
     busy = true;
     activeVideoId = null;
@@ -352,22 +383,51 @@
         method: 'POST', body: { video_id: upload.video_id }, signal: abortController.signal
       });
       jobSubmitted = true;
+      rememberActiveJob(job.job_id);
       activeVideoId = null;
       ui.cancel.hidden = true;
       await waitForAnalysis(job.job_id, abortController.signal);
     } catch (error) {
+      // A timeout after Batch submission may still have launched the worker.
+      // Preserve this video ID for ownership-scoped status checks, not a retry.
+      if (error?.code === 'submission_uncertain' && activeVideoId) {
+        rememberActiveJob(activeVideoId);
+        jobSubmitted = true;
+      }
       // Once a job was submitted, only its server-side lifecycle can refund it.
       if (activeVideoId && !jobSubmitted) {
         try { await api('/uploads/abort', { method: 'POST', body: { video_id: activeVideoId } }); }
         catch (_) { /* The backend also reclaims abandoned reservations. */ }
       }
       feedback(error && error.message ? error.message : 'The upload could not be completed.', 'error');
-      progress('Unable to finish analysis', 0, 'No report was generated.');
+      progress(jobSubmitted ? 'Awaiting job status' : 'Unable to start analysis', jobSubmitted ? 95 : 0,
+        jobSubmitted ? 'Refresh this tab later to resume checking the same job.' : 'No analysis was started.');
     } finally {
       busy = false;
       activeVideoId = null;
       abortController = null;
       ui.cancel.hidden = true;
+      render();
+    }
+  }
+
+  async function resumeAnalysis() {
+    const jobId = readActiveJobId();
+    if (!jobId || !readAuth() || !backendReady || busy) return;
+    busy = true;
+    abortController = new AbortController();
+    ui.cancel.hidden = true;
+    clearReport();
+    render();
+    progress('Checking previous analysis', 95, 'Resuming private job ' + jobId.slice(0, 8) + '…');
+    try {
+      await waitForAnalysis(jobId, abortController.signal);
+    } catch (error) {
+      feedback(error && error.message ? error.message : 'Could not check the saved job.', 'error');
+      progress('Awaiting job status', 95, 'Refresh this tab later to check the same job.');
+    } finally {
+      busy = false;
+      abortController = null;
       render();
     }
   }
@@ -388,5 +448,5 @@
   ui.cancel.addEventListener('click', () => abortController?.abort());
   ui.run.addEventListener('click', startAnalysis);
   render();
-  finishSignIn();
+  finishSignIn().then(resumeAnalysis);
 })();

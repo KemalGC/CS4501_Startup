@@ -73,8 +73,9 @@ resource "aws_iam_role_policy_attachment" "api_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# All browser requests are authorized through Cognito JWT at API Gateway.
-# The Lambda separately checks Cognito sub against records and S3 keys.
+# Uploads/analysis/reports are authorized through Cognito JWT at API Gateway.
+# Only GET /health and rate-limited POST /feedback are public routes. The
+# Lambda separately checks Cognito sub against user records and S3 keys.
 data "aws_iam_policy_document" "api" {
   statement {
     sid = "ReadWriteQuotaAndJobs"
@@ -89,6 +90,20 @@ data "aws_iam_policy_document" "api" {
     sid       = "QueryOwnedJobsIndex"
     actions   = ["dynamodb:Query"]
     resources = ["${aws_dynamodb_table.jobs.arn}/index/user_id-created_at-index"]
+  }
+
+  statement {
+    sid       = "SubmitAnonymousWebsiteFeedbackOnly"
+    actions   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.feedback.arn]
+
+    # DynamoDB checks the IAM permissions of underlying Put/Update operations
+    # inside TransactWriteItems. No direct, nontransactional feedback writes.
+    condition {
+      test     = "ForAnyValue:StringEquals"
+      variable = "dynamodb:EnclosingOperation"
+      values   = ["TransactWriteItems"]
+    }
   }
 
   statement {

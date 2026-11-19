@@ -93,3 +93,22 @@ resource "aws_dynamodb_table" "jobs" {
     enabled = true
   }
 }
+
+# Anonymous website feedback is separate from user/job records, so public
+# submission cannot read or enumerate private videos. A private 90-day TTL
+# expires submissions; short-lived daily counters prevent unbounded writes.
+resource "aws_dynamodb_table" "feedback" {
+  name         = "${local.prefix}-feedback"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "feedback_id"
+
+  attribute {
+    name = "feedback_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl_epoch"
+    enabled        = true
+  }
+}

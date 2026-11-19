@@ -17,7 +17,7 @@ cp -R "${project_dir}/strokesense/aws_app/." "${build_dir}/aws_app/"
 
 (
   cd "${build_dir}"
-  zip -q -FS -r "${zip_file}" . -x '*/__pycache__/*' '*/test_backend.py'
+  zip -q -FS -r "${zip_file}" . -x '*/__pycache__/*' '*/test_*.py'
 )
 
 printf 'Built local Lambda ZIP: %s\n' "${zip_file}"

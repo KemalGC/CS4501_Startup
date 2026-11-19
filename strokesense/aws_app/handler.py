@@ -1,8 +1,8 @@
-"""Cognito-authorized AWS HTTP API v2 Lambda handler for StrokeSense.
+"""AWS HTTP API v2 Lambda handler for StrokeSense.
 
-This code trusts only claims that API Gateway's configured JWT authorizer put
-in requestContext. It must not be wired to unauthenticated API routes or to a
-public Lambda Function URL.
+Only GET /health and POST /feedback are public. All upload, analysis, job and
+report routes require a Cognito JWT verified by API Gateway; this code trusts
+only claims in requestContext. Never expose a public Lambda Function URL.
 """
 
 from __future__ import annotations
@@ -10,10 +10,12 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import re
 from typing import Any
 
 from .core import ApiError, AwsBackend, Settings
+from .feedback import MAX_FEEDBACK_BODY_BYTES, save_feedback, validate_feedback
 
 
 LOGGER = logging.getLogger(__name__)
@@ -72,6 +74,34 @@ def _build_service() -> AwsBackend:
     )
 
 
+def _submit_public_feedback(event: dict[str, Any]) -> dict[str, bool]:
+    # The only anonymous write operation. The source comes from API Gateway's
+    # request context, not from untrusted forwarded headers or request JSON.
+    raw = event.get("body", "")
+    if isinstance(raw, str):
+        max_encoded_bytes = (
+            4 * ((MAX_FEEDBACK_BODY_BYTES + 2) // 3)
+            if event.get("isBase64Encoded") else MAX_FEEDBACK_BODY_BYTES
+        )
+        if len(raw.encode("utf-8")) > max_encoded_bytes:
+            raise ApiError(413, "request_too_large", "Feedback request is too large")
+    table_name = os.getenv("FEEDBACK_TABLE", "")
+    if not table_name:
+        raise ApiError(503, "feedback_unavailable", "Website feedback is temporarily unavailable")
+
+    payload = _body(event)
+    validate_feedback(payload)
+    import boto3
+
+    http = event.get("requestContext", {}).get("http", {})
+    return save_feedback(
+        payload,
+        dynamodb=boto3.client("dynamodb"),
+        table_name=table_name,
+        source_ip=str(http.get("sourceIp") or "unknown"),
+    )
+
+
 def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     try:
         http = event.get("requestContext", {}).get("http", {})
@@ -80,6 +110,9 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 
         if method == "GET" and path == "/health":
             return _response(200, {"status": "ok"})
+
+        if method == "POST" and path == "/feedback":
+            return _response(201, _submit_public_feedback(event))
 
         user_id = _user_id(event)
         service = _build_service()

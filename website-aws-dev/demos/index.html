@@ -16,6 +16,7 @@
   <script src="/assets/site.js" defer></script>
   <script src="/assets/aws-config.js" defer></script>
   <script src="/assets/aws-client.js" defer></script>
+  <script src="/assets/recent-analyses.js" defer></script>
   <script src="/assets/report-media.js" type="module"></script>
 </head>
 <body>
@@ -101,6 +102,19 @@
               <iframe id="report-frame" title="StrokeSense private technique report" sandbox="" referrerpolicy="no-referrer" loading="lazy"></iframe>
             </div>
           </div>
+        </section>
+        <section class="aws-history-panel" aria-labelledby="recent-analyses-heading">
+          <div class="aws-history-heading">
+            <div>
+              <span class="studio-label">04 · Your library</span>
+              <h3 id="recent-analyses-heading">Previous analyses</h3>
+              <p>Each submitted video is added to your private analysis library. Expand a completed session to revisit its coaching report, or open its annotated video.</p>
+            </div>
+            <button id="recent-analyses-refresh" class="aws-button aws-button-outline" type="button">Refresh history</button>
+          </div>
+          <p id="recent-analyses-notice" class="aws-feedback" role="status" aria-live="polite">Sign in to view previous analyses.</p>
+          <div id="recent-analyses-list" class="aws-recent-list" hidden></div>
+          <a class="pill pill-navy" href="/library/">View full My Analyses library</a>
         </section>
       </div>
     </section>

@@ -17,6 +17,7 @@ class FakeElement {
     this.listeners = new Map();
     this._text = '';
     this.src = '';
+    this.href = '';
   }
   set textContent(text) {
     this._text = String(text);
@@ -27,20 +28,25 @@ class FakeElement {
   replaceChildren(...children) { this._text = ''; this.children = [...children]; }
   addEventListener(name, handler) { this.listeners.set(name, handler); }
   click() { this.listeners.get('click')?.(); }
-  removeAttribute(name) { if (name === 'src') this.src = ''; }
+  removeAttribute(name) {
+    if (name === 'src') this.src = '';
+    if (name === 'href') this.href = '';
+  }
   pause() {}
   load() {}
   set innerHTML(_value) { throw Error('History must render untrusted fields as text, never HTML.'); }
 }
 
-function makePage({ authenticated = true, responses = [] } = {}) {
+function makePage({ authenticated = true, responses = [], search = '' } = {}) {
   const elements = new Map();
   const storage = new Map();
   const requests = [];
+  const timers = new Map();
+  let nextTimer = 1;
   const ids = ['library-account', 'library-sign-in', 'library-refresh',
     'library-notice', 'library-list', 'library-more', 'library-video-panel',
     'library-video-player', 'library-video-title', 'library-video-notice',
-    'library-close-video', 'library-refresh-video'];
+    'library-close-video', 'library-refresh-video', 'library-video-link'];
   for (const id of ids) elements.set(id, new FakeElement());
   elements.get('library-more').hidden = true;
   elements.get('library-sign-in').hidden = true;
@@ -52,7 +58,8 @@ function makePage({ authenticated = true, responses = [] } = {}) {
   }));
 
   runInNewContext(source, {
-    window: { STROKESENSE_AWS_CONFIG: { apiBaseUrl: 'https://example.execute-api.us-east-1.amazonaws.com' } },
+    window: { STROKESENSE_AWS_CONFIG: { apiBaseUrl: 'https://example.execute-api.us-east-1.amazonaws.com' },
+      location: { search } },
     document: {
       getElementById: id => elements.get(id),
       createElement: name => new FakeElement(name)
@@ -69,10 +76,19 @@ function makePage({ authenticated = true, responses = [] } = {}) {
       return { status: response.status || 200, ok: (response.status || 200) < 400,
         json: async () => response.payload };
     },
-    URL, AbortController, setTimeout, clearTimeout, atob
+    URL, URLSearchParams, AbortController,
+    setTimeout: (fn, delay) => { const id = nextTimer++; timers.set(id, { fn, delay }); return id; },
+    clearTimeout: id => timers.delete(id), atob
   });
   return {
     elements, storage, requests,
+    fireTimers(ms) {
+      for (const [id, timer] of [...timers]) {
+        if (timer.delay > ms) continue;
+        timers.delete(id);
+        timer.fn();
+      }
+    },
     async settle() { await new Promise(resolve => setImmediate(resolve)); }
   };
 }
@@ -181,10 +197,31 @@ test('owner can watch annotated video with private temporary same-bucket S3 link
   assert.equal(new URL(page.requests[1].url).pathname, '/reports/' + JOB_A + '/artifacts');
   assert.equal(page.requests[1].options.headers.Authorization, 'Bearer private-access-token');
   assert.equal(page.elements.get('library-video-player').src, url);
+  assert.equal(page.elements.get('library-video-link').href, url);
+  assert.equal(page.elements.get('library-video-link').hidden, false);
   assert.equal(page.elements.get('library-video-panel').hidden, false);
   assert.doesNotMatch(page.elements.get('library-video-notice').textContent, /X-Amz-Signature/);
   page.elements.get('library-close-video').click();
   assert.equal(page.elements.get('library-video-player').src, '');
+  assert.equal(page.elements.get('library-video-link').href, '');
+  assert.equal(page.elements.get('library-video-link').hidden, true);
+});
+
+test('owner video deep link opens a freshly signed URL and expires the open link', async () => {
+  const url = 'https://strokesense-aws-dev-851226124502-us-east-1.s3.us-east-1.amazonaws.com/reports/free/example/annotated.mp4?X-Amz-Signature=fresh';
+  const page = makePage({ search: '?video=' + JOB_A, responses: [
+    { payload: { jobs: [{ job_id: JOB_A, filename: 'practice.mp4', status: 'succeeded',
+      report_available: true }], next_cursor: null } },
+    { payload: { job_id: JOB_A, video_url: url, expires_in: 300 } }
+  ] });
+  await page.settle();
+  assert.equal(page.requests.length, 2);
+  assert.equal(page.elements.get('library-video-link').href, url);
+  assert.match(page.elements.get('library-video-notice').textContent, /300 seconds/);
+  page.fireTimers(300_000);
+  assert.equal(page.elements.get('library-video-link').href, '');
+  assert.equal(page.elements.get('library-video-link').hidden, true);
+  assert.match(page.elements.get('library-video-notice').textContent, /expired/);
 });
 
 test('missing annotated artifact never falls back to raw footage', async () => {
@@ -208,5 +245,6 @@ test('history route is included in build and navigation', () => {
   assert.match(homepage, /href="\/library\/"/);
   assert.match(history, /name="robots" content="noindex, nofollow"/);
   assert.match(history, /referrerpolicy="no-referrer"/);
+  assert.match(history, /id="library-video-link"/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });

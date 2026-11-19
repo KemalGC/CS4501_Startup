@@ -12,6 +12,7 @@
     refresh: $('library-refresh'), notice: $('library-notice'),
     list: $('library-list'), more: $('library-more'),
     videoPanel: $('library-video-panel'), video: $('library-video-player'),
+    videoLink: $('library-video-link'),
     videoTitle: $('library-video-title'), videoNotice: $('library-video-notice'),
     closeVideo: $('library-close-video'), refreshVideo: $('library-refresh-video')
   };
@@ -29,6 +30,12 @@
   let viewing = false;
   let viewerGeneration = 0;
   let activeVideoJob = null;
+  let videoLinkExpiryTimer = null;
+  let requestedVideoId = '';
+  try {
+    const requested = new URLSearchParams(window.location?.search || '').get('video');
+    if (requested && JOB_ID.test(requested)) requestedVideoId = requested;
+  } catch (_) { /* Ignore invalid deep links. */ }
   const renderedIds = new Set();
 
   function readAuth() {
@@ -138,9 +145,13 @@
   function clearVideo() {
     viewerGeneration += 1;
     activeVideoJob = null;
+    if (videoLinkExpiryTimer !== null) clearTimeout(videoLinkExpiryTimer);
+    videoLinkExpiryTimer = null;
     if (typeof ui.video.pause === 'function') ui.video.pause();
     ui.video.removeAttribute('src');
     if (typeof ui.video.load === 'function') ui.video.load();
+    ui.videoLink.removeAttribute('href');
+    ui.videoLink.hidden = true;
     ui.videoPanel.hidden = true;
     ui.refreshVideo.disabled = false;
   }
@@ -187,12 +198,21 @@
       }
       const videoUrl = validVideoUrl(data.video_url);
       if (!videoUrl) throw Error('The video service returned an invalid secure media link.');
-      // Private presigned URL belongs only in the media element, never in text
-      // or persistent browser storage. Closing this viewer clears the source.
+      // This owner-authorized presigned URL is kept only in the player and
+      // temporary open link; it is never stored or displayed as text.
       ui.video.src = videoUrl.toString();
       if (typeof ui.video.load === 'function') ui.video.load();
       const seconds = Number.isFinite(Number(data.expires_in))
-        ? Math.min(60, Math.max(1, Math.round(Number(data.expires_in)))) : 60;
+        ? Math.min(900, Math.max(1, Math.round(Number(data.expires_in)))) : 60;
+      ui.videoLink.href = videoUrl.toString();
+      ui.videoLink.hidden = false;
+      videoLinkExpiryTimer = setTimeout(() => {
+        if (generation !== viewerGeneration) return;
+        ui.videoLink.removeAttribute('href');
+        ui.videoLink.hidden = true;
+        ui.videoNotice.textContent = 'This video link has expired. Refresh temporary video access to open it again.';
+        videoLinkExpiryTimer = null;
+      }, seconds * 1000);
       ui.videoNotice.textContent = `Annotated video link lasts up to ${seconds} seconds. Refresh video access if seeking stops.`;
     } catch (error) {
       if (generation !== viewerGeneration) return;
@@ -382,6 +402,10 @@
         renderedIds.add(job.job_id);
         ui.list.appendChild(jobCard(job));
         itemCount += 1;
+        if (requestedVideoId === job.job_id && reportAvailable(job)) {
+          requestedVideoId = '';
+          void watchAnnotatedVideo(job);
+        }
       }
       nextCursor = typeof payload.next_cursor === 'string' && payload.next_cursor.length > 0 &&
         payload.next_cursor.length <= 4096 ? payload.next_cursor : null;

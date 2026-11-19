@@ -115,6 +115,7 @@
     try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
     forgetActiveJob();
     clearReport();
+    window.StrokeSenseRecentAnalyses?.signedOut();
   }
   function userLabel(auth) {
     if (!auth || !auth.idToken) return 'Signed in with Google.';
@@ -205,6 +206,7 @@
       feedback('Local file check passed. No video has been uploaded.', 'success');
     }
     render();
+    window.StrokeSenseRecentAnalyses?.refresh();
   }
 
   const base64url = bytes => btoa(String.fromCharCode(...bytes))
@@ -423,6 +425,7 @@
         }
         feedback('Your report is ready. Keep the downloaded HTML file; the online copy expires in 3 days.', 'success');
         progress('Report ready', 100, 'Your analysis is complete. You can view or download your report below.', 'complete');
+        window.StrokeSenseRecentAnalyses?.notifyCompleted(jobId);
         return;
       }
       if (['failed', 'cancelled', 'error'].includes(state)) {
@@ -471,6 +474,7 @@
         }, signal: abortController.signal
       });
       activeVideoId = upload.video_id;
+      window.StrokeSenseRecentAnalyses?.notifySubmitted(upload.video_id, sourceFile.name, 'uploading');
       const parts = await uploadMultipart(upload, abortController.signal, sourceFile);
       progress('Verifying uploaded video', null, 'All parts transferred. Confirming your file in private S3 storage.', 'upload');
       await api('/uploads/complete', {
@@ -483,6 +487,7 @@
       });
       jobSubmitted = true;
       rememberActiveJob(job.job_id);
+      window.StrokeSenseRecentAnalyses?.notifySubmitted(job.job_id, sourceFile.name);
       activeVideoId = null;
       ui.cancel.hidden = true;
       feedback('Video uploaded. Your private AWS analysis job is underway.', 'success');
@@ -498,6 +503,7 @@
       if (activeVideoId && !jobSubmitted) {
         try { await api('/uploads/abort', { method: 'POST', body: { video_id: activeVideoId } }); }
         catch (_) { /* The backend also reclaims abandoned reservations. */ }
+        window.StrokeSenseRecentAnalyses?.notifyAborted(activeVideoId);
       }
       feedback(error && error.message ? error.message : 'The upload could not be completed.', 'error');
       stopProgress(jobSubmitted ? 'Status check paused' : 'Unable to start analysis',
@@ -551,5 +557,10 @@
   ui.run.addEventListener('click', startAnalysis);
   acceptLinkedJob();
   render();
-  finishSignIn().then(resumeAnalysis);
+  finishSignIn().then(() => {
+    // The recent-history script may have loaded before Cognito finished the
+    // code exchange, so refresh its owner-only view once tokens are available.
+    window.StrokeSenseRecentAnalyses?.refresh();
+    return resumeAnalysis();
+  });
 })();

@@ -263,6 +263,49 @@
     }
   }
 
+  async function changePublicSharing(job, button, note) {
+    const next = job.community_shared !== true;
+    if (next && (!window.confirm || !window.confirm(
+      'Make this annotated rowing video visible to anyone in Community Videos? People can watch and download it until you unpublish or the report expires. Downloads already saved cannot be recalled. The original video and private coaching report will not be shared.'
+    ))) return;
+    const auth = readAuth();
+    if (!auth || !apiBase) { setNotice('Sign in with Google again before changing public sharing.', 'error'); return; }
+    if (!JOB_ID.test(job.job_id) || button.disabled) return;
+    button.disabled = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(apiBase + '/analysis/jobs/' + encodeURIComponent(job.job_id) + '/publish', {
+        method: 'POST', credentials: 'omit', cache: 'no-store',
+        headers: { Authorization: 'Bearer ' + auth.accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public: next }), signal: controller.signal
+      });
+      if (response.status === 401) {
+        try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
+        signedOut('Your sign-in expired. Please sign in to manage sharing.');
+        return;
+      }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw Error(error?.error?.message || 'Unable to change public sharing.');
+      }
+      const result = await response.json();
+      if (!result || result.job_id !== job.job_id || result.public !== next) throw Error('Unexpected sharing response.');
+      job.community_shared = next;
+      button.textContent = next ? 'Unpublish video' : 'Make public';
+      note.textContent = next
+        ? 'Publicly shared: anyone can view and download the annotated clip until you unpublish or it expires. Existing links can work for up to 60 seconds.'
+        : 'Private by default. Only the annotated clip can be published; your original upload and private report stay private.';
+      setNotice(next ? 'Video added to Community Videos.' : 'Video removed from Community Videos. Existing links may last up to 60 seconds.', 'success');
+    } catch (error) {
+      setNotice(error && error.name === 'AbortError' ? 'Sharing request timed out. Refresh history to check its state.'
+        : (error?.message || 'Could not change sharing. Please try again.'), 'error');
+    } finally {
+      clearTimeout(timeout);
+      button.disabled = false;
+    }
+  }
+
   function jobCard(job) {
     const status = statusInfo(job);
     const card = node('article', 'library-card');
@@ -312,6 +355,17 @@
     }
     if (job.video_available === false) {
       actions.appendChild(node('span', 'library-action-note', 'Original video no longer available.'));
+    }
+    if ((state === 'succeeded' && reportAvailable(job)) || job.community_shared === true) {
+      const note = node('span', 'library-public-note',
+        job.community_shared === true
+          ? 'Publicly shared: anyone can view or download the annotated clip. Existing links can remain usable for 60 seconds after unpublishing.'
+          : 'Private by default. Publish only your annotated video to Community; your raw upload and coaching report stay private.');
+      const publish = node('button', 'library-public-button', job.community_shared === true ? 'Unpublish video' : 'Make public');
+      publish.type = 'button';
+      publish.addEventListener('click', () => changePublicSharing(job, publish, note));
+      actions.appendChild(note);
+      actions.appendChild(publish);
     }
     if (job.allow_admin_review === true) {
       const note = node('span', 'library-action-note',

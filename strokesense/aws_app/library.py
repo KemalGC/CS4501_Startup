@@ -77,6 +77,7 @@ def public_job_view(record: dict[str, Any], now: int) -> dict[str, Any]:
         "original_video_available": original_window,
         "annotated_video_may_be_available": annotated_window,
         "allow_admin_review": record.get("allow_admin_review") is True,
+        "community_shared": record.get("community_shared") is True,
         "history_expires_at": _safe_number(record.get("ttl_epoch")),
     }
 

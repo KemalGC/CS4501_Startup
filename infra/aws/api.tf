@@ -92,6 +92,7 @@ locals {
     "GET /analysis/jobs",
     "GET /analysis/jobs/{id}",
     "POST /analysis/jobs/{id}/review",
+    "POST /analysis/jobs/{id}/publish",
     "GET /admin/jobs",
     "GET /admin/videos/{id}",
     "GET /reports/{id}",
@@ -123,6 +124,22 @@ resource "aws_apigatewayv2_route" "feedback" {
   authorization_type = "NONE"
 }
 
+# Community routes are public because the owner must explicitly publish each
+# completed annotated video. The private S3 bucket is never made public.
+resource "aws_apigatewayv2_route" "community_list" {
+  api_id             = aws_apigatewayv2_api.public.id
+  route_key          = "GET /community/videos"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "community_video" {
+  api_id             = aws_apigatewayv2_api.public.id
+  route_key          = "GET /community/videos/{id}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.public.id
   name        = "$default"
@@ -137,6 +154,19 @@ resource "aws_apigatewayv2_stage" "default" {
     route_key              = aws_apigatewayv2_route.feedback.route_key
     throttling_burst_limit = 4
     throttling_rate_limit  = 1
+  }
+
+  # Anonymous community reads are read-only and separately throttled.
+  route_settings {
+    route_key              = aws_apigatewayv2_route.community_list.route_key
+    throttling_burst_limit = 8
+    throttling_rate_limit  = 3
+  }
+
+  route_settings {
+    route_key              = aws_apigatewayv2_route.community_video.route_key
+    throttling_burst_limit = 8
+    throttling_rate_limit  = 3
   }
 }
 

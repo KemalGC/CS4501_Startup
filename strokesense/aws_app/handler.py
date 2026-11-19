@@ -1,6 +1,6 @@
 """AWS HTTP API v2 Lambda handler for StrokeSense.
 
-Only GET /health and POST /feedback are public. All upload, analysis, job and
+Only GET /health, POST /feedback and explicitly shared community GETs are public. All upload, analysis, job and
 report routes require a Cognito JWT verified by API Gateway; this code trusts
 only claims in requestContext. Never expose a public Lambda Function URL.
 """
@@ -17,6 +17,7 @@ from typing import Any
 from .core import ApiError, AwsBackend, Settings
 from .feedback import MAX_FEEDBACK_BODY_BYTES, save_feedback, validate_feedback
 from .library import admin_video_url, change_review_consent, list_owner_jobs, list_review_jobs, require_admin
+from .community import change_community_visibility, community_video_url, list_community_videos
 
 
 LOGGER = logging.getLogger(__name__)
@@ -26,6 +27,8 @@ REVIEW_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/review$")
 ADMIN_VIDEO_ROUTE = re.compile(r"^/admin/videos/([a-f0-9]{32})$")
 REPORT_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})$")
 REPORT_ARTIFACTS_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})/artifacts$")
+COMMUNITY_VIDEO_ROUTE = re.compile(r"^/community/videos/([a-f0-9]{32})$")
+COMMUNITY_PUBLISH_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/publish$")
 
 
 def _response(status: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +120,11 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 
         if method == "POST" and path == "/feedback":
             return _response(201, _submit_public_feedback(event))
+        if method == "GET" and path == "/community/videos":
+            return _response(200, list_community_videos(_build_service(), event.get("queryStringParameters") or {}))
+        community_match = COMMUNITY_VIDEO_ROUTE.fullmatch(path)
+        if method == "GET" and community_match:
+            return _response(200, community_video_url(_build_service(), community_match.group(1)))
 
         user_id = _user_id(event)
         service = _build_service()
@@ -133,6 +141,9 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             return _response(202, service.submit_analysis(user_id, _body(event)))
         if method == "GET" and path == "/analysis/jobs":
             return _response(200, list_owner_jobs(service, user_id, event.get("queryStringParameters") or {}))
+        publish_match = COMMUNITY_PUBLISH_ROUTE.fullmatch(path)
+        if method == "POST" and publish_match:
+            return _response(200, change_community_visibility(service, user_id, publish_match.group(1), _body(event)))
         match = REVIEW_ROUTE.fullmatch(path)
         if method == "POST" and match:
             return _response(200, change_review_consent(service, user_id, match.group(1), _body(event)))

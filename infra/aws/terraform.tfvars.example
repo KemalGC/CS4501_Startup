@@ -25,6 +25,13 @@ cognito_logout_urls = [
   "http://localhost:5173/",
 ]
 
+# Must not contain aws, amazon or cognito (Cognito reserved words).
+cognito_domain_prefix = "strokesense-dev"
+
+# -1 = unreserved. Restore 10 / 1 after the account Lambda concurrency quota is raised.
+api_reserved_concurrency       = -1
+reconcile_reserved_concurrency = -1
+
 free_lifetime_bytes  = 300000000
 free_max_video_bytes  = 100000000
 paid_max_video_bytes  = 750000000

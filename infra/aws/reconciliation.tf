@@ -93,7 +93,7 @@ resource "aws_lambda_function" "reconcile" {
   architectures                  = ["arm64"]
   memory_size                    = 256
   timeout                        = 120
-  reserved_concurrent_executions = 1
+  reserved_concurrent_executions = var.reconcile_reserved_concurrency
 
   environment {
     variables = {

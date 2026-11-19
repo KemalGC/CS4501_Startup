@@ -226,8 +226,15 @@ to the browser's Vercel origin, and exposes `ETag` for completed multipart parts
 The Google OAuth **Web application** authorized redirect URI must equal:
 
 ```
-https://strokesense-aws-dev-<AWS_ACCOUNT_ID>.auth.us-east-1.amazoncognito.com/oauth2/idpresponse
+https://strokesense-dev-<AWS_ACCOUNT_ID>.auth.us-east-1.amazoncognito.com/oauth2/idpresponse
 ```
+
+The domain is `${cognito_domain_prefix}-<AWS_ACCOUNT_ID>` (default prefix
+`strokesense-dev`). It deliberately does not reuse the `strokesense-aws-dev`
+resource prefix: Cognito rejects domain prefixes containing `aws`, `amazon` or
+`cognito`, and the variable validation enforces this at plan time. After apply,
+copy `terraform output google_oauth_redirect_uri` verbatim into Google. Also
+list `amazoncognito.com` under the OAuth consent screen's authorized domains.
 
 The Cognito user pool domain uses **classic hosted UI** (`user_pool_tier =
 "LITE"`, `managed_login_version = 1`) because social federation works on the
@@ -236,6 +243,25 @@ the **code grant with PKCE** and has **no client secret**. AWS/Cognito holds
 the Google OAuth client secret; the browser does not. Google IdP maps the
 provider's email and `email_verified` attributes. Review Google OAuth consent
 screen/testing audience and the real SPA redirect path before deployment.
+
+## Lambda reserved concurrency
+
+AWS always keeps at least 10 concurrent executions unreserved per account and
+region. New accounts often have a total Lambda concurrency quota of 10, so any
+reserved concurrency fails with a quota error. Both Lambdas therefore default
+to unreserved (`-1`):
+
+| Variable | Default | Intended value after quota increase |
+|---|---|---|
+| `api_reserved_concurrency` | `-1` | `10` (API cost/abuse ceiling) |
+| `reconcile_reserved_concurrency` | `-1` | `1` (no overlapping reconciler runs) |
+
+While unreserved, API spend is still bounded by HTTP API stage throttling
+(20 req/s, burst 40), JWT authorization on every route except `GET /health`,
+and the account concurrency limit itself. Check the quota with
+`aws lambda get-account-settings`. Once the Service Quotas "Concurrent
+executions" value (`L-B99A9384`) is raised, set the variables (for example
+`TF_VAR_api_reserved_concurrency=10`) and run a reviewed plan/apply.
 
 ## Local-only preparation (no AWS changes)
 

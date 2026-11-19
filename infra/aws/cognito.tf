@@ -66,8 +66,10 @@ resource "aws_cognito_user_pool_client" "web" {
 
 # Must match the Authorized Redirect URI in Google Cloud OAuth client:
 # https://<domain>.auth.us-east-1.amazoncognito.com/oauth2/idpresponse
+# Cognito rejects prefixes containing "aws", "amazon" or "cognito", so this
+# cannot reuse local.prefix (strokesense-aws-dev).
 resource "aws_cognito_user_pool_domain" "login" {
-  domain                = "${local.prefix}-${data.aws_caller_identity.current.account_id}"
+  domain                = "${var.cognito_domain_prefix}-${data.aws_caller_identity.current.account_id}"
   user_pool_id          = aws_cognito_user_pool.users.id
   managed_login_version = 1
 }

@@ -17,7 +17,7 @@ resource "aws_lambda_function" "api" {
   architectures                  = ["arm64"]
   memory_size                    = 512
   timeout                        = 25
-  reserved_concurrent_executions = 10
+  reserved_concurrent_executions = var.api_reserved_concurrency
 
   environment {
     variables = {

@@ -66,6 +66,39 @@ variable "cognito_logout_urls" {
   description = "Exact SPA OAuth logout destinations."
 }
 
+variable "cognito_domain_prefix" {
+  type        = string
+  default     = "strokesense-dev"
+  description = "Cognito hosted-UI domain prefix; the AWS account ID is appended. Cognito reserves aws, amazon and cognito, so none may appear here."
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$", var.cognito_domain_prefix)) && !can(regex("aws|amazon|cognito", var.cognito_domain_prefix))
+    error_message = "cognito_domain_prefix must be lowercase letters, digits and hyphens, and must not contain aws, amazon or cognito."
+  }
+}
+
+variable "api_reserved_concurrency" {
+  type        = number
+  default     = -1
+  description = "Reserved concurrency for the API Lambda; -1 means unreserved. AWS keeps 10 executions unreserved, so a 10-execution account quota allows no reservation. Restore 10 after the account quota is raised."
+
+  validation {
+    condition     = var.api_reserved_concurrency >= -1 && floor(var.api_reserved_concurrency) == var.api_reserved_concurrency
+    error_message = "api_reserved_concurrency must be -1 (unreserved) or a non-negative integer."
+  }
+}
+
+variable "reconcile_reserved_concurrency" {
+  type        = number
+  default     = -1
+  description = "Reserved concurrency for the reconciliation Lambda; -1 means unreserved. Restore 1 (no overlapping runs) after the account quota is raised."
+
+  validation {
+    condition     = var.reconcile_reserved_concurrency >= -1 && floor(var.reconcile_reserved_concurrency) == var.reconcile_reserved_concurrency
+    error_message = "reconcile_reserved_concurrency must be -1 (unreserved) or a non-negative integer."
+  }
+}
+
 variable "google_oauth_client_id" {
   description = "Google OAuth Web Client ID for Cognito social sign-in. Obtain only after recording the planned Cognito domain."
   type        = string

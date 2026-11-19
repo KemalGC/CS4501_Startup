@@ -81,8 +81,19 @@ resource "aws_cloudwatch_event_target" "batch_failed" {
 
 data "aws_iam_policy_document" "sns_events" {
   statement {
-    sid       = "AllowAccountAdministration"
-    actions   = ["SNS:*"]
+    sid = "AllowAccountAdministration"
+    # SNS topic policies reject "SNS:*" ("Policy statement action out of
+    # service scope"); list the topic-scoped actions explicitly.
+    actions = [
+      "SNS:GetTopicAttributes",
+      "SNS:SetTopicAttributes",
+      "SNS:AddPermission",
+      "SNS:RemovePermission",
+      "SNS:DeleteTopic",
+      "SNS:Subscribe",
+      "SNS:ListSubscriptionsByTopic",
+      "SNS:Publish",
+    ]
     resources = [aws_sns_topic.ops.arn]
 
     principals {
@@ -92,6 +103,7 @@ data "aws_iam_policy_document" "sns_events" {
   }
 
   statement {
+    sid       = "AllowBatchFailureEventsToPublish"
     actions   = ["SNS:Publish"]
     resources = [aws_sns_topic.ops.arn]
 

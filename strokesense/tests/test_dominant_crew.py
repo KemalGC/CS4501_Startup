@@ -57,6 +57,29 @@ class DominantCrewTests(unittest.TestCase):
         self.assertEqual(len(tracks),8)
         self.assertTrue(all(list(t['frames'])==list(range(12)) for t in tracks.values()))
 
+    def test_ninth_track_with_weak_measurement_coverage_is_discarded(self):
+        m=self.module();a,k=boxes(n=9)
+        dets=[]
+        for frame in range(20):
+            joints=k.copy()
+            if frame < 12:
+                joints[0,[9,10],2]=.1  # missing wrists: cannot measure a stroke
+            dets.append((a.copy(),joints))
+        tracks,_,inferred_slots=m.track_visible_window(dets,10)
+        self.assertEqual(inferred_slots,9)  # retain the honest original slot estimate
+        self.assertEqual(len(tracks),8)
+        self.assertEqual(set(tracks),set(range(8)))
+        # Original first slot was weakest; surviving slots keep spatial order.
+        self.assertEqual([track['boxes'][0,0] for track in tracks.values()],list(a[1:,0]))
+
+    def test_equal_coverage_prefers_confident_tracks_over_slot_index(self):
+        m=self.module();a,k=boxes(n=9)
+        k[4,[5,6,9,10,11,12],2]=.4  # still supported, but less certain
+        tracks,_,_=m.track_visible_window([(a.copy(),k.copy()) for _ in range(20)],10)
+        self.assertEqual(len(tracks),8)
+        self.assertEqual([track['boxes'][0,0] for track in tracks.values()],
+                         list(np.r_[a[:4,0],a[5:,0]]))
+
     def test_validator_rejects_nonfinite_and_out_of_bounds_strokes(self):
         m=self.module()
         valid={'rowers':[{'tid':1,'seat':'R1','summary':{'n_strokes':1,'rate':30.},

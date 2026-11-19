@@ -16,12 +16,16 @@ from typing import Any
 
 from .core import ApiError, AwsBackend, Settings
 from .feedback import MAX_FEEDBACK_BODY_BYTES, save_feedback, validate_feedback
+from .library import admin_video_url, change_review_consent, list_owner_jobs, list_review_jobs, require_admin
 
 
 LOGGER = logging.getLogger(__name__)
 MAX_JSON_BODY_BYTES = 256 * 1024
 JOB_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})$")
+REVIEW_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/review$")
+ADMIN_VIDEO_ROUTE = re.compile(r"^/admin/videos/([a-f0-9]{32})$")
 REPORT_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})$")
+REPORT_ARTIFACTS_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})/artifacts$")
 
 
 def _response(status: int, payload: dict[str, Any]) -> dict[str, Any]:
@@ -127,12 +131,29 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             return _response(200, service.abort_upload(user_id, _body(event)))
         if method == "POST" and path == "/analysis/jobs":
             return _response(202, service.submit_analysis(user_id, _body(event)))
+        if method == "GET" and path == "/analysis/jobs":
+            return _response(200, list_owner_jobs(service, user_id, event.get("queryStringParameters") or {}))
+        match = REVIEW_ROUTE.fullmatch(path)
+        if method == "POST" and match:
+            return _response(200, change_review_consent(service, user_id, match.group(1), _body(event)))
+        if method == "GET" and path == "/admin/jobs":
+            claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
+            require_admin(claims)
+            return _response(200, list_review_jobs(service, event.get("queryStringParameters") or {}))
+        match = ADMIN_VIDEO_ROUTE.fullmatch(path)
+        if method == "GET" and match:
+            claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
+            admin_sub = require_admin(claims)
+            return _response(200, admin_video_url(service, admin_sub, match.group(1), http))
         match = JOB_ROUTE.fullmatch(path)
         if method == "GET" and match:
             return _response(200, service.job_status(user_id, match.group(1)))
         match = REPORT_ROUTE.fullmatch(path)
         if method == "GET" and match:
             return _response(200, service.report_url(user_id, match.group(1)))
+        match = REPORT_ARTIFACTS_ROUTE.fullmatch(path)
+        if method == "GET" and match:
+            return _response(200, service.report_artifacts(user_id, match.group(1)))
         raise ApiError(404, "not_found", "Route not found")
     except ApiError as exc:
         return _response(exc.status, {"error": {"code": exc.code, "message": exc.message}})

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#001e4a">
+  <meta name="description" content="Restricted StrokeSense staff review of voluntarily shared rowing videos.">
+  <title>Staff Video Review — StrokeSense</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/aws-dev.css">
+  <script src="/assets/site.js" defer></script>
+  <script src="/assets/aws-config.js" defer></script>
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header solid">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a>
+      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a></nav>
+      <div class="header-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span class="theme-label">Dark mode</span></button><a class="pill pill-coral" href="/library/">My Analyses</a><button class="menu-toggle" data-menu-toggle type="button" aria-label="Toggle navigation" aria-controls="mobile-nav" aria-expanded="false">☰</button></div>
+    </div>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a></nav>
+  </header>
+
+  <main id="main">
+    <section class="interior-hero admin-hero" aria-labelledby="admin-heading">
+      <div class="container"><span class="eyebrow">Restricted staff area</span><h1 id="admin-heading">Video <span class="accent">review.</span></h1><p>Only recordings explicitly shared by their owners may be reviewed. Authorization is checked on every request, and owners can revoke future access.</p></div>
+    </section>
+    <section class="page-section" aria-labelledby="admin-list-heading">
+      <div class="container admin-layout">
+        <div class="library-topline"><div><span class="eyebrow">Consent-based access</span><h2 id="admin-list-heading">Available <span class="accent">reviews.</span></h2></div></div>
+
+        <div class="library-account-bar">
+          <div class="library-account-text"><span class="library-lock" aria-hidden="true">●</span><div><strong id="admin-account">Checking staff access…</strong><p>Admin access requires a separately authorized account; being signed in is not sufficient.</p></div></div>
+          <div class="library-account-actions"><a class="pill pill-coral" id="admin-sign-in" href="/demos/" hidden>Sign in with Google <span aria-hidden="true">→</span></a><button class="library-refresh" id="admin-refresh" type="button" hidden>Refresh reviews</button></div>
+        </div>
+
+        <p class="library-notice" id="admin-notice" role="status" aria-live="polite">Checking for consented analyses…</p>
+        <div class="library-list" id="admin-list" aria-label="Consented videos available for review" hidden></div>
+        <div class="library-pagination"><button class="pill pill-navy" id="admin-more" type="button" hidden>Load more reviews</button></div>
+
+        <section id="admin-video-panel" class="admin-video-panel" aria-labelledby="admin-video-title" hidden>
+          <div class="admin-video-heading"><div><span class="eyebrow">Authorized playback</span><h3 id="admin-video-title">Review selected video</h3></div><button id="admin-close-video" class="library-refresh" type="button">Close playback</button></div>
+          <p id="admin-video-notice" class="library-notice" role="status" aria-live="polite">Request video access to start.</p>
+          <video id="admin-video-player" class="aws-video-preview" controls playsinline preload="metadata" aria-label="Consented rowing video review"></video>
+          <button id="admin-refresh-video" class="library-refresh" type="button">Refresh temporary video access</button>
+        </section>
+
+        <aside class="library-retention-note"><span class="eyebrow">Review only with consent</span><p>Access is checked whenever you request a video. Links expire in about one minute, original uploads are temporary, and an owner can withdraw consent. Do not copy, share, or retain footage outside the authorized review purpose.</p></aside>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>Restricted consent-based rowing video review.</p></div><nav class="footer-nav" aria-label="Footer navigation"><a href="/">Home</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental analysis</span><span>Staff access is authorization-checked by AWS.</span></div></div></footer>
+</body>
+</html>

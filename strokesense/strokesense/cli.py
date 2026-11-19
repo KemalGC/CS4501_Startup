@@ -229,7 +229,10 @@ def analyse_video(video, out_dir="results", start=0.0, duration=None, tiles="aut
                           height=int(meta["height"]), tracks=tracks, start=float(meta["start"]),
                           stride=int(meta["stride"]))
         if n_seats >= 2 and tracks:
-            log(f"      crew of {n_seats} found, {len(tracks)} seats tracked")
+            if dominant and n_seats > len(tracks):
+                log(f"      {n_seats} candidate slots found; analyzing {len(tracks)} rower tracks with the strongest measurement evidence")
+            else:
+                log(f"      crew of {n_seats} found, {len(tracks)} seats tracked")
             rowers = rowers_from_selected(pose) if dominant else crew.rowers_from_slots(pose, crew_dir, n_seats)
             if dominant:
                 from .seat_orientation import infer_dominant_seats

@@ -11,6 +11,18 @@ On successful analysis the browser also requests an HTML download automatically,
 with the visible download button as a fallback. If the report preview cannot be
 fetched (for example because of a browser CORS restriction), the button offers
 the signed raw JSON report until that short-lived URL expires.
+The browser displays a horizontally scrollable, rower-by-rower frame gallery
+using owner-scoped, signed S3 artifact URLs from `/reports/{job_id}/artifacts`
+when available. For older reports it can display only bounded embedded PNG,
+JPEG or WebP screenshots from the already downloaded report HTML; no report
+HTML is inserted into the page outside the restricted report iframe. The
+annotated video player is shown only when the backend provides an actual
+private, signed MP4/WebM URL; legacy reports display an unavailable message.
+
+The uploader includes an unchecked, optional **administrator review** consent.
+The `allow_admin_review` boolean is sent with `POST /uploads/start` and defaults
+to false. Videos and reports are private by default; checking the box explicitly
+allows an administrator to review that upload and analysis.
 
 ## Run locally
 
@@ -31,6 +43,39 @@ Visitors can rate website usability from **1–5** and optionally leave a commen
 (up to 1,000 characters), without signing in. The form sends JSON directly to
 the AWS API. If the API isn't configured, submission is unavailable rather
 than silently discarding responses. Old `/study/` links redirect to `/feedback/`.
+
+The `/library/` page is a **private My Analyses history** for the signed-in
+Google account. It requests only owner-scoped history from the AWS API using
+the Cognito access token in this tab's session storage. Entries show file name,
+submission status, clip/analysis duration, dates and report availability, with
+links back to `/demos/?job=<id>` to resume or download an available report.
+Completed cards also offer **Watch annotated video** while the report is
+available. The owner-authenticated `/reports/{id}/artifacts` request returns
+a very short-lived signed S3 URL only when the annotated MP4 was published.
+The browser checks its signature and exact dev bucket, then places it in a
+native video player; no raw upload is substituted when annotated media is
+missing or expired.
+No video is permanently archived: original uploads are short-lived (currently
+about 1 day), reports expire separately (currently 3 days), and the retained
+history metadata also expires on its own schedule (currently about 10 days).
+Until the backend owner-scoped history route is deployed, the page shows a
+one-time rollout notice for HTTP 404 rather than retrying in a loop.
+If an owner has voluntarily permitted staff video review for a particular
+job, their history card offers **Revoke staff access**. This sends the
+owner-authenticated `POST /analysis/jobs/{id}/review` request with
+`{"allow_admin_review":false}`. Revocation prevents new staff playback
+authorization; existing video links may remain valid for up to 60 seconds,
+and it cannot undo a copy already obtained.
+
+The unlinked `/admin/` page is for separately authorized StrokeSense staff.
+It lists **only owner-opted-in jobs** through `GET /admin/jobs`, shows analysis
+wall time and other returned timing metrics, and requests a single temporary
+video URL only after a staff member clicks a review button. Playback prefers
+an annotated result when available, otherwise an original upload still within
+retention. The AWS backend must verify both admin allowlisting and current
+owner consent on every request; the static page's URL is not an access control.
+The signed S3 playback URL lasts no longer than about 60 seconds and is not
+printed in messages or persisted. No public navigation advertises `/admin/`.
 
 ## Separate Vercel project
 
@@ -128,7 +173,12 @@ The client expects an authenticated AWS HTTP API:
 | `POST /uploads/abort` | Abort unsubmitted upload and release its reservation |
 | `POST /analysis/jobs` | Submit a CPU or GPU analysis job |
 | `GET /analysis/jobs/{job_id}` | Poll the owner's analysis status |
+| `GET /analysis/jobs?limit=20&cursor=...` | Paginated owner-scoped private history; returns `jobs` and an opaque `next_cursor` (never enumerate other users) |
+| `POST /analysis/jobs/{job_id}/review` | Owner revokes previously granted staff video review (`{"allow_admin_review":false}`) |
+| `GET /admin/jobs?limit=20&cursor=...` | Privileged paginated list of opted-in analysis records, including timing, without owner identity |
+| `GET /admin/videos/{job_id}` | Privileged per-click access to a temporary annotated-or-original video URL, requiring current owner consent |
 | `GET /reports/{job_id}` | Return a short-lived private report download URL |
+| `GET /reports/{job_id}/artifacts` | Owner-scoped, short-lived annotated-video playback URL and per-rower snapshot/sequence frames; may be empty for older reports |
 | `POST /feedback` | Public website-usability rating (1–5) with optional comment; no video or account required |
 
 The AWS backend must authorize ownership of every video/job and charge/release

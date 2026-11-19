@@ -47,6 +47,8 @@ class FakeS3:
         return {"Body": io.BytesIO(self.data)}
 
     def put_object(self, **kwargs):
+        body = kwargs["Body"]
+        kwargs["Body"] = body.read() if hasattr(body, "read") else body
         self.puts.append(kwargs)
 
 
@@ -64,13 +66,91 @@ def valid_pipeline(video: Path, results: Path, timeout: int):
     )
 
 
+def media_pipeline(video: Path, results: Path, timeout: int):
+    valid_pipeline(video, results, timeout)
+    folder = results / "analysis"
+    (folder / "original_annotated.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom" + b"video data")
+    for name in ("seat_R1_catch.jpg", "fault_1_early_body.jpg", "fault_1_early_body_before.jpg"):
+        (folder / name).write_bytes(b"\xff\xd8\xff\xe0jpeg data\xff\xd9")
+    (folder / "mistake_frames.json").write_text(json.dumps({
+        "version": 1,
+        "rowers": {"R1": {
+            "snapshots": [{"label": "Catch reference", "time_seconds": 1.2, "filename": "seat_R1_catch.jpg"}],
+            "mistake_sequences": [{"code": "early_body", "stroke": 2, "frames": [
+                {"label": "Before", "time_seconds": 1.1, "filename": "fault_1_early_body_before.jpg"},
+                {"label": "Flagged moment", "time_seconds": 1.3, "filename": "fault_1_early_body.jpg"},
+            ]}],
+        }},
+    }), encoding="utf-8")
+
+
 class CpuWorkerContractTests(unittest.TestCase):
+    def test_uploaded_media_are_private_bounded_and_report_is_last(self):
+        store = FakeS3()
+        worker.run_job(env=config(), s3=store, pipeline=media_pipeline)
+        keys = [obj["Key"] for obj in store.puts]
+        prefix = REPORT.removesuffix("report.json")
+        self.assertEqual(keys[-3:], [prefix + "artifacts.json", prefix + "runtime-metrics.json", REPORT])
+        self.assertEqual(set(keys[:-3]), {
+            prefix + "annotated.mp4",
+            prefix + "frames/seat_R1_catch.jpg",
+            prefix + "frames/fault_1_early_body.jpg",
+            prefix + "frames/fault_1_early_body_before.jpg",
+        })
+        for obj in store.puts:
+            self.assertEqual(obj["ServerSideEncryption"], "AES256")
+            self.assertEqual(obj["CacheControl"], "private, no-store")
+            self.assertEqual(obj["Bucket"], BUCKET)
+        self.assertEqual(next(obj for obj in store.puts if obj["Key"].endswith("annotated.mp4"))["ContentType"], "video/mp4")
+        manifest = json.loads(store.puts[-3]["Body"])
+        self.assertTrue(manifest["video_available"])
+        self.assertEqual(manifest["rowers"]["R1"]["mistake_sequences"][0]["frames"][1]["label"], "Flagged moment")
+        timing = json.loads(store.puts[-2]["Body"])
+        self.assertEqual(timing["job_id"], JOB)
+        self.assertNotIn("artifacts", json.loads(store.puts[-1]["Body"]))
+
+    def test_unsafe_gallery_filename_never_publishes_anything(self):
+        def unsafe(video, results, timeout):
+            media_pipeline(video, results, timeout)
+            manifest = results / "analysis" / "mistake_frames.json"
+            raw = json.loads(manifest.read_text())
+            raw["rowers"]["R1"]["snapshots"][0]["filename"] = "../../another-user/photo.jpg"
+            manifest.write_text(json.dumps(raw))
+        store = FakeS3()
+        with self.assertRaisesRegex(worker.WorkerError, "invalid_media_manifest"):
+            worker.run_job(env=config(), s3=store, pipeline=unsafe)
+        self.assertEqual(store.puts, [])
+
+    def test_media_upload_failure_does_not_commit_success_report(self):
+        store = FakeS3()
+        def fail_media(**kwargs):
+            if kwargs["Key"].endswith(".jpg"):
+                raise OSError("fake S3 write failure")
+            store.puts.append(kwargs)
+        with patch.object(store, "put_object", side_effect=fail_media):
+            with self.assertRaises(OSError):
+                worker.run_job(env=config(), s3=store, pipeline=media_pipeline)
+        self.assertTrue(all(item["Key"] != REPORT for item in store.puts))
+
+    def test_oversized_annotated_video_does_not_commit_success(self):
+        store = FakeS3()
+        with patch.object(worker.artifacts, "MAX_VIDEO_BYTES", 12):
+            with self.assertRaisesRegex(worker.WorkerError, "invalid_media_artifact_size"):
+                worker.run_job(env=config(), s3=store, pipeline=media_pipeline)
+        self.assertEqual(store.puts, [])
+
     def test_uses_private_input_and_commits_valid_report_last(self):
         store = FakeS3()
         worker.run_job(env=config(), s3=store, pipeline=valid_pipeline)
         self.assertEqual([action for action, _ in store.gets], ["head", "get"])
-        self.assertEqual(len(store.puts), 1)
-        saved = store.puts[0]
+        self.assertEqual(len(store.puts), 2)
+        timing = store.puts[0]
+        self.assertEqual(timing["Key"], REPORT.replace("report.json", "runtime-metrics.json"))
+        measured = json.loads(timing["Body"])
+        self.assertEqual(measured["job_id"], JOB)
+        self.assertGreaterEqual(measured["analysis_wall_ms"], 0)
+        self.assertGreaterEqual(measured["cpu_time_ms"], 0)
+        saved = store.puts[1]
         self.assertEqual(saved["Bucket"], BUCKET)
         self.assertEqual(saved["Key"], REPORT)
         self.assertEqual(saved["ServerSideEncryption"], "AES256")

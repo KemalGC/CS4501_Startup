@@ -93,6 +93,18 @@ data "aws_iam_policy_document" "api" {
   }
 
   statement {
+    sid       = "QueryOnlyExplicitlySharedAdminJobs"
+    actions   = ["dynamodb:Query"]
+    resources = ["${aws_dynamodb_table.jobs.arn}/index/admin_partition-created_at-index"]
+  }
+
+  statement {
+    sid = "AuditAdminReviewWithConditionalConsent"
+    actions = ["dynamodb:PutItem", "dynamodb:TransactWriteItems"]
+    resources = [aws_dynamodb_table.admin_access_audit.arn]
+  }
+
+  statement {
     sid       = "SubmitAnonymousWebsiteFeedbackOnly"
     actions   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.feedback.arn]

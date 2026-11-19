@@ -11,13 +11,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Callable, Mapping
+
+from . import artifacts
 
 
 LOGGER = logging.getLogger(__name__)
@@ -155,6 +159,123 @@ def _report_payload(results: Path, job_id: str) -> bytes:
     return payload
 
 
+def _media_manifest(results: Path) -> tuple[dict[str, Any], list[tuple[Path, str, str, int]]]:
+    """Collect only bounded media explicitly produced beside this run's report.
+
+    The resulting paths are fixed within a private, owner/job-specific prefix.
+    A generated gallery cannot choose S3 destinations or read outside results.
+    """
+    reports = list(results.rglob("report.html"))
+    if len(reports) != 1:
+        raise WorkerError("missing_or_ambiguous_report")
+    directory = reports[0].parent
+    rows: dict[str, Any] = {}
+    gallery = directory / "mistake_frames.json"
+    if gallery.exists() or gallery.is_symlink():
+        try:
+            raw = json.loads(_bounded_file(gallery, results, artifacts.MAX_MANIFEST_BYTES))
+            if type(raw.get("version")) is not int or raw["version"] != 1:
+                raise artifacts.InvalidArtifactManifest("invalid_gallery_version")
+            rows = artifacts.validate_rowers(raw.get("rowers"))
+        except (ValueError, TypeError, UnicodeError, AttributeError) as exc:
+            raise WorkerError("invalid_media_manifest") from exc
+
+    specs: list[tuple[Path, str, str, int]] = []
+    video = directory / "original_annotated.mp4"
+    if video.exists() or video.is_symlink():
+        size = _artifact_size(video, results, artifacts.MAX_VIDEO_BYTES)
+        with video.open("rb") as handle:
+            if handle.read(12)[4:8] != b"ftyp":
+                raise WorkerError("invalid_annotated_video")
+        specs.append((video, artifacts.VIDEO_NAME, "video/mp4", size))
+
+    names = artifacts.frame_names(rows)
+    if len(names) > artifacts.MAX_PHOTO_COUNT:
+        raise WorkerError("too_many_gallery_frames")
+    photo_total = 0
+    for filename in sorted(names):
+        photo = directory / filename
+        size = _artifact_size(photo, results, artifacts.MAX_PHOTO_BYTES)
+        photo_total += size
+        if photo_total > artifacts.MAX_PHOTO_TOTAL_BYTES:
+            raise WorkerError("gallery_too_large")
+        with photo.open("rb") as handle:
+            if handle.read(3) != b"\xff\xd8\xff":
+                raise WorkerError("invalid_gallery_photo")
+        specs.append((photo, f"frames/{filename}", "image/jpeg", size))
+
+    return {
+        "schema_version": artifacts.SCHEMA,
+        "video_available": any(name == artifacts.VIDEO_NAME for _, name, _, _ in specs),
+        "rowers": rows,
+    }, specs
+
+
+def _artifact_size(path: Path, root: Path, maximum: int) -> int:
+    if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
+        raise WorkerError("invalid_media_artifact")
+    size = path.stat().st_size
+    if not 0 < size <= maximum:
+        raise WorkerError("invalid_media_artifact_size")
+    return size
+
+
+def _publish_media(s3: Any, bucket: str, report_key: str, results: Path) -> None:
+    manifest, specs = _media_manifest(results)
+    if not specs:
+        return  # Legacy or minimal analyses have only the self-contained HTML.
+    prefix = report_key.removesuffix("report.json")
+    for path, relative_key, content_type, size in specs:
+        with path.open("rb") as source:
+            s3.put_object(
+                Bucket=bucket, Key=prefix + relative_key,
+                Body=source, ContentLength=size,
+                ContentType=content_type, ServerSideEncryption="AES256",
+                CacheControl="private, no-store",
+            )
+    manifest_bytes = json.dumps(manifest, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    if len(manifest_bytes) > artifacts.MAX_MANIFEST_BYTES:
+        raise WorkerError("media_manifest_too_large")
+    s3.put_object(
+        Bucket=bucket, Key=prefix + artifacts.MANIFEST_NAME,
+        Body=manifest_bytes, ContentType="application/json; charset=utf-8",
+        ServerSideEncryption="AES256", CacheControl="private, no-store",
+    )
+def _video_duration_ms(video: Path) -> int | None:
+    """Best-effort source container duration; never invent duration on failure."""
+    capture = None
+    try:
+        import cv2
+        capture = cv2.VideoCapture(str(video))
+        if not capture.isOpened():
+            return None
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        frames = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if not math.isfinite(fps) or not math.isfinite(frames) or fps <= 0 or frames <= 0:
+            return None
+        duration = frames / fps
+        if not 0 < duration <= 3600:
+            return None
+        return int(round(duration * 1000))
+    except Exception:
+        return None
+    finally:
+        if capture is not None:
+            try:
+                capture.release()
+            except Exception:
+                pass
+
+
+def _child_cpu_seconds() -> float:
+    try:
+        import resource
+        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return float(usage.ru_utime + usage.ru_stime)
+    except Exception:
+        return 0.0
+
+
 def run_job(
     *, env: Mapping[str, str] | None = None, s3: Any = None,
     pipeline: Callable[[Path, Path, int], None] = _run_real_pipeline,
@@ -174,13 +295,39 @@ def run_job(
         raise WorkerError("invalid_analysis_timeout")
 
     with tempfile.TemporaryDirectory(prefix="strokesense-fargate-") as temporary:
+        worker_start = time.perf_counter()
         root = Path(temporary)
         video = root / f"original{extension}"
         results = root / "results"
         results.mkdir(mode=0o700)
         _download_bounded(s3, bucket, input_key, video)
+        video_duration_ms = _video_duration_ms(video)
+        child_cpu_start = _child_cpu_seconds()
+        pipeline_start = time.perf_counter()
         pipeline(video, results, timeout)
+        analysis_wall_ms = int(round((time.perf_counter() - pipeline_start) * 1000))
+        cpu_time_ms = max(0, int(round((_child_cpu_seconds() - child_cpu_start) * 1000)))
         payload = _report_payload(results, config["STROKESENSE_JOB_ID"])
+        # Validate and publish bounded media before writing even the small
+        # timing sidecar. Invalid galleries therefore leave no S3 artifacts.
+        _publish_media(s3, bucket, report_key, results)
+        timing = {
+            "schema_version": 1,
+            "job_id": config["STROKESENSE_JOB_ID"],
+            "analysis_wall_ms": analysis_wall_ms,
+            "cpu_time_ms": cpu_time_ms,
+            "worker_wall_ms": int(round((time.perf_counter() - worker_start) * 1000)),
+        }
+        if video_duration_ms is not None:
+            timing["video_duration_ms"] = video_duration_ms
+        # Small sidecar lets the API persist timing without downloading the
+        # potentially 32 MB report. The verified report is still committed LAST.
+        s3.put_object(
+            Bucket=bucket, Key=report_key[:-len("report.json")] + "runtime-metrics.json",
+            Body=json.dumps(timing, separators=(",", ":")).encode("utf-8"),
+            ContentType="application/json; charset=utf-8",
+            ServerSideEncryption="AES256", CacheControl="private, no-store",
+        )
         # This is the final success commit. The API checks that this object
         # exists before ever settling a Batch job as successful.
         s3.put_object(

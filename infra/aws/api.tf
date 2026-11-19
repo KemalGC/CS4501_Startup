@@ -24,6 +24,9 @@ resource "aws_lambda_function" "api" {
       S3_BUCKET                          = aws_s3_bucket.media.bucket
       USERS_TABLE                        = aws_dynamodb_table.users.name
       JOBS_TABLE                         = aws_dynamodb_table.jobs.name
+      ADMIN_AUDIT_TABLE                  = aws_dynamodb_table.admin_access_audit.name
+      ADMIN_COGNITO_SUBS                 = join(",", var.admin_cognito_subs)
+      ADMIN_AUDIT_TTL_DAYS               = tostring(var.admin_audit_retention_days)
       FEEDBACK_TABLE                     = aws_dynamodb_table.feedback.name
       CPU_BATCH_JOB_QUEUE                = var.enable_cpu_analysis ? aws_batch_job_queue.cpu.arn : ""
       CPU_BATCH_JOB_DEFINITION           = aws_batch_job_definition.cpu.arn
@@ -35,6 +38,8 @@ resource "aws_lambda_function" "api" {
       PAID_MAX_VIDEO_BYTES               = tostring(var.paid_max_video_bytes)
       FREE_REPORT_TTL_SECONDS            = tostring(var.free_report_ttl_days * 86400)
       PAID_REPORT_TTL_SECONDS            = tostring(var.paid_report_ttl_days * 86400)
+      RAW_UPLOAD_TTL_SECONDS             = tostring(var.raw_upload_ttl_days * 86400)
+      TERMINAL_RECORD_GRACE_SECONDS      = tostring(var.terminal_job_record_grace_days * 86400)
       PAID_BILLING_ENABLED               = "false"
       PAID_GPU_ENABLED                   = "false"
     }
@@ -84,8 +89,13 @@ locals {
     "POST /uploads/complete",
     "POST /uploads/abort",
     "POST /analysis/jobs",
+    "GET /analysis/jobs",
     "GET /analysis/jobs/{id}",
+    "POST /analysis/jobs/{id}/review",
+    "GET /admin/jobs",
+    "GET /admin/videos/{id}",
     "GET /reports/{id}",
+    "GET /reports/{id}/artifacts",
   ])
 }
 

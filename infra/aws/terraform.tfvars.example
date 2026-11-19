@@ -46,6 +46,12 @@ enable_cpu_analysis      = false # Public analysis stays off until reviewed guar
 monthly_budget_usd       = 30
 daily_budget_usd         = 3
 
+# Sensitive: enable admin ONLY after verifying the Google-linked Cognito sub
+# and manually adding that user to the strokesense-admin user pool group.
+# admin_cognito_subs = ["actual-cognito-sub-not-email"]
+admin_audit_retention_days   = 90
+terminal_job_record_grace_days = 7
+
 # REQUIRED: configure a real inbox before `terraform plan` / `terraform apply`.
 # Prefer `TF_VAR_alert_email` in your shell rather than committing an address:
 # export TF_VAR_alert_email='you@example.com'

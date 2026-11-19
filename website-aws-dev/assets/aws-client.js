@@ -15,6 +15,7 @@
     authFeedback: $('auth-feedback'),
     tierFree: $('tier-free'), tierPaid: $('tier-paid'), fileLimit: $('file-limit'),
     input: $('video-upload'), dropzone: $('dropzone'), fileReview: $('file-review'),
+    adminConsent: $('allow-admin-review'),
     fileName: $('selected-file-name'), fileSize: $('selected-file-size'),
     clear: $('clear-file'), video: $('local-preview'), run: $('run-analysis'),
     cancel: $('cancel-upload'), helper: $('run-helper'), feedback: $('upload-feedback'),
@@ -49,6 +50,7 @@
   let downloadedReportUrl = '';
 
   function clearReport() {
+    window.StrokeSenseMediaViewer?.clear();
     if (downloadedReportUrl) URL.revokeObjectURL(downloadedReportUrl);
     downloadedReportUrl = '';
     ui.result.hidden = true;
@@ -93,6 +95,17 @@
   function rememberActiveJob(jobId) {
     if (!/^[0-9a-f]{32}$/.test(String(jobId || ''))) return;
     try { sessionStorage.setItem(ACTIVE_JOB_KEY, jobId); } catch (_) {}
+  }
+  function acceptLinkedJob() {
+    // My Analyses links use a job ID only. Preserve pending Cognito code/state
+    // parameters until finishSignIn() validates and consumes the OAuth callback.
+    const query = new URLSearchParams(window.location.search);
+    if (!query.has('job')) return;
+    const jobId = query.get('job');
+    if (/^[0-9a-f]{32}$/.test(jobId || '')) rememberActiveJob(jobId);
+    query.delete('job');
+    const remaining = query.toString();
+    history.replaceState(null, '', redirectUri + (remaining ? '?' + remaining : '') + window.location.hash);
   }
   function forgetActiveJob(jobId) {
     if (jobId && readActiveJobId() !== jobId) return;
@@ -394,6 +407,15 @@
           ui.download.textContent = 'Download HTML report';
           // Browser download policies differ; the visible link always remains.
           ui.download.click();
+          // Artifacts are private and owner-scoped. Older reports contain only
+          // bounded embedded frame images; the viewer handles that fallback.
+          let artifacts = {};
+          try {
+            artifacts = await api('/reports/' + encodeURIComponent(jobId) + '/artifacts', { signal });
+          } catch (_) { /* The legacy report iframe/download remains usable. */ }
+          try {
+            window.StrokeSenseMediaViewer?.render(document, artifacts, report.download_url);
+          } catch (_) { /* A gallery issue must never invalidate a finished report. */ }
         } catch (_) {
           ui.reportPreview.hidden = true;
           ui.reportFrame.removeAttribute('srcdoc');
@@ -444,7 +466,8 @@
       const upload = await api('/uploads/start', {
         method: 'POST', body: {
           filename: sourceFile.name, content_type: sourceFile.type || 'application/octet-stream',
-          size_bytes: sourceFile.size, tier: tier()
+          size_bytes: sourceFile.size, tier: tier(),
+          allow_admin_review: ui.adminConsent.checked === true
         }, signal: abortController.signal
       });
       activeVideoId = upload.video_id;
@@ -485,6 +508,7 @@
       activeVideoId = null;
       abortController = null;
       ui.cancel.hidden = true;
+      ui.adminConsent.checked = false; // Each upload requires its own explicit opt-in.
       render();
     }
   }
@@ -525,6 +549,7 @@
   });
   ui.cancel.addEventListener('click', () => abortController?.abort());
   ui.run.addEventListener('click', startAnalysis);
+  acceptLinkedJob();
   render();
   finishSignIn().then(resumeAnalysis);
 })();

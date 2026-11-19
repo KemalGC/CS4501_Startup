@@ -108,6 +108,8 @@ resource "aws_lambda_function" "reconcile" {
       PAID_MAX_VIDEO_BYTES               = tostring(var.paid_max_video_bytes)
       FREE_REPORT_TTL_SECONDS            = tostring(var.free_report_ttl_days * 86400)
       PAID_REPORT_TTL_SECONDS            = tostring(var.paid_report_ttl_days * 86400)
+      RAW_UPLOAD_TTL_SECONDS             = tostring(var.raw_upload_ttl_days * 86400)
+      TERMINAL_RECORD_GRACE_SECONDS      = tostring(var.terminal_job_record_grace_days * 86400)
       PAID_BILLING_ENABLED               = "false"
     }
   }

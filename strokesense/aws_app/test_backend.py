@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
 import unittest
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from aws_app.core import (
     _decode,
     _item,
 )
+from aws_app.artifacts import SCHEMA as MEDIA_SCHEMA
 from aws_app.handler import lambda_handler
 from aws_app.reconcile import reconcile_due, lambda_handler as reconciliation_lambda_handler
 
@@ -32,6 +34,7 @@ class MemoryDynamo:
     def __init__(self):
         self.accounts: dict[str, dict] = {}
         self.jobs: dict[str, dict] = {}
+        self.admin_audits: dict[str, dict] = {}
         self.transactions: list[list[dict]] = []
 
     def put_item(self, **kwargs):
@@ -47,33 +50,53 @@ class MemoryDynamo:
 
     def query(self, **kwargs):
         values = kwargs["ExpressionAttributeValues"]
-        now = int(values[":now"]["N"])
         if kwargs["IndexName"] == "user_id-created_at-index":
-            uid = values[":uid"]["S"]
-            return {"Items": [
-                _item(job)
-                for job in self.jobs.values()
-                if job["user_id"] == uid
-                and job["status"] in ("uploading", "uploaded")
-                and job["expires_at"] < now
-            ]}
-        assert kwargs["IndexName"] == "status-expires_at-index"
-        state = values[":state"]["S"]
-        records = sorted(
-            (job for job in self.jobs.values() if job["status"] == state and job["expires_at"] < now),
-            key=lambda job: (job["expires_at"], job["job_id"]),
-        )
+            if "FilterExpression" in kwargs:
+                uid = values[":uid"]["S"]
+                now = int(values[":now"]["N"])
+                return {"Items": [
+                    _item(job)
+                    for job in self.jobs.values()
+                    if job["user_id"] == uid
+                    and job["status"] in ("uploading", "uploaded")
+                    and job["expires_at"] < now
+                ]}
+            records = [job for job in self.jobs.values() if job["user_id"] == values[":partition"]["S"]] if ":partition" in values else []
+        elif kwargs["IndexName"] == "admin_partition-created_at-index":
+            records = [job for job in self.jobs.values() if job.get("admin_partition") == values[":partition"]["S"]]
+        else:
+            assert kwargs["IndexName"] == "status-expires_at-index"
+            now = int(values[":now"]["N"])
+            state = values[":state"]["S"]
+            records = sorted(
+                (job for job in self.jobs.values() if job["status"] == state and job["expires_at"] < now),
+                key=lambda job: (job["expires_at"], job["job_id"]),
+            )
+            if kwargs.get("ExclusiveStartKey"):
+                last = kwargs["ExclusiveStartKey"]
+                marker = (int(last["expires_at"]["N"]), last["job_id"]["S"])
+                records = [job for job in records if (job["expires_at"], job["job_id"]) > marker]
+            limit = kwargs.get("Limit", len(records))
+            page = records[:limit]
+            result = {"Items": [_item(job) for job in page]}
+            if len(records) > limit:
+                result["LastEvaluatedKey"] = {"job_id": {"S": page[-1]["job_id"]}, "expires_at": {"N": str(page[-1]["expires_at"])}}
+            return result
+        records.sort(key=lambda job: (job["created_at"], job["job_id"]), reverse=not kwargs.get("ScanIndexForward", True))
         if kwargs.get("ExclusiveStartKey"):
             last = kwargs["ExclusiveStartKey"]
-            marker = (int(last["expires_at"]["N"]), last["job_id"]["S"])
-            records = [job for job in records if (job["expires_at"], job["job_id"]) > marker]
+            marker = (last["created_at"]["S"], last["job_id"]["S"])
+            records = [job for job in records if (job["created_at"], job["job_id"]) < marker]
         limit = kwargs.get("Limit", len(records))
         page = records[:limit]
         result = {"Items": [_item(job) for job in page]}
         if len(records) > limit:
             result["LastEvaluatedKey"] = {
                 "job_id": {"S": page[-1]["job_id"]},
-                "expires_at": {"N": str(page[-1]["expires_at"])},
+                "created_at": {"S": page[-1]["created_at"]},
+                ("admin_partition" if kwargs["IndexName"].startswith("admin_partition") else "user_id"): {
+                    "S": ("OPTED_IN" if kwargs["IndexName"].startswith("admin_partition") else page[-1]["user_id"])
+                },
             }
         return result
 
@@ -84,9 +107,26 @@ class MemoryDynamo:
     def transact_write_items(self, **kwargs):
         accounts = copy.deepcopy(self.accounts)
         jobs = copy.deepcopy(self.jobs)
+        admin_audits = copy.deepcopy(self.admin_audits)
         changes = kwargs["TransactItems"]
         for action in changes:
+            if "ConditionCheck" in action:
+                check = action["ConditionCheck"]
+                record = jobs.get(check["Key"]["job_id"]["S"], {})
+                now = int(check["ExpressionAttributeValues"][":now"]["N"])
+                expiry_field = "report_expires_at" if "report_expires_at" in check["ConditionExpression"] else "video_expires_at"
+                if (not record or record.get("allow_admin_review") is not True
+                        or record.get("admin_partition") != "OPTED_IN"
+                        or record.get("status") == "aborted"
+                        or (expiry_field == "report_expires_at" and record.get("status") != "succeeded")
+                        or record.get(expiry_field, 0) <= now):
+                    self._conditional_failure()
+                continue
             if "Put" in action:
+                if action["Put"].get("TableName") == "audit":
+                    entry = _decode(action["Put"]["Item"])
+                    admin_audits[entry["audit_id"]] = entry
+                    continue
                 record = _decode(action["Put"]["Item"])
                 if record["job_id"] in jobs:
                     self._conditional_failure()
@@ -142,9 +182,13 @@ class MemoryDynamo:
                     record["ttl_epoch"] = int(values[":ttl"]["N"])
                 if ":report_expires" in values:
                     record["report_expires_at"] = int(values[":report_expires"]["N"])
+                for placeholder, value in values.items():
+                    if placeholder.startswith(":timing_"):
+                        record[placeholder[len(":timing_"):]] = int(value["N"])
         self.transactions.append(changes)
         self.accounts = accounts
         self.jobs = jobs
+        self.admin_audits = admin_audits
 
     def update_item(self, **kwargs):
         job_id = kwargs["Key"]["job_id"]["S"]
@@ -169,21 +213,35 @@ class MemoryDynamo:
             job["s3_upload_id"] = values[":upload_id"]["S"]
         if ":uploaded" in values:
             job["status"] = "uploaded"
+            if ":video_expiry" in values:
+                job["video_expires_at"] = int(values[":video_expiry"]["N"])
+            if ":updated" in values:
+                job["uploaded_at"] = values[":updated"]["S"]
         if ":submitting" in values and ":submitted" not in values:
             job["status"] = "submitting"
         if ":submitted" in values:
             job["status"] = "submitted"
             job["batch_job_id"] = values[":batch_id"]["S"]
+            job["submitted_at"] = values[":updated"]["S"]
+        if ":consent" in values:
+            job["allow_admin_review"] = values[":consent"]["BOOL"]
+            job["admin_review_decided_at"] = values[":updated"]["S"]
+            if job["allow_admin_review"]:
+                job["admin_partition"] = "OPTED_IN"
+            else:
+                job.pop("admin_partition", None)
 
 
 class FakeS3:
     def __init__(self):
         self.objects: dict[str, int] = {}
+        self.object_bodies: dict[str, bytes] = {}
         self.completed: list[str] = []
         self.deleted: list[str] = []
         self.aborted: list[str] = []
         self.final_size: int = 100_000_000
         self.presigned_params: dict = {}
+        self.presigned_calls: list[dict] = []
 
     def create_multipart_upload(self, **kwargs):
         return {"UploadId": "fake-upload-id"}
@@ -201,6 +259,13 @@ class FakeS3:
             raise FakeAwsError("NoSuchKey")
         return {"ContentLength": self.objects[key]}
 
+    def get_object(self, **kwargs):
+        key = kwargs["Key"]
+        if key not in self.object_bodies:
+            raise FakeAwsError("NoSuchKey")
+        value = self.object_bodies[key]
+        return {"Body": io.BytesIO(value), "ContentLength": len(value)}
+
     def delete_object(self, **kwargs):
         key = kwargs["Key"]
         self.deleted.append(key)
@@ -208,6 +273,7 @@ class FakeS3:
 
     def generate_presigned_url(self, operation, **kwargs):
         self.presigned_params = kwargs["Params"]
+        self.presigned_calls.append({"operation": operation, **kwargs})
         return f"https://signed.example.invalid/{operation}/{kwargs['Params']['Key']}"
 
 
@@ -236,6 +302,73 @@ class BackendTests(unittest.TestCase):
         count = record["part_count"]
         parts = [{"part_number": part, "etag": '"' + "a" * 32 + '"'} for part in range(1, count + 1)]
         return self.backend.complete_upload("alice", {"video_id": video_id, "parts": parts})
+
+    def _succeeded(self):
+        video = self.backend.start_upload("alice", self.free_body)["video_id"]
+        self._complete(video)
+        self.backend.submit_analysis("alice", {"video_id": video})
+        self.batch.status = "SUCCEEDED"
+        self.s3.objects[self.ddb.jobs[video]["report_key"]] = 2048
+        self.backend.job_status("alice", video)
+        return video
+
+    def test_owner_artifact_gallery_presigns_only_fixed_job_prefix(self):
+        video = self._succeeded()
+        prefix = self.ddb.jobs[video]["report_key"].removesuffix("report.json")
+        self.s3.object_bodies[prefix + "artifacts.json"] = json.dumps({
+            "schema_version": MEDIA_SCHEMA, "video_available": True,
+            "rowers": {"R1": {
+                "snapshots": [{"label": "Catch reference", "time_seconds": 1.2, "filename": "seat_R1_catch.jpg"}],
+                "mistake_sequences": [{"code": "early_body", "stroke": 2, "frames": [
+                    {"label": "Before", "time_seconds": 1.1, "filename": "fault_1_early_body_before.jpg"},
+                    {"label": "Flagged moment", "time_seconds": 1.3, "filename": "fault_1_early_body.jpg"},
+                ]}],
+            }},
+        }).encode()
+        for member in ("mallory", "bob"):
+            with self.subTest(member=member), self.assertRaises(ApiError) as blocked:
+                self.backend.report_artifacts(member, video)
+            self.assertEqual(blocked.exception.status, 404)
+        self.assertEqual(len(self.s3.presigned_calls), 0)
+
+        response = self.backend.report_artifacts("alice", video)
+        self.assertEqual(response["job_id"], video)
+        self.assertEqual(response["expires_in"], 900)
+        self.assertIn("/annotated.mp4", response["video_url"])
+        self.assertEqual(len(response["rowers"]["R1"]["snapshots"]), 1)
+        self.assertIn("/frames/fault_1_early_body.jpg", response["rowers"]["R1"]["mistake_sequences"][0]["frames"][1]["url"])
+        self.assertEqual({url["Params"]["Key"] for url in self.s3.presigned_calls}, {
+            prefix + "annotated.mp4", prefix + "frames/seat_R1_catch.jpg",
+            prefix + "frames/fault_1_early_body_before.jpg", prefix + "frames/fault_1_early_body.jpg",
+        })
+
+        self.now += 72 * 3600 - 40
+        self.assertEqual(self.backend.report_artifacts("alice", video)["expires_in"], 40)
+        self.now += 41
+        with self.assertRaises(ApiError) as expired:
+            self.backend.report_artifacts("alice", video)
+        self.assertEqual(expired.exception.status, 410)
+
+    def test_legacy_reports_have_empty_media_without_exposing_other_objects(self):
+        video = self._succeeded()
+        result = self.backend.report_artifacts("alice", video)
+        self.assertIsNone(result["video_url"])
+        self.assertEqual(result["rowers"], {})
+        self.assertEqual(self.s3.presigned_calls, [])
+
+    def test_malicious_artifact_manifest_cannot_presign_foreign_keys(self):
+        video = self._succeeded()
+        prefix = self.ddb.jobs[video]["report_key"].removesuffix("report.json")
+        self.s3.object_bodies[prefix + "artifacts.json"] = json.dumps({
+            "schema_version": MEDIA_SCHEMA, "video_available": True,
+            "rowers": {"R1": {"snapshots": [
+                {"label": "Catch reference", "time_seconds": 1.0, "filename": "../../mallory/private.jpg"},
+            ], "mistake_sequences": []}},
+        }).encode()
+        with self.assertRaises(ApiError) as invalid:
+            self.backend.report_artifacts("alice", video)
+        self.assertEqual((invalid.exception.status, invalid.exception.code), (503, "media_unavailable"))
+        self.assertEqual(self.s3.presigned_calls, [])
 
     def test_atomic_lifetime_quota_and_abort_refund(self):
         ids = [self.backend.start_upload("alice", self.free_body)["video_id"] for _ in range(3)]
@@ -643,6 +776,19 @@ class HandlerTests(unittest.TestCase):
             result = lambda_handler(self.event(body={"user_id": "mallory", "size_bytes": 2}), None)
         self.assertEqual(result["statusCode"], 201)
         make.return_value.start_upload.assert_called_once_with("alice", {"user_id": "mallory", "size_bytes": 2})
+
+    def test_artifact_endpoint_is_authenticated_and_passes_only_job_id(self):
+        job_id = "a" * 32
+        path = f"/reports/{job_id}/artifacts"
+        with patch("aws_app.handler._build_service") as make:
+            denied = lambda_handler(self.event(path=path, method="GET", user=None), None)
+        self.assertEqual(denied["statusCode"], 401)
+        make.assert_not_called()
+        with patch("aws_app.handler._build_service") as make:
+            make.return_value.report_artifacts.return_value = {"video_url": None, "rowers": {}}
+            allowed = lambda_handler(self.event(path=path, method="GET"), None)
+        self.assertEqual(allowed["statusCode"], 200)
+        make.return_value.report_artifacts.assert_called_once_with("alice", job_id)
 
     def test_invalid_body_is_rejected(self):
         event = self.event()

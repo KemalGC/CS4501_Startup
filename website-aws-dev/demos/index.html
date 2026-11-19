@@ -16,16 +16,17 @@
   <script src="/assets/site.js" defer></script>
   <script src="/assets/aws-config.js" defer></script>
   <script src="/assets/aws-client.js" defer></script>
+  <script src="/assets/report-media.js" type="module"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="container header-inner">
       <a class="brand" href="/" aria-label="StrokeSense AWS development home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a>
-      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/demos/" aria-current="page">AWS analyzer</a><a href="/feedback/">Feedback</a><a href="https://strokesense-review.vercel.app/">Live website</a></nav>
+      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/demos/" aria-current="page">AWS analyzer</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a><a href="https://strokesense-review.vercel.app/">Live website</a></nav>
       <div class="header-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span class="theme-label">Dark mode</span></button><a class="pill pill-coral" href="#analysis-studio">Open studio ↗</a><button class="menu-toggle" data-menu-toggle type="button" aria-label="Toggle navigation" aria-controls="mobile-nav" aria-expanded="false">☰</button></div>
     </div>
-    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/demos/">AWS analyzer</a><a href="/feedback/">Feedback</a><a href="https://strokesense-review.vercel.app/">Live website</a></nav>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/demos/">AWS analyzer</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a><a href="https://strokesense-review.vercel.app/">Live website</a></nav>
   </header>
 
   <main id="main">
@@ -58,6 +59,10 @@
           <div id="file-review" class="aws-file-review" hidden><div><strong id="selected-file-name"></strong><p id="selected-file-size"></p></div><button id="clear-file" class="aws-button aws-button-outline" type="button">Remove</button></div>
           <video id="local-preview" class="aws-video-preview" controls playsinline preload="metadata" hidden aria-label="Selected rowing video preview"></video>
           <p class="aws-privacy-note">Video uploads will go directly to private Amazon S3 storage. Free reports expire after 3 days; Deep Analysis reports expire after 30 days. No footage is uploaded while AWS is unconfigured.</p>
+          <label class="aws-admin-review-choice" for="allow-admin-review">
+            <input id="allow-admin-review" type="checkbox" name="allow_admin_review" value="true">
+            <span><strong>Allow StrokeSense administrator to review my uploaded video and analysis</strong><span>Optional and off by default. Your video and report stay private to your account unless you choose to share them for review. You can run an analysis without enabling this.</span></span>
+          </label>
         </section>
 
         <section class="aws-action-panel" aria-labelledby="run-heading">
@@ -79,6 +84,17 @@
             <h3>Analysis complete</h3>
             <p>Your private report is available for 3 days. Download a copy before it expires.</p>
             <a id="download-report" class="aws-button aws-button-primary" href="#" rel="noopener noreferrer" target="_blank">Download report (JSON)</a>
+            <section id="report-media" class="aws-report-media" aria-labelledby="report-media-heading" hidden>
+              <div class="aws-report-media-title"><div><span class="studio-label">Frame review</span><h4 id="report-media-heading">Your rowers, frame by frame</h4></div><p id="rower-media-source">Choose a rower to browse its analyzed frames.</p></div>
+              <div id="rower-media-tabs" class="aws-rower-tabs" role="group" aria-label="Choose a model-tracked rower"></div>
+              <div class="aws-media-rower-heading"><h5 id="rower-media-current">Selected rower</h5><span>Scroll to explore frames →</span></div>
+              <div id="rower-media-scroll" class="aws-rower-frame-scroll" role="region" aria-label="Selected rower image gallery" tabindex="0"></div>
+              <div class="aws-annotated-video-panel">
+                <h4>Annotated video playback</h4>
+                <video id="annotated-video" controls playsinline preload="metadata" aria-label="Your private annotated rowing video" hidden></video>
+                <p id="annotated-video-note" role="status">Annotated video availability is being checked.</p>
+              </div>
+            </section>
             <div id="report-preview" class="aws-report-preview" hidden>
               <h4>Technique report</h4>
               <p>CPU-measured coaching cues are preliminary and have not been verified by a rowing coach.</p>
@@ -89,6 +105,6 @@
       </div>
     </section>
   </main>
-  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>AWS development preview for rowing video analysis.</p></div><nav class="footer-nav"><a href="/">Home</a><a href="/demos/">AWS analyzer</a><a href="/feedback/">Feedback</a><a href="https://strokesense-review.vercel.app/">Current live site</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental coaching feedback</span><span>This preview is separate from production.</span></div></div></footer>
+  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>AWS development preview for rowing video analysis.</p></div><nav class="footer-nav"><a href="/">Home</a><a href="/demos/">AWS analyzer</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a><a href="https://strokesense-review.vercel.app/">Current live site</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental coaching feedback</span><span>This preview is separate from production.</span></div></div></footer>
 </body>
 </html>

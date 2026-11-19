@@ -111,6 +111,8 @@ test('progress panel separates uploading, AWS processing, and report readiness',
     }
     assert.equal(snapshots.at(-1).label, 'Report ready');
     assert.equal(snapshots.at(-1).percentage, '100%');
+    assert.equal(sessionData.get('strokesense-aws-dev-active-job'), jobId,
+      'a successful job should remain available for refresh restoration');
     assert.doesNotMatch(element('upload-feedback').textContent, /No video has been uploaded/);
   });
 });

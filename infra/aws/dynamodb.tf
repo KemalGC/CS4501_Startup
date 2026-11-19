@@ -59,6 +59,12 @@ resource "aws_dynamodb_table" "jobs" {
     type = "S"
   }
 
+  # Separate sparse index: publication is never inferred from admin consent.
+  attribute {
+    name = "community_partition"
+    type = "S"
+  }
+
   global_secondary_index {
     name            = "user_id-created_at-index"
     projection_type = "ALL"
@@ -95,6 +101,21 @@ resource "aws_dynamodb_table" "jobs" {
 
     key_schema {
       attribute_name = "admin_partition"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "created_at"
+      key_type       = "RANGE"
+    }
+  }
+
+  global_secondary_index {
+    name            = "community_partition-created_at-index"
+    projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "community_partition"
       key_type       = "HASH"
     }
 

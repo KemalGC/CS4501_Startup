@@ -93,6 +93,12 @@ data "aws_iam_policy_document" "api" {
   }
 
   statement {
+    sid       = "QueryExplicitCommunityVideosOnly"
+    actions   = ["dynamodb:Query"]
+    resources = ["${aws_dynamodb_table.jobs.arn}/index/community_partition-created_at-index"]
+  }
+
+  statement {
     sid       = "QueryOnlyExplicitlySharedAdminJobs"
     actions   = ["dynamodb:Query"]
     resources = ["${aws_dynamodb_table.jobs.arn}/index/admin_partition-created_at-index"]

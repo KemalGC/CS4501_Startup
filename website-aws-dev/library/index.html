@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#001e4a">
   <meta name="description" content="View your private StrokeSense rowing analyses, check processing status, and reopen reports while they are available.">
-  <title>My Analyses — StrokeSense</title>
+  <title>Library — StrokeSense</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,23 +16,28 @@
   <script src="/assets/site.js" defer></script>
   <script src="/assets/aws-config.js" defer></script>
   <script src="/assets/library.js" defer></script>
+  <script src="/assets/community-feed.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header solid">
     <div class="container header-inner">
       <a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a>
-      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/#features">Features</a><a href="/demos/">Analyzer</a><a href="/library/" aria-current="page">My Analyses</a><a href="/feedback/">Feedback</a></nav>
+      <nav class="main-nav" aria-label="Primary navigation"><a href="/">Home</a><a href="/#features">Features</a><a href="/demos/">Analyzer</a><a href="/library/" aria-current="page">Library</a><a href="/feedback/">Feedback</a></nav>
       <div class="header-actions"><button class="theme-toggle" data-theme-toggle type="button" aria-label="Switch to dark mode" aria-pressed="false"><span class="theme-icon" aria-hidden="true">☾</span><span class="theme-label">Dark mode</span></button><a class="pill pill-coral" href="/demos/">New analysis <span aria-hidden="true">→</span></a><button class="menu-toggle" data-menu-toggle type="button" aria-label="Toggle navigation" aria-controls="mobile-nav" aria-expanded="false">☰</button></div>
     </div>
-    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/library/" aria-current="page">My Analyses</a><a href="/feedback/">Feedback</a></nav>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/library/" aria-current="page">Library</a><a href="/feedback/">Feedback</a></nav>
   </header>
 
   <main id="main">
     <section class="interior-hero library-hero" aria-labelledby="library-heading">
-      <div class="container"><span class="eyebrow">Your private workspace</span><h1 id="library-heading">My <span class="accent">Analyses.</span></h1><p>Check on your rowing videos and return to completed reports. Only analyses belonging to your signed-in Google account appear here.</p></div>
+      <div class="container"><span class="eyebrow">Your rowing workspace</span><h1 id="library-heading">Video <span class="accent">Library.</span></h1><p>Revisit your own private analyses, or watch annotated rowing clips that other members have chosen to share publicly.</p></div>
     </section>
-    <section class="page-section" aria-labelledby="library-list-heading">
+    <nav class="container library-tab-bar" aria-label="Library sections">
+      <button class="library-tab is-active" type="button" id="library-tab-private" aria-selected="true" aria-controls="library-private-section">My Videos</button>
+      <button class="library-tab" type="button" id="library-tab-community" aria-selected="false" aria-controls="library-community-section">Community Videos</button>
+    </nav>
+    <section class="page-section" id="library-private-section" aria-labelledby="library-list-heading">
       <div class="container library-layout">
         <div class="library-topline">
           <div><span class="eyebrow">Private analysis history</span><h2 id="library-list-heading">Your rowing <span class="accent">sessions.</span></h2></div>
@@ -58,12 +63,31 @@
 
         <aside class="library-retention-note">
           <span class="eyebrow">Keep a copy</span>
-          <p>Original video uploads are temporary, and reports have their own expiration dates. Your analysis history can remain visible after those files are removed. Download a completed report while it is available.</p>
+          <p>Original video uploads are temporary, and reports have their own expiration dates. Published videos also expire with the report (normally 3 days). Publishing does not extend retention. Download a completed report while it is available.</p>
         </aside>
+      </div>
+    </section>
+    <section class="page-section" id="library-community-section" aria-labelledby="community-heading" hidden>
+      <div class="container library-layout">
+        <div class="library-topline">
+          <div><span class="eyebrow">Shared by their owners</span><h2 id="community-heading">Community <span class="accent">Videos.</span></h2></div>
+          <button class="library-refresh" type="button" id="community-refresh">Refresh videos</button>
+        </div>
+        <p class="library-community-intro">Explore annotated rowing videos that members explicitly made public. Raw footage, private reports, email addresses, and unshared analyses are never listed. Videos disappear when owners unpublish them or their report expires.</p>
+        <p class="library-notice" id="community-notice" role="status" aria-live="polite">Choose Community Videos to browse.</p>
+        <div id="community-list" class="community-grid" aria-label="Publicly shared annotated rowing videos" hidden></div>
+        <div class="library-pagination"><button id="community-more" class="pill pill-navy" type="button" hidden>Load more videos</button></div>
+        <section id="community-video-panel" class="admin-video-panel" aria-labelledby="community-video-title" hidden>
+          <div class="admin-video-heading"><div><span class="eyebrow">Publicly shared annotated video</span><h3 id="community-video-title">Community rowing session</h3></div><button id="community-close-video" class="library-refresh" type="button">Close playback</button></div>
+          <p id="community-video-notice" class="library-notice" role="status" aria-live="polite">The owner can unpublish this video at any time.</p>
+          <video id="community-video-player" class="aws-video-preview" controls playsinline preload="metadata" referrerpolicy="no-referrer" aria-label="Publicly shared annotated rowing video"></video>
+          <a id="community-video-link" class="pill pill-coral" href="#" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Open / download shared video</a>
+          <button id="community-refresh-video" class="library-refresh" type="button">Refresh temporary video access</button>
+        </section>
       </div>
     </section>
   </main>
 
-  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>Private rowing analysis history and temporary coaching reports.</p></div><nav class="footer-nav" aria-label="Footer navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/library/">My Analyses</a><a href="/feedback/">Feedback</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental coaching feedback</span><span>Only your account's jobs are shown.</span></div></div></footer>
+  <footer class="site-footer"><div class="container"><div class="footer-inner"><div><a class="brand" href="/" aria-label="StrokeSense home"><svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="M2 10c5-6 10-6 15 0s10 6 16 0M2 18c5-6 10-6 15 0s10 6 16 0M2 26c5-6 10-6 15 0s10 6 16 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg><span>Stroke<span>Sense</span></span></a><p>Private rowing analysis history and temporary coaching reports.</p></div><nav class="footer-nav" aria-label="Footer navigation"><a href="/">Home</a><a href="/demos/">Analyzer</a><a href="/library/">Library</a><a href="/feedback/">Feedback</a></nav></div><div class="footer-bottom"><span>© 2026 StrokeSense · Experimental coaching feedback</span><span>Only your account's jobs are shown.</span></div></div></footer>
 </body>
 </html>

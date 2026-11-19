@@ -12,6 +12,7 @@
   const ui = {
     backendStatus: $('backend-status'), backendDetail: $('backend-detail'),
     login: $('google-login'), logout: $('google-logout'), account: $('account-status'),
+    authFeedback: $('auth-feedback'),
     tierFree: $('tier-free'), tierPaid: $('tier-paid'), fileLimit: $('file-limit'),
     input: $('video-upload'), dropzone: $('dropzone'), fileReview: $('file-review'),
     fileName: $('selected-file-name'), fileSize: $('selected-file-size'),
@@ -59,6 +60,17 @@
   function feedback(message, tone = '') {
     ui.feedback.textContent = message;
     ui.feedback.dataset.tone = tone;
+  }
+  function signInFeedback(message, tone = '') {
+    ui.authFeedback.textContent = message;
+    ui.authFeedback.dataset.tone = tone;
+  }
+  function oauthFailure(code, description) {
+    // OAuth errors are diagnostic text, not trusted markup or a place for tokens.
+    const safe = value => typeof value === 'string'
+      ? value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240)
+      : '';
+    return [safe(code), safe(description)].filter(Boolean).join(': ');
   }
   function tier() { return ui.tierPaid.checked ? 'paid' : 'free'; }
   function limit() { return tier() === 'paid' ? PAID_VIDEO_BYTES : FREE_VIDEO_BYTES; }
@@ -182,7 +194,7 @@
     const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
     const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
     try { sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, createdAt: Date.now() })); }
-    catch (_) { feedback('Browser storage is required to complete Google sign-in.', 'error'); return; }
+    catch (_) { signInFeedback('Browser storage is required to complete Google sign-in.', 'error'); return; }
     const url = new URL(cognitoDomain + '/oauth2/authorize');
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('response_type', 'code');
@@ -201,12 +213,16 @@
     const error = params.get('error');
     if (!code && !error) return;
     history.replaceState(null, '', redirectUri + window.location.hash);
-    if (error) { feedback('Google sign-in did not complete: ' + error, 'error'); return; }
+    if (error) {
+      try { sessionStorage.removeItem(PKCE_KEY); } catch (_) {}
+      signInFeedback('Google sign-in was rejected: ' + oauthFailure(error, params.get('error_description')), 'error');
+      return;
+    }
     let pending;
     try { pending = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null'); sessionStorage.removeItem(PKCE_KEY); }
     catch (_) { pending = null; }
     if (!pending || !pending.verifier || params.get('state') !== pending.state || Date.now() - pending.createdAt > 600_000) {
-      feedback('Sign-in session verification failed. Please retry Google login.', 'error');
+      signInFeedback('Sign-in session verification failed. Please retry Google login.', 'error');
       return;
     }
     try {
@@ -219,13 +235,19 @@
         body, credentials: 'omit'
       });
       const result = await response.json();
-      if (!response.ok || !result.access_token) throw Error('Cognito did not return an access token.');
+      if (!response.ok || !result.access_token) {
+        throw Error(oauthFailure(result.error, result.error_description) ||
+          'Cognito token exchange failed (HTTP ' + response.status + ').');
+      }
       sessionStorage.setItem(AUTH_KEY, JSON.stringify({
         accessToken: result.access_token, idToken: result.id_token || '',
         expiresAt: Date.now() + Math.max(0, Number(result.expires_in || 3600) - 60) * 1000
       }));
-      feedback('Google sign-in successful.', 'success');
-    } catch (_) { feedback('Unable to complete Google sign-in. Check the Cognito callback and public client configuration.', 'error'); }
+      signInFeedback('Google sign-in successful.', 'success');
+    } catch (error) {
+      signInFeedback('Unable to complete Google sign-in: ' +
+        (oauthFailure(error && error.message) || 'check the Cognito callback and public client configuration.'), 'error');
+    }
     render();
   }
 
@@ -433,7 +455,7 @@
   }
 
   ui.login.addEventListener('click', signIn);
-  ui.logout.addEventListener('click', () => { clearAuth(); feedback('Signed out of this preview.'); render(); });
+  ui.logout.addEventListener('click', () => { clearAuth(); signInFeedback('Signed out of this preview.'); render(); });
   ui.tierFree.addEventListener('change', render);
   ui.tierPaid.addEventListener('change', render);
   ui.input.addEventListener('change', () => setFile(ui.input.files[0]));

@@ -65,6 +65,40 @@ Vercel URL. The browser uses Authorization Code + PKCE and AWS verifies JWTs
 server-side. Preview branch URLs may differ between deployments, so prefer a
 stable `strokesense-aws-dev.vercel.app` domain once established.
 
+### Troubleshoot Google login
+
+1. Test first at `https://strokesense-aws-dev.vercel.app/demos/`, not a
+   temporary Vercel preview deployment. Preview deployments can require a
+   separate Vercel login, and each preview hostname needs its **own** exact
+   Cognito callback URL if you want to test Cognito there.
+2. The Cognito app client must allow the full callback URL
+   `https://strokesense-aws-dev.vercel.app/demos/`, including the trailing slash.
+   The Google Cloud OAuth **Web** client must authorize Cognito's redirect URL
+   `https://strokesense-dev-851226124502.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`.
+3. With an AWS profile authorized for read-only Cognito calls, inspect **only**
+   the non-secret fields below. Do not share OAuth codes, tokens, `ProviderDetails`
+   or the Google client secret:
+
+   ```powershell
+   aws cognito-idp describe-user-pool-client `
+       --region us-east-1 `
+       --user-pool-id us-east-1_SACxYjDH5 `
+       --client-id 2tjrv7rsu77hhbk45lrg0ii83p `
+       --query 'UserPoolClient.{CallbackURLs:CallbackURLs,AllowedOAuthFlows:AllowedOAuthFlows,SupportedIdentityProviders:SupportedIdentityProviders}'
+
+   aws cognito-idp describe-identity-provider `
+       --region us-east-1 `
+       --user-pool-id us-east-1_SACxYjDH5 `
+       --provider-name Google `
+       --query 'IdentityProvider.AttributeMapping'
+   ```
+
+4. If the Google account chooser works but the return to StrokeSense fails,
+   the error code and description now appear in the **Your account** panel.
+   Share only that error text for troubleshooting, never a callback URL that
+   contains an authorization code. Google consent-screen test-user restrictions
+   can also block accounts that aren't on an approved list.
+
 ## Product limits
 
 - Free analysis: **100 MB max per video**, **300 MB cumulative over the

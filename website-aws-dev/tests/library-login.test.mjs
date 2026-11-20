@@ -67,7 +67,11 @@ test('Library sign-in starts OAuth automatically and returns to the Library afte
   assert.match(libraryPage, /id="library-sign-in" href="\/demos\/\?login=library"/);
   const storage = new Map();
   const first = analyzer(storage, '?login=library');
-  for (let i = 0; i < 4; i++) await first.settle();
+  // WebCrypto and OAuth PKCE preparation can finish after several turns
+  // under loaded CI runners; observe the callback instead of assuming four.
+  for (let i = 0; i < 100 && first.calls.assigned.length === 0; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   assert.deepEqual(first.calls.history, [SITE + '/demos/']);
   assert.equal(first.calls.assigned.length, 1, 'Library login must actually start Cognito, not just open the analyzer');
   const login = new URL(first.calls.assigned[0]);

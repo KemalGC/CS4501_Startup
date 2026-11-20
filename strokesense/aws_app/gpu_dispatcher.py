@@ -134,13 +134,15 @@ def enqueue_paid_analysis(
         service.ddb.update_item(
             TableName=service.cfg.jobs_table,
             Key={"job_id": _s(job_id)},
-            UpdateExpression="SET #state = :pending, updated_at = :updated, expires_at = :due",
+            UpdateExpression=("SET #state = :pending, updated_at = :updated, "
+                              "expires_at = :due, gpu_queued_at = :queued_epoch"),
             ConditionExpression="user_id = :owner AND #state = :uploaded AND tier = :paid",
             ExpressionAttributeNames={"#state": "status"},
             ExpressionAttributeValues={
                 ":owner": _s(user_id), ":uploaded": _s("uploaded"), ":paid": _s("paid"),
                 ":pending": _s("gpu_queued"), ":updated": _s(datetime.fromtimestamp(
-                    now, timezone.utc).isoformat(timespec="seconds")), ":due": _n(now + 60),
+                    now, timezone.utc).isoformat(timespec="seconds")),
+                ":due": _n(now + 60), ":queued_epoch": _n(now),
             },
         )
     except Exception as exc:
@@ -178,10 +180,20 @@ def dispatch_gpu_task(
     _keys(record)
     if record.get("status") == "gpu_submitted" and record.get("ecs_task_arn"):
         return {"job_id": job_id, "ecs_task_arn": record["ecs_task_arn"]}
+    if record.get("status") in ("succeeded", "failed"):
+        # An earlier outbox replay might arrive after successful settlement.
+        # Acknowledge safely instead of poisoning the FIFO group/DLQ.
+        return {"job_id": job_id, "status": record["status"]}
     if record.get("status") not in ("gpu_queued", "gpu_dispatching"):
         raise ApiError(409, "invalid_state", "GPU job is not ready for dispatch")
-    _gpu_task_is_approved(ecs, config)
     now = service._now()
+    if record["status"] == "gpu_dispatching":
+        started = record.get("gpu_dispatch_started_at")
+        if type(started) is not int or now < started or now - started >= 23 * 3600:
+            # ECS RunTask clientToken idempotency lasts for at most 24h.
+            # Never repeat an old unknown launch after that window.
+            raise ApiError(409, "gpu_dispatch_manual_review", "GPU task launch requires manual review")
+    _gpu_task_is_approved(ecs, config)
     # One running task globally, even across Lambda retries or concurrent
     # messages. Lock expiry is LONGER than the worker's hard 55-minute timeout.
     try:
@@ -200,12 +212,13 @@ def dispatch_gpu_task(
         service.ddb.update_item(
             TableName=service.cfg.jobs_table,
             Key={"job_id": _s(job_id)},
-            UpdateExpression="SET #state = :dispatching",
+            UpdateExpression="SET #state = :dispatching, gpu_dispatch_started_at = :started",
             ConditionExpression="user_id = :owner AND #state = :queued AND tier = :paid",
             ExpressionAttributeNames={"#state": "status"},
             ExpressionAttributeValues={
                 ":owner": _s(record["user_id"]), ":queued": _s("gpu_queued"),
                 ":dispatching": _s("gpu_dispatching"), ":paid": _s("paid"),
+                ":started": _n(now),
             },
         )
     task = ecs.run_task(**_run_request(config, record))
@@ -216,13 +229,17 @@ def dispatch_gpu_task(
     service.ddb.update_item(
         TableName=service.cfg.jobs_table,
         Key={"job_id": _s(job_id)},
-        UpdateExpression="SET #state = :running, ecs_task_arn = :arn, expires_at = :deadline",
+        UpdateExpression=(
+            "SET #state = :running, ecs_task_arn = :arn, expires_at = :poll_due, "
+            "gpu_task_deadline_epoch = :deadline"
+        ),
         ConditionExpression="user_id = :owner AND #state = :dispatching AND tier = :paid",
         ExpressionAttributeNames={"#state": "status"},
         ExpressionAttributeValues={
             ":owner": _s(record["user_id"]), ":dispatching": _s("gpu_dispatching"),
             ":running": _s("gpu_submitted"), ":paid": _s("paid"),
-            ":arn": _s(arn), ":deadline": _n(now + MAX_GPU_RUNTIME_SECONDS + 600),
+            ":arn": _s(arn), ":poll_due": _n(now + 60),
+            ":deadline": _n(now + MAX_GPU_RUNTIME_SECONDS + 600),
         },
     )
     return {"job_id": job_id, "ecs_task_arn": arn}

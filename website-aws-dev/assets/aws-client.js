@@ -17,7 +17,7 @@
     tierFree: $('tier-free'), tierPaid: $('tier-paid'), fileLimit: $('file-limit'),
     input: $('video-upload'), dropzone: $('dropzone'), fileReview: $('file-review'),
     adminConsent: $('allow-admin-review'),
-    fileName: $('selected-file-name'), fileSize: $('selected-file-size'),
+    fileName: $('selected-file-name'), fileSize: $('selected-file-size'), displayName: $('upload-display-name'),
     clear: $('clear-file'), video: $('local-preview'), run: $('run-analysis'),
     cancel: $('cancel-upload'), helper: $('run-helper'), feedback: $('upload-feedback'),
     progress: $('analysis-progress'), progressBar: $('analysis-progress-bar'),
@@ -198,6 +198,7 @@
     ui.video.hidden = !file;
     ui.fileReview.hidden = !file;
     if (!file) {
+      ui.displayName.value = '';
       ui.video.removeAttribute('src');
       ui.input.value = '';
       feedback('');
@@ -206,6 +207,7 @@
     }
     const accepted = /\.(mp4|mov|webm)$/i.test(file.name) && file.size > 0;
     ui.fileName.textContent = file.name;
+    ui.displayName.value = file.name.slice(0, 128);
     ui.fileSize.textContent = formatMB(file.size) + ' · ' + (accepted ? 'Supported file extension' : 'Unsupported or empty file');
     localVideoUrl = URL.createObjectURL(file);
     ui.video.src = localVideoUrl;
@@ -491,15 +493,19 @@
     try {
       progress('Preparing secure upload', null, 'Checking your allowance and reserving private S3 storage.', 'upload');
       const sourceFile = file;
+      const chosenName = ui.displayName.value.trim();
+      if (!chosenName || chosenName.length > 128 || /[\\/]/.test(chosenName)) {
+        throw Error('Choose an analysis name up to 128 characters without slashes.');
+      }
       const upload = await api('/uploads/start', {
         method: 'POST', body: {
-          filename: sourceFile.name, content_type: sourceFile.type || 'application/octet-stream',
+          filename: chosenName, content_type: sourceFile.type || 'application/octet-stream',
           size_bytes: sourceFile.size, tier: tier(),
           allow_admin_review: ui.adminConsent.checked === true
         }, signal: abortController.signal
       });
       activeVideoId = upload.video_id;
-      window.StrokeSenseRecentAnalyses?.notifySubmitted(upload.video_id, sourceFile.name, 'uploading');
+      window.StrokeSenseRecentAnalyses?.notifySubmitted(upload.video_id, chosenName, 'uploading');
       const parts = await uploadMultipart(upload, abortController.signal, sourceFile);
       progress('Verifying uploaded video', null, 'All parts transferred. Confirming your file in private S3 storage.', 'upload');
       await api('/uploads/complete', {
@@ -512,7 +518,7 @@
       });
       jobSubmitted = true;
       rememberActiveJob(job.job_id);
-      window.StrokeSenseRecentAnalyses?.notifySubmitted(job.job_id, sourceFile.name);
+      window.StrokeSenseRecentAnalyses?.notifySubmitted(job.job_id, chosenName);
       activeVideoId = null;
       ui.cancel.hidden = true;
       feedback('Video uploaded. Your private AWS analysis job is underway.', 'success');

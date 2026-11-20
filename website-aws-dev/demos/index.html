@@ -58,7 +58,7 @@
           <div class="aws-section-heading"><div><span class="studio-label">02 · Footage</span><h3 id="upload-heading">Upload your rowing video</h3></div><span class="aws-allowed-size" id="file-limit">Up to 100 MB</span></div>
           <label for="video-upload" class="aws-dropzone" id="dropzone"><span class="aws-upload-symbol" aria-hidden="true">↑</span><strong>Choose an MP4, MOV, or WebM recording</strong><span>Or drag a video here. Files are checked locally before any upload.</span></label>
           <input id="video-upload" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" hidden>
-          <div id="file-review" class="aws-file-review" hidden><div><strong id="selected-file-name"></strong><p id="selected-file-size"></p></div><button id="clear-file" class="aws-button aws-button-outline" type="button">Remove</button></div>
+          <div id="file-review" class="aws-file-review" hidden><div><strong id="selected-file-name"></strong><p id="selected-file-size"></p><label class="aws-upload-display-name" for="upload-display-name">Analysis name <input id="upload-display-name" type="text" maxlength="128" placeholder="Name this analysis" autocomplete="off"></label></div><button id="clear-file" class="aws-button aws-button-outline" type="button">Remove</button></div>
           <video id="local-preview" class="aws-video-preview" controls playsinline preload="metadata" hidden aria-label="Selected rowing video preview"></video>
           <p class="aws-privacy-note">Video uploads will go directly to private Amazon S3 storage. Free reports expire after 3 days; Deep Analysis reports expire after 30 days. No footage is uploaded while AWS is unconfigured.</p>
           <label class="aws-admin-review-choice" for="allow-admin-review">

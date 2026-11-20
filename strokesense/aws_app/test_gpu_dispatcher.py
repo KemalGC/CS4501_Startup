@@ -41,7 +41,7 @@ class FakeState:
         if kwargs["TableName"] == "users":
             lock = self.accounts.setdefault(GPU_LOCK_ID, {})
             current = lock.get("active_job")
-            if current and current != values[":job"]["S"] and lock["active_job_expires_at"] > self.now:
+            if current and current != values[":job"]["S"]:
                 err = Exception("ConditionalCheckFailedException")
                 err.response = {"Error": {"Code": "ConditionalCheckFailedException"}}
                 raise err
@@ -78,7 +78,7 @@ class GpuDispatcherTests(unittest.TestCase):
         self.queue = MagicMock()
         self.ecs = MagicMock()
         self.task_def = {
-            "requiresCompatibilities": ["MANAGED_INSTANCES"],
+            "requiresCompatibilities": ["EC2"],
             "networkMode": "awsvpc",
             "containerDefinitions": [{
                 "name": "paid-gpu-worker",
@@ -124,6 +124,7 @@ class GpuDispatcherTests(unittest.TestCase):
         call = self.ecs.run_task.call_args.kwargs
         self.assertNotIn("launchType", call)
         self.assertEqual(call["count"], 1)
+        self.assertEqual(call["networkConfiguration"]["awsvpcConfiguration"]["assignPublicIp"], "DISABLED")
         self.assertEqual(call["capacityProviderStrategy"][0]["capacityProvider"], "gpu-reviewed")
         self.assertEqual(call["clientToken"], "strokesense-paid-gpu-" + self.id)
         fields = {v["name"]: v["value"] for v in call["overrides"]["containerOverrides"][0]["environment"]}
@@ -148,6 +149,14 @@ class GpuDispatcherTests(unittest.TestCase):
                 self.assertEqual(err.exception.code, "gpu_task_unapproved")
         self.ecs.run_task.assert_not_called()
 
+    def test_managed_instances_task_is_rejected_for_one_instance_ec2_lane(self):
+        self.store.jobs[self.id]["status"] = "gpu_queued"
+        self.task_def["requiresCompatibilities"] = ["MANAGED_INSTANCES"]
+        with self.assertRaises(ApiError) as error:
+            dispatch_gpu_task(self.service, self.ecs, self.config, self.id)
+        self.assertEqual(error.exception.code, "gpu_task_unapproved")
+        self.ecs.run_task.assert_not_called()
+
     def test_worker_and_ecs_are_not_invoked_without_gate(self):
         disabled = GpuDispatcherConfig(**{**self.config.__dict__, "enabled": False})
         self.store.jobs[self.id]["status"] = "gpu_queued"
@@ -159,7 +168,7 @@ class GpuDispatcherTests(unittest.TestCase):
         self.store.jobs[self.id]["status"] = "gpu_queued"
         self.store.accounts[GPU_LOCK_ID] = {
             "active_job": "b" * 32,
-            "active_job_expires_at": self.now + 100,
+            "active_job_expires_at": self.now - 100,  # stale lock must not be stolen
         }
         with self.assertRaises(ApiError) as err:
             dispatch_gpu_task(self.service, self.ecs, self.config, self.id)

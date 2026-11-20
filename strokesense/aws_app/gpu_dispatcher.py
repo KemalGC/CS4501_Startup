@@ -1,4 +1,4 @@
-"""Disabled-by-default ECS paid GPU dispatcher for a future isolated FIFO queue.
+"""Disabled-by-default ECS-on-EC2 paid GPU dispatcher for a future isolated FIFO queue.
 
 This module is deliberately NOT wired into the production API or Lambda event
 sources. It provides a real, testable RunTask implementation and one-task
@@ -70,7 +70,7 @@ def _gpu_task_is_approved(ecs: Any, config: GpuDispatcherConfig) -> None:
     task = ecs.describe_task_definition(taskDefinition=config.task_definition)["taskDefinition"]
     containers = task.get("containerDefinitions") or []
     matching = [c for c in containers if c.get("name") == config.worker_container]
-    if (len(matching) != 1 or "MANAGED_INSTANCES" not in task.get("requiresCompatibilities", [])
+    if (len(matching) != 1 or "EC2" not in task.get("requiresCompatibilities", [])
             or task.get("networkMode") != "awsvpc"):
         raise ApiError(503, "gpu_task_unapproved", "GPU task definition has not been approved")
     image = matching[0].get("image")
@@ -93,7 +93,7 @@ def _run_request(config: GpuDispatcherConfig, record: dict[str, Any]) -> dict[st
             "awsvpcConfiguration": {
                 "subnets": list(config.subnets),
                 "securityGroups": list(config.security_groups),
-                "assignPublicIp": "ENABLED",
+                "assignPublicIp": "DISABLED",
             }
         },
         "overrides": {"containerOverrides": [{
@@ -195,13 +195,14 @@ def dispatch_gpu_task(
             raise ApiError(409, "gpu_dispatch_manual_review", "GPU task launch requires manual review")
     _gpu_task_is_approved(ecs, config)
     # One running task globally, even across Lambda retries or concurrent
-    # messages. Lock expiry is LONGER than the worker's hard 55-minute timeout.
+    # messages. A stale lock is NEVER stolen while the old task might
+    # still be billable. Only confirmed ECS STOPPED reconciliation releases it.
     try:
         service.ddb.update_item(
             TableName=service.cfg.users_table,
             Key={"user_id": _s(GPU_LOCK_ID)},
             UpdateExpression="SET active_job = :job, active_job_expires_at = :expiry",
-            ConditionExpression="attribute_not_exists(active_job) OR active_job = :job OR active_job_expires_at < :now",
+            ConditionExpression="attribute_not_exists(active_job) OR active_job = :job",
             ExpressionAttributeValues={":job": _s(job_id), ":expiry": _n(now + 7200), ":now": _n(now)},
         )
     except Exception as exc:

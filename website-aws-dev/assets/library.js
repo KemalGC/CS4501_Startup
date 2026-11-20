@@ -317,13 +317,59 @@
     }
   }
 
+  async function saveNewName(job, value, saveButton, input, title, editor) {
+    if (!JOB_ID.test(job.job_id) || saveButton.disabled) return;
+    const name = String(value || '').trim();
+    if (!name || name.length > 128 || /[\\/]/.test(name)) {
+      setNotice('Enter a name from 1 to 128 characters without slashes.', 'error');
+      return;
+    }
+    const auth = readAuth();
+    if (!auth) { signedOut('Sign in again to rename an analysis.'); return; }
+    saveButton.disabled = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(apiBase + '/analysis/jobs/' + encodeURIComponent(job.job_id) + '/rename', {
+        method: 'POST', credentials: 'omit', cache: 'no-store',
+        headers: { Authorization: 'Bearer ' + auth.accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: name }), signal: controller.signal
+      });
+      if (response.status === 401) {
+        try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
+        signedOut('Your sign-in expired. Sign in again to rename an analysis.');
+        return;
+      }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw Error(error?.error?.message || 'Unable to save the new name.');
+      }
+      const payload = await response.json();
+      if (!payload || payload.job_id !== job.job_id || typeof payload.filename !== 'string') {
+        throw Error('Unexpected rename response.');
+      }
+      job.filename = payload.filename;
+      title.textContent = displayFilename(job.filename);
+      editor.hidden = true;
+      setNotice('Analysis renamed to ' + displayFilename(job.filename) + '.', 'success');
+    } catch (error) {
+      setNotice(error?.name === 'AbortError'
+        ? 'Rename timed out. Refresh history to check the saved name.'
+        : (error?.message || 'Unable to rename analysis.'), 'error');
+    } finally {
+      clearTimeout(timeout);
+      saveButton.disabled = false;
+    }
+  }
+
   function jobCard(job) {
     const status = statusInfo(job);
     const card = node('article', 'library-card');
     const top = node('div', 'library-card-top');
     const heading = node('div');
     heading.appendChild(node('span', 'library-card-eyebrow', 'Rowing analysis'));
-    heading.appendChild(node('h3', '', displayFilename(job.filename)));
+    const title = node('h3', '', displayFilename(job.filename));
+    heading.appendChild(title);
     const badge = node('span', 'library-badge', status.label);
     badge.dataset.tone = status.tone;
     top.appendChild(heading);
@@ -344,7 +390,32 @@
     }
     card.appendChild(details);
 
+    const editor = node('div', 'library-rename-editor');
+    editor.hidden = true;
+    const editLabel = node('label', 'library-action-note', 'New video name');
+    const editInput = node('input', 'library-rename-input');
+    editInput.type = 'text';
+    editInput.maxLength = 128;
+    editInput.value = displayFilename(job.filename);
+    editLabel.appendChild(editInput);
+    const editSave = node('button', 'library-refresh', 'Save name');
+    editSave.type = 'button';
+    const editCancel = node('button', 'library-refresh', 'Cancel');
+    editCancel.type = 'button';
+    editCancel.addEventListener('click', () => { editor.hidden = true; });
+    editSave.addEventListener('click', () => saveNewName(job, editInput.value, editSave, editInput, title, editor));
+    editor.appendChild(editLabel);
+    editor.appendChild(editSave);
+    editor.appendChild(editCancel);
+    card.appendChild(editor);
     const actions = node('div', 'library-card-actions');
+    const rename = node('button', 'library-rename-button', 'Rename');
+    rename.type = 'button';
+    rename.addEventListener('click', () => {
+      editInput.value = displayFilename(job.filename);
+      editor.hidden = !editor.hidden;
+    });
+    actions.appendChild(rename);
     const state = String(job.status || '').toLowerCase();
     const canOpen = state === 'succeeded' ? reportAvailable(job)
       : ['submitted', 'pending', 'runnable', 'starting', 'running', 'submitting'].includes(state);

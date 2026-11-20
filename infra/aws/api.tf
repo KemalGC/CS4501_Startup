@@ -93,6 +93,7 @@ locals {
     "GET /analysis/jobs/{id}",
     "POST /analysis/jobs/{id}/review",
     "POST /analysis/jobs/{id}/delete",
+    "POST /analysis/jobs/{id}/rename",
     "GET /admin/jobs",
     "GET /admin/videos/{id}",
     "GET /reports/{id}",

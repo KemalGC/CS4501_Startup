@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from .core import ApiError, AwsBackend, CONTENT_TYPES, _decode, _is_conditional, _item, _n, _s, _user_hash, aws_error_code
+from .core import ApiError, AwsBackend, CONTENT_TYPES, _decode, _is_conditional, _item, _n, _s, _user_hash, _safe_filename, aws_error_code
 
 
 _JOB_ID = re.compile(r"[a-f0-9]{32}\Z")
@@ -216,6 +216,34 @@ def list_owner_jobs(service: AwsBackend, user_id: str, query: dict[str, Any]) ->
             visible.append(public_job_view(current, service._now()))
     page["jobs"] = visible
     return page
+
+
+def rename_owned_job(service: AwsBackend, user_id: str, job_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Change only an owner-visible name, never the underlying S3 object key."""
+    if "filename" not in body:
+        raise ApiError(400, "invalid_filename", "A new video name is required")
+    filename = _safe_filename(body["filename"])
+    record = service._record(job_id, user_id)
+    if record.get("status") == "deleting":
+        raise ApiError(404, "not_found", "This analysis has been deleted")
+    timestamp = datetime.fromtimestamp(service._now(), timezone.utc).isoformat(timespec="seconds")
+    try:
+        service.ddb.update_item(
+            TableName=service.cfg.jobs_table,
+            Key={"job_id": _s(job_id)},
+            UpdateExpression="SET filename = :filename, updated_at = :updated",
+            ConditionExpression="user_id = :uid AND attribute_exists(job_id) AND #state <> :deleting",
+            ExpressionAttributeNames={"#state": "status"},
+            ExpressionAttributeValues={
+                ":filename": _s(filename), ":updated": _s(timestamp),
+                ":uid": _s(user_id), ":deleting": _s("deleting"),
+            },
+        )
+    except Exception as exc:
+        if _is_conditional(exc):
+            raise ApiError(404, "not_found", "Video or job not found") from exc
+        raise
+    return {"job_id": job_id, "filename": filename}
 
 
 def change_review_consent(service: AwsBackend, user_id: str, job_id: str, body: dict[str, Any]) -> dict[str, Any]:

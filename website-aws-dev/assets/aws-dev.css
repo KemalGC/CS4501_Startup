@@ -191,3 +191,11 @@ html[data-theme="dark"] .library-badge[data-tone="progress"] { color: #c9edff; b
 .library-delete-button:disabled { opacity: .65; cursor: wait; }
 
 #annotated-video-refresh, #annotated-video-link { margin-top: 12px; }
+
+/* Owner-scoped analysis display labels. Changing a label never renames S3 media. */
+.aws-upload-display-name { display: grid; gap: 7px; margin-top: 12px; font-size: 13px; font-weight: 700; }
+.aws-upload-display-name input,.library-rename-input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 11px; min-height: 43px; padding: 9px 12px; width: 100%; }
+.library-rename-editor { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 17px; }
+.library-rename-editor label { display: grid; flex: 1 1 220px; gap: 6px; }
+.library-rename-button { min-height: 43px; padding: 9px 17px; border: 1px solid var(--line); border-radius: 999px; background: var(--soft-blue); color: var(--ink); font-size: 13px; font-weight: 800; cursor: pointer; }
+.library-rename-button:hover { border-color: #3988b8; }

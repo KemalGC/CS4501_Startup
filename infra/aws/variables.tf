@@ -147,6 +147,13 @@ variable "worker_command" {
   description = "Container command to process one Batch job; the job input is passed through AWS Batch environment overrides."
 }
 
+
+variable "enable_paid_gpu_queue_scaffold" {
+  type        = bool
+  default     = false
+  description = "Explicit opt-in to create inert paid-GPU SQS FIFO/DLQ and disabled dispatcher Lambda plumbing. Never launches GPU compute or enables SQS consumption."
+}
+
 variable "enable_gpu" {
   type        = bool
   default     = false

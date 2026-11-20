@@ -124,6 +124,7 @@
       if (!disclosure.open || controller.signal.aborted) return;
       // The coaching report is third-party-like HTML: never interpolate it into
       // the parent DOM or grant it scripts, navigation, forms or same-origin.
+      window.StrokeSenseAutoReportFrame?.attach(frame);
       frame.srcdoc = report.report_html;
       frame.hidden = false;
       label.textContent = 'Your previous coaching report is shown below.';
@@ -183,9 +184,10 @@
       const label = item('p', 'aws-history-preview-note', 'Expand to preview the previous coaching report.');
       const frame = item('iframe', 'aws-history-report-frame');
       frame.title = 'Previous private StrokeSense report for ' + filename(job.filename);
-      frame.setAttribute('sandbox', '');
+      frame.setAttribute('sandbox', 'allow-same-origin');
       frame.setAttribute('referrerpolicy', 'no-referrer');
       frame.setAttribute('loading', 'lazy');
+      frame.setAttribute('scrolling', 'no');
       frame.hidden = true;
       content.appendChild(label);
       content.appendChild(frame);

@@ -13,7 +13,8 @@ test('staging CSP permits the sandboxed report frame and inline report styles', 
   assert.match(policy, /(?:^|;\s*)style-src [^;]*'unsafe-inline'/);
   assert.match(policy, /(?:^|;\s*)script-src 'self'(?:;|$)/);
   assert.match(policy, /(?:^|;\s*)frame-ancestors 'none'(?:;|$)/);
-  assert.match(dashboard, /<iframe[^>]*\bsandbox=""/);
+  assert.match(dashboard, /<iframe[^>]*\bsandbox="allow-same-origin"/);
+  assert.doesNotMatch(dashboard, /sandbox="[^"]*allow-scripts/);
 });
 
 test('report preview requires matching schema/job, keeps its frame sandboxed', () => {
@@ -22,5 +23,5 @@ test('report preview requires matching schema/job, keeps its frame sandboxed', (
   assert.match(client, /ui\.reportFrame\.srcdoc = document\.report_html/);
   assert.match(client, /new Blob\(\[document\.report_html\]/);
   assert.match(client, /ui\.download\.click\(\)/);
-  assert.doesNotMatch(dashboard, /sandbox="[^"]+"/);
+  assert.doesNotMatch(dashboard, /sandbox="[^"]*allow-scripts/);
 });

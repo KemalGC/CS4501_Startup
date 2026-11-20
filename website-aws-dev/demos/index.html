@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/assets/aws-dev.css">
   <script src="/assets/site.js" defer></script>
   <script src="/assets/aws-config.js" defer></script>
+  <script src="/assets/report-frame.js" defer></script>
   <script src="/assets/aws-client.js" defer></script>
   <script src="/assets/recent-analyses.js" defer></script>
   <script src="/assets/report-media.js" type="module"></script>
@@ -94,12 +95,13 @@
                 <h4>Annotated video playback</h4>
                 <video id="annotated-video" controls playsinline preload="metadata" aria-label="Your private annotated rowing video" hidden></video>
                 <p id="annotated-video-note" role="status">Annotated video availability is being checked.</p>
+                <div class="aws-history-actions"><button id="annotated-video-refresh" class="aws-button aws-button-outline" type="button" hidden>Refresh video access</button><a id="annotated-video-link" class="aws-button aws-button-outline" href="#" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank" hidden>Open / download annotated video</a></div>
               </div>
             </section>
             <div id="report-preview" class="aws-report-preview" hidden>
               <h4>Technique report</h4>
               <p>CPU-measured coaching cues are preliminary and have not been verified by a rowing coach.</p>
-              <iframe id="report-frame" title="StrokeSense private technique report" sandbox="" referrerpolicy="no-referrer" loading="lazy"></iframe>
+              <iframe id="report-frame" title="StrokeSense private technique report" sandbox="allow-same-origin" scrolling="no" referrerpolicy="no-referrer" loading="lazy"></iframe>
             </div>
           </div>
         </section>

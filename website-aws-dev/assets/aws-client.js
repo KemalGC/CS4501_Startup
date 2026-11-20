@@ -424,6 +424,7 @@
           if (document.schema_version !== 'strokesense-free-report-v1' ||
               document.job_id !== jobId || typeof document.report_html !== 'string' ||
               document.report_html.length > 24 * 1024 * 1024) throw Error('preview_unavailable');
+          window.StrokeSenseAutoReportFrame?.attach(ui.reportFrame);
           ui.reportFrame.srcdoc = document.report_html;
           ui.reportPreview.hidden = false;
           downloadedReportUrl = URL.createObjectURL(new Blob([document.report_html], {

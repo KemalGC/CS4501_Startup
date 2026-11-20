@@ -71,6 +71,7 @@ test('the analyzer page wires consent and a securely embedded media viewer', () 
   assert.match(client, /\/artifacts'/);
   assert.match(viewer, /window\.StrokeSenseMediaViewer = \{ render: renderMedia, clear: clearMedia \}/);
   assert.match(csp, /img-src [^;]*https:\/\/\*\.s3\.us-east-1\.amazonaws\.com/);
-  assert.match(page, /<iframe[^>]*\bsandbox=""/);
+  assert.match(page, /<iframe[^>]*\bsandbox="allow-same-origin"/);
+  assert.doesNotMatch(page, /<iframe[^>]*\bsandbox="[^"]*allow-scripts/);
   assert.doesNotMatch(viewer, /innerHTML\s*=/);
 });

@@ -63,7 +63,7 @@ html[data-theme="dark"] .aws-progress-stages span.is-complete { color: #85e1c0; 
 .aws-result .aws-button { margin-top: 7px; }
 .aws-report-preview { margin-top: 22px; }
 .aws-report-preview h4 { margin: 0 0 5px; color: var(--ink); }
-.aws-report-preview iframe { display: block; width: 100%; height: 720px; max-height: 80vh; border: 1px solid #b6cbd4; border-radius: 12px; background: #fff; }
+.aws-report-preview iframe { display: block; width: 100%; height: 720px; max-height: none; overflow: hidden; border: 1px solid #b6cbd4; border-radius: 12px; background: #fff; }
 .aws-admin-review-choice { display: flex; gap: 13px; align-items: flex-start; margin-top: 19px; padding: 17px 19px; border-radius: 16px; border: 1px solid var(--line); background: var(--soft); cursor: pointer; }
 .aws-admin-review-choice input { flex: 0 0 auto; width: 20px; height: 20px; margin: 3px 0 0; accent-color: #0b6297; }
 .aws-admin-review-choice > span { display: flex; flex-direction: column; gap: 7px; }
@@ -109,7 +109,7 @@ html[data-theme="dark"] .aws-progress-stages span.is-complete { color: #85e1c0; 
 .aws-history-meta,.aws-history-preview-note { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
 .aws-history-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .aws-history-actions .aws-button { font-size: 12px; padding: 10px 15px; text-decoration: none; }
-.aws-history-report-frame { display: block; width: 100%; height: min(800px, 85vh); border: 1px solid var(--line); border-radius: 12px; background: white; }
+.aws-history-report-frame { display: block; width: 100%; height: 720px; max-height: none; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .aws-history-report-frame[hidden] { display: none; }
 html[data-theme="dark"] .aws-history-state[data-tone="ready"] { color: #73e3b3; }
 html[data-theme="dark"] .aws-history-state[data-tone="progress"] { color: #88d9ff; }
@@ -189,3 +189,5 @@ html[data-theme="dark"] .library-badge[data-tone="progress"] { color: #c9edff; b
 .library-delete-button:hover:not(:disabled) { background: var(--soft); }
 .library-delete-button:focus-visible { outline: 3px solid #3988b8; outline-offset: 3px; }
 .library-delete-button:disabled { opacity: .65; cursor: wait; }
+
+#annotated-video-refresh, #annotated-video-link { margin-top: 12px; }

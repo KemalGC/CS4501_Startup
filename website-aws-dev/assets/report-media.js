@@ -10,6 +10,71 @@ const rowerHeading = document.getElementById('rower-media-current');
 const rowerHint = document.getElementById('rower-media-source');
 const video = document.getElementById('annotated-video');
 const videoNote = document.getElementById('annotated-video-note');
+const videoOpenLink = document.getElementById('annotated-video-link');
+const videoRetry = document.getElementById('annotated-video-refresh');
+let currentMediaJob = '';
+let activeLinkExpiry = 0;
+let renewing = false;
+
+function currentAccessToken() {
+  try {
+    const auth = JSON.parse(sessionStorage.getItem('strokesense-aws-dev-auth') || 'null');
+    return auth?.expiresAt > Date.now() + 15_000 ? auth.accessToken : '';
+  } catch (_) { return ''; }
+}
+function validSecureMediaUrl(value) {
+  try {
+    const url = new URL(value);
+    const bucket = 'strokesense-aws-dev-851226124502-us-east-1';
+    const hosts = [bucket + '.s3.us-east-1.amazonaws.com', bucket + '.s3.amazonaws.com'];
+    return url.protocol === 'https:' && hosts.includes(url.hostname.toLowerCase()) &&
+      !url.username && !url.password && !url.hash && url.searchParams.has('X-Amz-Signature') &&
+      url.pathname.endsWith('/annotated.mp4') ? url.href : '';
+  } catch (_) { return ''; }
+}
+function setVideoLink(url, expiresIn) {
+  const safe = validSecureMediaUrl(url);
+  if (!safe) return false;
+  video.src = safe;
+  video.hidden = false;
+  video.load();
+  if (videoOpenLink) { videoOpenLink.href = safe; videoOpenLink.hidden = false; }
+  activeLinkExpiry = Date.now() + Math.max(1, Math.min(900, Number(expiresIn) || 60)) * 1000;
+  videoNote.textContent = 'Annotated video ready. If playback stops, select Refresh video access or Open / download annotated video.';
+  return true;
+}
+async function refreshAnnotatedVideo() {
+  if (!currentMediaJob || renewing || !videoNote) return;
+  const accessToken = currentAccessToken();
+  if (!accessToken) { videoNote.textContent = 'Sign in again to refresh your private annotated video.'; return; }
+  const api = window.STROKESENSE_AWS_CONFIG?.apiBaseUrl;
+  let origin;
+  try { const address = new URL(api); if (address.protocol !== 'https:') throw Error(); origin = address.origin; }
+  catch (_) { videoNote.textContent = 'The private video service is not configured.'; return; }
+  renewing = true;
+  if (videoRetry) videoRetry.disabled = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(origin + '/reports/' + encodeURIComponent(currentMediaJob) + '/artifacts', {
+      method: 'GET', credentials: 'omit', cache: 'no-store',
+      headers: { Authorization: 'Bearer ' + accessToken }, signal: controller.signal
+    });
+    if (!response.ok) throw Error('Unable to refresh video access. The annotated video may have expired.');
+    const payload = await response.json();
+    if (!payload || payload.job_id !== currentMediaJob || !setVideoLink(payload.video_url, payload.expires_in)) {
+      throw Error('No annotated video was saved for this analysis.');
+    }
+  } catch (error) { videoNote.textContent = error?.message || 'Could not refresh video access.'; }
+  finally { clearTimeout(timeout); renewing = false; if (videoRetry) videoRetry.disabled = false; }
+}
+if (videoRetry) videoRetry.addEventListener('click', () => void refreshAnnotatedVideo());
+if (video) video.addEventListener('error', () => {
+  if (video.hidden || !videoNote) return;
+  videoNote.textContent = Date.now() >= activeLinkExpiry
+    ? 'The temporary video link has expired. Select Refresh video access.'
+    : 'Playback failed. Try Refresh video access, or use Open / download annotated video. If neither works, this report may not contain a playable video.';
+});
 
 function clearMedia() {
   if (!section) return;
@@ -28,6 +93,10 @@ function clearMedia() {
     video.load(); // Release any earlier private video request.
   }
   if (videoNote) videoNote.textContent = '';
+  currentMediaJob = '';
+  activeLinkExpiry = 0;
+  if (videoOpenLink) { videoOpenLink.hidden = true; videoOpenLink.removeAttribute('href'); }
+  if (videoRetry) videoRetry.hidden = true;
 }
 
 function renderFrames(rower) {
@@ -99,6 +168,7 @@ function renderMedia(reportDocument, artifacts, reportDownloadUrl) {
   if (!section || !tabs || !strip || !rowerHeading || !rowerHint || !video || !videoNote) return;
   clearMedia();
   const structured = normalizeMediaArtifacts(artifacts, reportDownloadUrl);
+  currentMediaJob = /^[a-f0-9]{32}$/.test(artifacts?.job_id) ? artifacts.job_id : '';
   const containsStructuredFrames = structured.rowers.some(rower => rower.frames.length);
   const rowers = containsStructuredFrames ? structured.rowers :
     extractLegacyReportFrames(reportDocument?.report_html, reportDocument?.metrics?.rowers);
@@ -119,12 +189,11 @@ function renderMedia(reportDocument, artifacts, reportDownloadUrl) {
       : 'Browse still frames embedded in this report. Track labels are model IDs, not verified seat numbers.';
   showRowers(rowers);
 
-  if (structured.videoUrl) {
-    video.src = structured.videoUrl;
-    video.hidden = false;
-    videoNote.textContent = 'Private annotated video is available for this report. The secure playback link is temporary.';
+  if (structured.videoUrl && setVideoLink(structured.videoUrl, artifacts?.expires_in)) {
+    if (videoRetry) videoRetry.hidden = false;
   } else {
-    videoNote.textContent = 'Annotated video is not available for this report yet. You can still explore the still frames above.';
+    videoNote.textContent = 'No annotated video was saved for this analysis, or the video has expired. You can still explore the report frames.';
+    if (videoRetry && currentMediaJob) videoRetry.hidden = false;
   }
   section.hidden = false;
 }

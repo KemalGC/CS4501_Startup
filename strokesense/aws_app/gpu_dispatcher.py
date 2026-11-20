@@ -203,7 +203,7 @@ def dispatch_gpu_task(
             Key={"user_id": _s(GPU_LOCK_ID)},
             UpdateExpression="SET active_job = :job, active_job_expires_at = :expiry",
             ConditionExpression="attribute_not_exists(active_job) OR active_job = :job",
-            ExpressionAttributeValues={":job": _s(job_id), ":expiry": _n(now + 7200), ":now": _n(now)},
+            ExpressionAttributeValues={":job": _s(job_id), ":expiry": _n(now + 7200)},
         )
     except Exception as exc:
         if _is_conditional(exc):

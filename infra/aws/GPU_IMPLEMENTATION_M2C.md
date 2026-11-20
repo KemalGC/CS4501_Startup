@@ -2,13 +2,13 @@
 
 **Stage only.** This is not a deployment or approval to incur GPU charges.
 Milestone 2C is added to draft PR #163. Terraform still rejects
-\`enable_gpu=true\` and defaults it to false; all new EC2/ECS/AMI/IAM/S3
-resources therefore have \`count=0\`. The paid queue and reconcile Lambda
+`enable_gpu=true` and defaults it to false; all new EC2/ECS/AMI/IAM/S3
+resources therefore have `count=0`. The paid queue and reconcile Lambda
 remain disabled separately, and the API cannot submit paid jobs.
 
 ## Changes
 
-- Fixed ECS \`RunTask\` networking. An ECS EC2 task using \`awsvpc\`
+- Fixed ECS `RunTask` networking. An ECS EC2 task using `awsvpc`
   receives **no public IP**. Only the ASG EC2 host is configured with a
   public IP for ECS agent, ECR image pulling and logs.
 - Rejected stale-slot stealing: an active lock cannot be replaced just because
@@ -18,7 +18,7 @@ remain disabled separately, and the API cannot submit paid jobs.
   launch template, separate worker IAM/S3 permissions, task definition, log
   group and S3 gateway VPC endpoint. This is **not ECS Managed Instances**:
   the capacity provider uses a one-instance Auto Scaling Group.
-- The ASG has \`min=0, desired=0, max=1\`, uses the maintained ECS GPU-optimized
+- The ASG has `min=0, desired=0, max=1`, uses the maintained ECS GPU-optimized
   Amazon Linux 2023 AMI, and cannot scale beyond **one** g6f.xlarge instance.
   The proposed task reserves **2 vCPU, 8 GiB RAM and GPU=0.125**; the host has
   4 vCPU/16 GiB, leaving overhead for the ECS agent. GPU VRAM remains only
@@ -33,7 +33,7 @@ remain disabled separately, and the API cannot submit paid jobs.
 
 ## Hardware and billing review
 
-Candidate: \`g6f.xlarge\` in \`us-east-1\`: NVIDIA L4 1/8 slice (~3 GB VRAM),
+Candidate: `g6f.xlarge` in `us-east-1`: NVIDIA L4 1/8 slice (~3 GB VRAM),
 4 vCPU, 16 GiB host RAM. A third-party catalog currently lists about
 **$0.2375 per instance hour** for On-Demand EC2. This is only an indicative
 estimate, **not an AWS quote**. A 30-minute billed lifetime would be roughly
@@ -50,9 +50,9 @@ also has a nonzero delay. No promise of zero idle cost until measured.
 
 ## Still blocked before any real NVIDIA GPU run
 
-1. Run \`terraform fmt -check\`, \`terraform validate\`, the no-GPU-default
+1. Run `terraform fmt -check`, `terraform validate`, the no-GPU-default
    safety regression tests and all backend tests in CI; inspect a saved
-   operator-side \`terraform plan\` using existing encrypted state.
+   operator-side `terraform plan` using existing encrypted state.
 2. Review real AWS costs/quotas, AZ, IAM, subnet and S3 VPC endpoint access.
    Validate the ECS cluster's cold start from **0 to at most 1** instance.
 3. Build, scan, pin and benchmark a CUDA/cuDNN image; test that ONNX actually
@@ -64,7 +64,7 @@ also has a nonzero delay. No promise of zero idle cost until measured.
    credit settlement, queued retries and private 30-day paid-report UI.
 5. Require explicit user approval for a **single manual hardware preflight**
    and a hard external spend/instance shutoff procedure. Only a separate
-   reviewed change may remove the \`enable_gpu\` safety validation, apply
+   reviewed change may remove the `enable_gpu` safety validation, apply
    infrastructure, enable queue delivery or billing. This PR stays draft.
 
 ## Reference documentation

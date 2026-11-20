@@ -131,6 +131,9 @@ class GpuDispatcherTests(unittest.TestCase):
         self.assertEqual(fields["STROKESENSE_PAID_GPU_WORKER_ENABLED"], "true")
         self.assertEqual(fields["STROKESENSE_REPORT_KEY"], self.store.jobs[self.id]["report_key"])
         self.assertEqual(self.store.accounts[GPU_LOCK_ID]["active_job"], self.id)
+        lock_write = next(call for call in self.store.calls if call["TableName"] == "users")
+        self.assertNotIn(":now", lock_write["ExpressionAttributeValues"])
+        self.assertNotIn("active_job_expires_at <", lock_write["ConditionExpression"])
         # Duplicate FIFO delivery after persisted task must not start a second task.
         again = dispatch_gpu_task(self.service, self.ecs, self.config, self.id)
         self.assertEqual(again, outcome)

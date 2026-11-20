@@ -222,6 +222,8 @@ def rename_owned_job(service: AwsBackend, user_id: str, job_id: str, body: dict[
     """Change only an owner-visible name, never the underlying S3 object key."""
     if "filename" not in body:
         raise ApiError(400, "invalid_filename", "A new video name is required")
+    if body["filename"] is None:
+        raise ApiError(400, "invalid_filename", "A new video name is required")
     filename = _safe_filename(body["filename"])
     record = service._record(job_id, user_id)
     if record.get("status") == "deleting":

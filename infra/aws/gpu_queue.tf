@@ -23,15 +23,15 @@ resource "aws_sqs_queue" "gpu_jobs" {
   sqs_managed_sse_enabled     = true
   message_retention_seconds   = 604800
   visibility_timeout_seconds  = 180
-  redrive_policy              = jsonencode({
+  redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.gpu_dead_letter[0].arn
     maxReceiveCount     = 5
   })
 }
 
 resource "aws_sqs_queue_redrive_allow_policy" "gpu_dead_letter" {
-  count                = var.enable_paid_gpu_queue_scaffold ? 1 : 0
-  queue_url            = aws_sqs_queue.gpu_dead_letter[0].id
+  count     = var.enable_paid_gpu_queue_scaffold ? 1 : 0
+  queue_url = aws_sqs_queue.gpu_dead_letter[0].id
   redrive_allow_policy = jsonencode({
     redrivePermission = "byQueue"
     sourceQueueArns   = [aws_sqs_queue.gpu_jobs[0].arn]

@@ -1,7 +1,7 @@
 # Milestone 2C: review-only, cost-bounded ECS EC2 GPU capacity blueprint.
-# Every resource and data lookup has count=0 because enable_gpu is permanently
-# rejected by variables.tf. Nothing in this file authorizes deploying GPU.
-# Separate reviewed change + explicit cost approval required to remove that gate.
+# Default remains count=0. enable_gpu is only allowed in a separately
+# acknowledged operator-only GPU smoke mode, which disables paid dispatch,
+# billing and ECS automatic scaling. See GPU_SMOKE_M3.md before ANY apply.
 
 resource "aws_ecs_cluster" "gpu" {
   count = var.enable_gpu ? 1 : 0

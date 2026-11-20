@@ -1,4 +1,7 @@
-# GPU milestone 2C — zero-resource ECS capacity blueprint (draft)
+# GPU milestone 2C — zero-resource ECS capacity blueprint (historical)
+
+> Superseded for isolated manual preflight by GPU_SMOKE_M3.md. Paid GPU remains disabled.
+
 
 **Stage only.** This is not a deployment or approval to incur GPU charges.
 Milestone 2C is added to draft PR #163. Terraform still rejects

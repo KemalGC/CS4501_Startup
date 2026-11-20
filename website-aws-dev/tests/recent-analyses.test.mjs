@@ -79,7 +79,7 @@ test('analyzer has an accessible expandable owner-only previous analyses section
   assert.match(pageHtml, /id="recent-analyses-list"/);
   assert.match(pageHtml, /src="\/assets\/recent-analyses\.js"/);
   assert.match(client, /StrokeSenseRecentAnalyses\?\.notifySubmitted\(upload\.video_id, chosenName, 'uploading'\)/);
-  assert.match(client, /StrokeSenseRecentAnalyses\?\.notifySubmitted\(job\.job_id, sourceFile\.name\)/);
+  assert.match(client, /StrokeSenseRecentAnalyses\?\.notifySubmitted\(job\.job_id, chosenName\)/);
   assert.match(client, /StrokeSenseRecentAnalyses\?\.notifyCompleted\(jobId\)/);
   assert.match(client, /finishSignIn\(\)\.then\(\(\) => \{[\s\S]*?StrokeSenseRecentAnalyses\?\.refresh\(\)/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);

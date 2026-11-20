@@ -106,6 +106,17 @@ resource "aws_launch_template" "gpu" {
   instance_type = "g6f.xlarge" # Fixed: 4 vCPU, 16 GiB RAM, 0.125 L4 / 3 GB VRAM
   ebs_optimized = true
 
+  # Bounded boot/image cache space for CUDA/ONNX video processing.
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 80
+      volume_type           = "gp3"
+      encrypted             = true
+      delete_on_termination = true
+    }
+  }
+
   iam_instance_profile {
     arn = aws_iam_instance_profile.gpu_ec2[0].arn
   }
@@ -141,7 +152,8 @@ resource "aws_autoscaling_group" "gpu" {
   min_size              = 0
   max_size              = 1
   desired_capacity      = 0
-  protect_from_scale_in = true
+  # Smoke mode must allow explicit operator shutdown of the instance.
+  protect_from_scale_in = !var.gpu_smoke_mode
   health_check_type     = "EC2"
   vpc_zone_identifier   = [var.gpu_subnet_id]
 
@@ -171,10 +183,10 @@ resource "aws_ecs_capacity_provider" "gpu" {
 
   auto_scaling_group_provider {
     auto_scaling_group_arn         = aws_autoscaling_group.gpu[0].arn
-    managed_termination_protection = "ENABLED"
+    managed_termination_protection = var.gpu_smoke_mode ? "DISABLED" : "ENABLED"
 
     managed_scaling {
-      status                    = "ENABLED"
+      status                    = var.gpu_smoke_mode ? "DISABLED" : "ENABLED"
       target_capacity           = 100
       minimum_scaling_step_size = 1
       maximum_scaling_step_size = 1
@@ -309,4 +321,44 @@ resource "aws_iam_role_policy" "gpu_dispatch_launch" {
   name   = format("%s-gpu-approved-launch-only", local.prefix)
   role   = aws_iam_role.gpu_dispatcher[0].id
   policy = data.aws_iam_policy_document.gpu_dispatch_launch[0].json
+}
+
+# Smoke task uses the same reviewed CUDA image but requires no customer data
+# or GPU worker entitlement. Run manually once, then STOP and scale ASG to 0.
+resource "aws_ecs_task_definition" "gpu_preflight" {
+  count                    = var.enable_gpu && var.gpu_smoke_mode ? 1 : 0
+  family                   = format("%s-gpu-preflight", local.prefix)
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["EC2"]
+  cpu                      = "2048"
+  memory                   = "8192"
+  execution_role_arn       = aws_iam_role.batch_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "gpu-preflight"
+      image     = var.gpu_worker_image_uri
+      essential = true
+      cpu       = 2048
+      memory    = 8192
+      command   = ["python3", "-m", "aws_app.gpu_preflight", "--model", "/app/models/yolo11n-pose.onnx"]
+      resourceRequirements = [
+        { type = "GPU", value = "0.125" }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.gpu_worker[0].name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "gpu-preflight"
+        }
+      }
+    }
+  ])
+  lifecycle {
+    precondition {
+      condition     = can(regex("@sha256:[a-f0-9]{64}$", var.gpu_worker_image_uri))
+      error_message = "Pin the reviewed CUDA worker image by ECR sha256 digest before GPU smoke launch."
+    }
+  }
 }

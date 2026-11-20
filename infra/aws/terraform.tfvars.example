@@ -60,3 +60,20 @@ terminal_job_record_grace_days = 7
 # google_oauth_client_id is safe to expose in a web client, but Terraform treats
 # it as sensitive along with the private google_oauth_client_secret. Supply both
 # through environment variables, not committed .tfvars files.
+
+# GPU smoke is deliberately commented out and must be locally approved.
+# First create only the ECR repo, then build/push a reviewed CUDA image and pin
+# its digest. No GPU EC2 instances are created by enable_gpu_image_repository.
+# enable_gpu_image_repository = true
+#
+# NEXT (separate reviewed Terraform plan with explicit cost approval):
+# enable_gpu          = true
+# gpu_smoke_mode      = true
+# gpu_smoke_approval  = "I_APPROVE_ONE_G6F_SMOKE_INSTANCE"
+# gpu_subnet_id       = "subnet-<reviewed-value>"
+# gpu_s3_route_table_ids = ["rtb-<reviewed-value>"]
+# gpu_worker_image_uri   = "<account-id>.dkr.ecr.us-east-1.amazonaws.com/<repo>@sha256:<verified-digest>"
+#
+# Applying these values creates INERT GPU infrastructure with ASG desired=0.
+# A separate operator-only command starts 1 EC2 host and a preflight task.
+# GPU paid billing/queue flags MUST stay OFF and have separate review gates.

@@ -102,11 +102,11 @@ resource "aws_lambda_function" "gpu_reconcile" {
       PAID_BILLING_ENABLED      = "false"
       PAID_GPU_ENABLED          = "false"
       GPU_DISPATCH_READY        = "false"
-      GPU_ECS_CLUSTER           = ""
-      GPU_ECS_TASK_DEFINITION   = ""
-      GPU_ECS_CAPACITY_PROVIDER = ""
-      GPU_SUBNET_IDS            = ""
-      GPU_SECURITY_GROUP_IDS    = ""
+      GPU_ECS_CLUSTER           = try(aws_ecs_cluster.gpu[0].arn, "")
+      GPU_ECS_TASK_DEFINITION   = try(aws_ecs_task_definition.gpu[0].arn, "")
+      GPU_ECS_CAPACITY_PROVIDER = try(aws_ecs_capacity_provider.gpu[0].name, "")
+      GPU_SUBNET_IDS            = var.enable_gpu ? var.gpu_subnet_id : ""
+      GPU_SECURITY_GROUP_IDS    = try(aws_security_group.gpu_task[0].id, "")
     }
   }
 

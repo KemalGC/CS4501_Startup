@@ -7,3 +7,6 @@
 # image. An ordinary CPU ONNX Runtime + llama-cpp-python image will not use GPU
 # merely because a GPU EC2 instance exists. See GPU_PLAN.md before adding
 # AWS ECS Managed Instances / GPU-optimized EC2 Auto Scaling Group resources.
+
+# See GPU_IMPLEMENTATION_M2C.md and the permanently-inert gpu_capacity.tf
+# for a max-one-instance EC2 capacity design. It cannot be applied yet.

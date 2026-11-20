@@ -306,3 +306,35 @@ variable "daily_budget_usd" {
     error_message = "daily_budget_usd must be positive."
   }
 }
+
+# Explicitly reviewed hardware network/image inputs. These are inert while
+# enable_gpu is permanently blocked by the guard above.
+variable "gpu_subnet_id" {
+  type        = string
+  default     = ""
+  description = "One approved existing public subnet for the GPU EC2 host. Blank by default."
+  validation {
+    condition     = var.gpu_subnet_id == "" || can(regex("^subnet-[0-9a-f]{8,17}$", var.gpu_subnet_id))
+    error_message = "Use an AWS subnet ID; do not enable GPU without confirming its routing."
+  }
+}
+
+variable "gpu_s3_route_table_ids" {
+  type        = list(string)
+  default     = []
+  description = "Reviewed S3 Gateway VPC Endpoint route tables for the GPU task subnet."
+  validation {
+    condition     = length(var.gpu_s3_route_table_ids) <= 5 && alltrue([for id in var.gpu_s3_route_table_ids : can(regex("^rtb-[0-9a-f]{8,17}$", id))])
+    error_message = "Provide at most five valid route table IDs."
+  }
+}
+
+variable "gpu_worker_image_uri" {
+  type        = string
+  default     = ""
+  description = "ECR CUDA image URI pinned to an audited sha256 digest, never a mutable tag."
+  validation {
+    condition     = var.gpu_worker_image_uri == "" || can(regex("@sha256:[a-f0-9]{64}$", var.gpu_worker_image_uri))
+    error_message = "GPU worker image must use an immutable sha256 digest."
+  }
+}

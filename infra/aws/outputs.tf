@@ -90,7 +90,7 @@ output "gpu_smoke_capacity_provider" {
   description = "Manual-scaling capacity provider for one-instance preflight."
 }
 output "gpu_smoke_task_security_group" {
-  value       = try(aws_security_group.gpu_task[0].id, null)
+  value = try(aws_security_group.gpu_task[0].id, null)
 }
 
 output "gpu_smoke_subnet_id" {

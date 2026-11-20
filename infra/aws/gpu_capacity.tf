@@ -147,11 +147,11 @@ resource "aws_launch_template" "gpu" {
 }
 
 resource "aws_autoscaling_group" "gpu" {
-  count                 = var.enable_gpu ? 1 : 0
-  name                  = format("%s-gpu-one-instance", local.prefix)
-  min_size              = 0
-  max_size              = 1
-  desired_capacity      = 0
+  count            = var.enable_gpu ? 1 : 0
+  name             = format("%s-gpu-one-instance", local.prefix)
+  min_size         = 0
+  max_size         = 1
+  desired_capacity = 0
   # Smoke mode must allow explicit operator shutdown of the instance.
   protect_from_scale_in = !var.gpu_smoke_mode
   health_check_type     = "EC2"

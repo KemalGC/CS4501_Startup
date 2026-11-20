@@ -57,7 +57,9 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
         available = ort.get_available_providers()
         if GPU_PROVIDER not in available:
             raise GpuPreflightError("cuda_provider_unavailable")
-        session = ort.InferenceSession(str(model), providers=[GPU_PROVIDER])
+        options = ort.SessionOptions()
+        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        session = ort.InferenceSession(str(model), options, providers=[GPU_PROVIDER])
         active = session.get_providers()
         if not isinstance(active, list) or not active or active[0] != GPU_PROVIDER:
             raise GpuPreflightError("cuda_provider_not_active")

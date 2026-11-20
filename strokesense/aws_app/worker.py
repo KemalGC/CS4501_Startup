@@ -58,10 +58,10 @@ def _require_config(env: Mapping[str, str]) -> tuple[str, str, str, str]:
     return bucket, input_key, report_key, Path(input_key).suffix
 
 
-def _download_bounded(s3: Any, bucket: str, key: str, destination: Path) -> None:
+def _download_bounded(s3: Any, bucket: str, key: str, destination: Path, *, max_bytes: int = FREE_MAX_VIDEO_BYTES) -> None:
     metadata = s3.head_object(Bucket=bucket, Key=key)
     length = metadata.get("ContentLength")
-    if type(length) is not int or not 0 < length <= FREE_MAX_VIDEO_BYTES:
+    if type(max_bytes) is not int or max_bytes < 1 or type(length) is not int or not 0 < length <= max_bytes:
         raise WorkerError("invalid_media_size")
     stream = s3.get_object(Bucket=bucket, Key=key).get("Body")
     if stream is None or not callable(getattr(stream, "read", None)):
@@ -70,13 +70,13 @@ def _download_bounded(s3: Any, bucket: str, key: str, destination: Path) -> None
     try:
         with destination.open("xb") as output:
             while True:
-                chunk = stream.read(min(1024 * 1024, FREE_MAX_VIDEO_BYTES + 1 - received))
+                chunk = stream.read(min(1024 * 1024, max_bytes + 1 - received))
                 if not chunk:
                     break
                 if not isinstance(chunk, bytes):
                     raise WorkerError("invalid_media_stream")
                 received += len(chunk)
-                if received > FREE_MAX_VIDEO_BYTES:
+                if received > max_bytes:
                     raise WorkerError("invalid_media_size")
                 output.write(chunk)
     finally:
@@ -117,7 +117,7 @@ def _bounded_file(path: Path, root: Path, max_bytes: int) -> bytes:
     return contents
 
 
-def _report_payload(results: Path, job_id: str) -> bytes:
+def _report_payload(results: Path, job_id: str, *, tier: str = "free") -> bytes:
     # Every task has a fresh temporary root. A missing/duplicated result cannot
     # become a successful Batch job, even if a subprocess exits with zero.
     reports = list(results.rglob("report.html"))
@@ -140,12 +140,15 @@ def _report_payload(results: Path, job_id: str) -> bytes:
         and len(rower["strokes"]) > 0 for rower in metrics["rowers"]
     ):
         raise WorkerError("no_usable_strokes")
+    if tier not in ("free", "paid"):
+        raise WorkerError("invalid_analysis_tier")
     data = {
-        "schema_version": "strokesense-free-report-v1",
+        "schema_version": "strokesense-free-report-v1" if tier == "free" else "strokesense-paid-report-v1",
         "job_id": job_id,
-        "tier": "free",
+        "tier": tier,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "analysis_method": "CPU ONNX pose tracking and measured rowing technique",
+        "analysis_method": ("CPU ONNX pose tracking and measured rowing technique" if tier == "free" else
+                            "CUDA ONNX pose tracking and measured rowing technique (not coach validated)"),
         "coach_validated": False,
         "report_html": html,  # already self-contained with charts and photos
         "metrics": metrics,

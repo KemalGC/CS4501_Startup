@@ -274,7 +274,9 @@ class AwsBackend:
                 "ConditionExpression": "attribute_not_exists(job_id)",
             }})
         else:
-            expected_states = ("uploading", "uploaded") if operation == "refund" and next_state == "aborted" else ("submitted",)
+            expected_states = (("uploading", "uploaded") if operation == "refund" and next_state == "aborted"
+                               else ("gpu_submitted",) if record.get("tier") == "paid"
+                               else ("submitted",))
             values = {":uid": _s(record["user_id"]), ":next": _s(next_state), ":updated": _s(_utc_now())}
             clauses = []
             for idx, value in enumerate(expected_states):

@@ -1,0 +1,15 @@
+# GPU prototype, does not launch AWS compute or enable paid billing.
+# Supply an operator-reviewed CUDA/cuDNN image PINNED BY SHA256 digest.
+ARG CUDA_BASE_IMAGE
+FROM ${CUDA_BASE_IMAGE}
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/strokesense-mpl HOME=/tmp PYTHONPATH=/app
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ffmpeg libgomp1 libglib2.0-0 ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY requirements-hosted.txt requirements-aws-gpu.txt ./
+RUN python3 -m pip install --no-cache-dir -r requirements-aws-gpu.txt
+COPY strokesense/ ./strokesense/
+COPY aws_app/ ./aws_app/
+RUN python3 -c "from strokesense.pose import ensure_model; from aws_app.gpu_model_integrity import verify_gpu_model; p = ensure_model(); verify_gpu_model(p)" && chmod -R a+rX /app/models
+USER 10001:10001
+# Worker fails closed until ECS injects STROKESENSE_PAID_GPU_WORKER_ENABLED=true
+CMD ["python3", "-m", "aws_app.gpu_worker"]

@@ -81,13 +81,26 @@ class PoseDetector:
     def __init__(self, model_path: Path | str = DEFAULT_MODEL, conf: float = 0.25, iou: float = 0.5, *, threads: int | None = None):
         import onnxruntime as ort
         model_path = ensure_model(Path(model_path))
-        providers = [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider")
-                     if p in ort.get_available_providers()] + ["CPUExecutionProvider"]
+        require_cuda = os.getenv("STROKESENSE_REQUIRE_CUDA", "") == "1"
+        if require_cuda and "CUDAExecutionProvider" not in ort.get_available_providers():
+            raise RuntimeError("cuda_provider_unavailable")
+        providers = (["CUDAExecutionProvider"] if require_cuda else
+                     [p for p in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider")
+                      if p in ort.get_available_providers()] + ["CPUExecutionProvider"])
         opts = ort.SessionOptions()
+        if require_cuda:
+            # Disallow both CPU graph-node fallback and session.run() fallback.
+            # A model with unsupported CUDA nodes must fail at load, not charge
+            # a premium GPU job that actually runs its inference on CPU.
+            opts.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
         if threads is not None and (type(threads) is not int or not 1 <= threads <= 64):
             raise ValueError('threads must be an integer from 1 to 64')
         opts.intra_op_num_threads = threads if threads is not None else max(1, (os.cpu_count() or 2))
         self.sess = ort.InferenceSession(str(model_path), opts, providers=providers)
+        if require_cuda:
+            if not self.sess.get_providers() or self.sess.get_providers()[0] != "CUDAExecutionProvider":
+                raise RuntimeError("cuda_provider_not_active")
+            self.sess.disable_fallback()
         self.inp = self.sess.get_inputs()[0].name
         self.size = 640
         self.conf, self.iou = conf, iou

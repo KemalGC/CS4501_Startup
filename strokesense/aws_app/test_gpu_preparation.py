@@ -134,6 +134,7 @@ class GpuRuntimePreparationTests(unittest.TestCase):
     def ort(available, active):
         return SimpleNamespace(
             get_available_providers=lambda: available,
+            SessionOptions=lambda: SimpleNamespace(add_session_config_entry=lambda *_args: None),
             InferenceSession=lambda *args, **kwargs: SimpleNamespace(
                 get_providers=lambda: active,
                 disable_fallback=lambda: None,

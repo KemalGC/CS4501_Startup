@@ -12,11 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .core import AwsBackend, Settings, _decode, _n, _s
+from .core import ApiError, AwsBackend, Settings, _decode, _n, _s
+from .deletion import finish_deletion
 
 
 LOGGER = logging.getLogger(__name__)
-PENDING_STATES = ("uploading", "uploaded", "submitted", "submitting")
+PENDING_STATES = ("uploading", "uploaded", "submitted", "submitting", "deleting")
 DEFAULT_PER_STATE_LIMIT = 25
 
 
@@ -41,6 +42,7 @@ def reconcile_due(service: AwsBackend, *, per_state_limit: int = DEFAULT_PER_STA
         "aborted": 0,
         "failed": 0,
         "succeeded": 0,
+        "deleted": 0,
         "pending": 0,
         "manual_review": 0,
         "errors": 0,
@@ -71,10 +73,20 @@ def reconcile_due(service: AwsBackend, *, per_state_limit: int = DEFAULT_PER_STA
                 try:
                     # Verify the current state before consuming an old index
                     # entry; the original upload might have just started a job.
-                    record = service._record(job_id, user_id)
+                    try:
+                        record = service._record(job_id, user_id)
+                    except ApiError as exc:
+                        # A concurrent owner deletion may have removed the
+                        # record, while the status GSI still has a stale row.
+                        if state == "deleting" and exc.status == 404:
+                            continue
+                        raise
                     if record.get("status") != state or int(record.get("expires_at", 0)) >= now:
                         continue
-                    if state in ("uploading", "uploaded"):
+                    if state == "deleting":
+                        finish_deletion(service, record)
+                        counts["deleted"] += 1
+                    elif state in ("uploading", "uploaded"):
                         if service._abort_record(record):
                             counts["aborted"] += 1
                     elif state == "submitted":

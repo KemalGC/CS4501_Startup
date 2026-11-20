@@ -44,6 +44,12 @@ data "aws_iam_policy_document" "reconcile" {
   }
 
   statement {
+    sid       = "FinalizeDeletedAnalysisRecord"
+    actions   = ["dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.jobs.arn]
+  }
+
+  statement {
     sid = "CheckOrRemoveExpiredPrivateMedia"
     actions = [
       "s3:GetObject",

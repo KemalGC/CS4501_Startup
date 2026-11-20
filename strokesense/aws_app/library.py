@@ -196,18 +196,40 @@ def _list_index(
 
 
 def list_owner_jobs(service: AwsBackend, user_id: str, query: dict[str, Any]) -> dict[str, Any]:
-    return _list_index(
+    page = _list_index(
         service, index="user_id-created_at-index", partition="user_id",
         value=user_id, scope=f"owner:{user_id}", query=query,
     )
+    # Deleted records can remain in the eventually consistent owner GSI.
+    # Strongly re-check before displaying them (or previously shared media).
+    visible = []
+    for card in page["jobs"]:
+        job_id = card.get("job_id")
+        if not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id):
+            continue
+        item = service.ddb.get_item(
+            TableName=service.cfg.jobs_table, Key={"job_id": _s(job_id)},
+            ConsistentRead=True,
+        )
+        current = _decode(item["Item"]) if "Item" in item else {}
+        if current.get("user_id") == user_id and current.get("status") != "deleting":
+            visible.append(public_job_view(current, service._now()))
+    page["jobs"] = visible
+    return page
 
 
 def change_review_consent(service: AwsBackend, user_id: str, job_id: str, body: dict[str, Any]) -> dict[str, Any]:
     allowed = body.get("allow_admin_review")
     if type(allowed) is not bool:
         raise ApiError(400, "invalid_consent", "allow_admin_review must be true or false")
-    service._record(job_id, user_id)  # Strongly consistent owner check.
-    values = {":uid": _s(user_id), ":consent": {"BOOL": allowed}, ":updated": _s(datetime.now(timezone.utc).isoformat(timespec="seconds"))}
+    current = service._record(job_id, user_id)  # Strongly consistent owner check.
+    if current.get("status") == "deleting":
+        raise ApiError(404, "not_found", "This analysis has been deleted")
+    values = {
+        ":uid": _s(user_id), ":consent": {"BOOL": allowed},
+        ":updated": _s(datetime.now(timezone.utc).isoformat(timespec="seconds")),
+        ":deleting": _s("deleting"),
+    }
     expression = "SET allow_admin_review = :consent, admin_review_decided_at = :updated"
     if allowed:
         expression += ", admin_partition = :opted_in"
@@ -217,7 +239,9 @@ def change_review_consent(service: AwsBackend, user_id: str, job_id: str, body: 
     try:
         service.ddb.update_item(
             TableName=service.cfg.jobs_table, Key={"job_id": _s(job_id)},
-            UpdateExpression=expression, ConditionExpression="user_id = :uid",
+            UpdateExpression=expression,
+            ConditionExpression="user_id = :uid AND #state <> :deleting",
+            ExpressionAttributeNames={"#state": "status"},
             ExpressionAttributeValues=values,
         )
     except Exception as exc:

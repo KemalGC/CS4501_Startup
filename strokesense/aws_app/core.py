@@ -708,6 +708,8 @@ class AwsBackend:
     def job_status(self, user_id: str, job_id: str) -> dict[str, Any]:
         record = self._record(job_id, user_id)
         state = record["status"]
+        if state == "deleting":
+            raise ApiError(404, "not_found", "This analysis has been deleted")
         batch_detail: dict[str, Any] = {}
         if state == "submitted":
             batch_detail = self._batch_detail(record)

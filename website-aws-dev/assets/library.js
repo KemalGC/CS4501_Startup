@@ -263,6 +263,60 @@
     }
   }
 
+  async function deleteAnalysis(job, button) {
+    if (!job || !JOB_ID.test(job.job_id) || loading || button.disabled) return;
+    const status = String(job.status || '').toLowerCase();
+    if (!['succeeded', 'failed', 'aborted'].includes(status)) return;
+    if (!window.confirm(
+      'Permanently delete "' + displayFilename(job.filename) + '"? This removes the original upload, annotated video, coaching report, and library entry. It also unpublishes any shared copy. This cannot be undone, and completed analyses still count toward your lifetime free allowance. Previously downloaded copies cannot be recalled.'
+    )) return;
+    const auth = readAuth();
+    if (!auth) { signedOut('Please sign in again to delete this analysis.'); return; }
+    if (!apiBase) { setNotice('AWS API is not configured.', 'error'); return; }
+    button.disabled = true;
+    button.textContent = 'Deleting…';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(apiBase + '/analysis/jobs/' + encodeURIComponent(job.job_id) + '/delete', {
+        method: 'POST', credentials: 'omit', cache: 'no-store',
+        headers: { Authorization: 'Bearer ' + auth.accessToken }, signal: controller.signal
+      });
+      if (response.status === 401) {
+        try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {}
+        signedOut('Your sign-in expired. Sign in again to manage your library.');
+        return;
+      }
+      if (response.status === 404) {
+        await loadHistory(true);
+        setNotice('This analysis is already gone from your library.', 'success');
+        return;
+      }
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw Error(error?.error?.message || 'Unable to delete this analysis.');
+      }
+      const result = await response.json();
+      if (!result || result.job_id !== job.job_id ||
+          !['deleted', 'deleting'].includes(result.status)) {
+        throw Error('The deletion service returned an unexpected response.');
+      }
+      if (activeVideoJob?.job_id === job.job_id) clearVideo();
+      await loadHistory(true);
+      setNotice(result.status === 'deleted'
+        ? 'Analysis deleted. The original upload, report, and annotated video have been removed.'
+        : 'Analysis removed from the library. AWS is finishing media cleanup.', 'success');
+    } catch (error) {
+      setNotice(error && error.name === 'AbortError'
+        ? 'Deletion timed out. Refresh your library to verify whether it was removed.'
+        : (error?.message || 'Deletion could not be confirmed. Refresh your library.'), 'error');
+    } finally {
+      clearTimeout(timeout);
+      button.disabled = false;
+      button.textContent = 'Delete analysis';
+    }
+  }
+
   function jobCard(job) {
     const status = statusInfo(job);
     const card = node('article', 'library-card');
@@ -321,6 +375,12 @@
       button.addEventListener('click', () => revokeConsent(job, button, note));
       actions.appendChild(note);
       actions.appendChild(button);
+    }
+    if (['succeeded', 'failed', 'aborted'].includes(state)) {
+      const erase = node('button', 'library-delete-button', 'Delete analysis');
+      erase.type = 'button';
+      erase.addEventListener('click', () => deleteAnalysis(job, erase));
+      actions.appendChild(erase);
     }
     card.appendChild(actions);
     return card;

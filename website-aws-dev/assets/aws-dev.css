@@ -173,3 +173,19 @@ html[data-theme="dark"] .library-badge[data-tone="progress"] { color: #c9edff; b
 @media (max-width: 900px) { .library-fields { grid-template-columns: repeat(2, minmax(0,1fr)); } }
 @media (max-width: 680px) { .library-topline,.library-account-bar,.library-card-top { align-items: stretch; flex-direction: column; } .library-fields { grid-template-columns: 1fr 1fr; } .library-badge { align-self: flex-start; } }
 @media (max-width: 430px) { .library-fields { grid-template-columns: 1fr; } .library-account-bar { padding: 20px; } }
+
+/* Owner-only destructive action. Keep the label readable, including on mobile. */
+.library-delete-button {
+  min-height: 44px;
+  border: 1px solid var(--coral);
+  background: var(--surface);
+  color: var(--coral-text);
+  border-radius: 999px;
+  padding: 10px 19px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.library-delete-button:hover:not(:disabled) { background: var(--soft); }
+.library-delete-button:focus-visible { outline: 3px solid #3988b8; outline-offset: 3px; }
+.library-delete-button:disabled { opacity: .65; cursor: wait; }

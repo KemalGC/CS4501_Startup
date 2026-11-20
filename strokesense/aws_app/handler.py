@@ -16,6 +16,7 @@ from typing import Any
 
 from .core import ApiError, AwsBackend, Settings
 from .feedback import MAX_FEEDBACK_BODY_BYTES, save_feedback, validate_feedback
+from .deletion import delete_owned_analysis
 from .library import admin_video_url, change_review_consent, list_owner_jobs, list_review_jobs, require_admin
 
 
@@ -23,6 +24,7 @@ LOGGER = logging.getLogger(__name__)
 MAX_JSON_BODY_BYTES = 256 * 1024
 JOB_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})$")
 REVIEW_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/review$")
+DELETE_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/delete$")
 ADMIN_VIDEO_ROUTE = re.compile(r"^/admin/videos/([a-f0-9]{32})$")
 REPORT_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})$")
 REPORT_ARTIFACTS_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})/artifacts$")
@@ -133,6 +135,10 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             return _response(202, service.submit_analysis(user_id, _body(event)))
         if method == "GET" and path == "/analysis/jobs":
             return _response(200, list_owner_jobs(service, user_id, event.get("queryStringParameters") or {}))
+        match = DELETE_ROUTE.fullmatch(path)
+        if method == "POST" and match:
+            outcome = delete_owned_analysis(service, user_id, match.group(1))
+            return _response(200 if outcome["status"] == "deleted" else 202, outcome)
         match = REVIEW_ROUTE.fullmatch(path)
         if method == "POST" and match:
             return _response(200, change_review_consent(service, user_id, match.group(1), _body(event)))

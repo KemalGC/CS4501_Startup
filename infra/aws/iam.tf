@@ -128,9 +128,15 @@ data "aws_iam_policy_document" "api" {
   }
 
   statement {
-    sid       = "PresignPrivateReportDownloads"
-    actions   = ["s3:GetObject"]
+    sid       = "AccessAndDeleteOwnedReports"
+    actions   = ["s3:GetObject", "s3:DeleteObject"]
     resources = ["${aws_s3_bucket.media.arn}/reports/*"]
+  }
+
+  statement {
+    sid       = "DeleteOwnedAnalysisTombstones"
+    actions   = ["dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.jobs.arn]
   }
 
   # S3 HeadObject returns 403 instead of 404 for a missing report unless the

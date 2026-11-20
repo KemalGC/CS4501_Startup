@@ -37,7 +37,7 @@ class FakeElement {
   set innerHTML(_value) { throw Error('History must render untrusted fields as text, never HTML.'); }
 }
 
-function makePage({ authenticated = true, responses = [], search = '' } = {}) {
+function makePage({ authenticated = true, responses = [], search = '', confirmDelete = true } = {}) {
   const elements = new Map();
   const storage = new Map();
   const requests = [];
@@ -59,7 +59,7 @@ function makePage({ authenticated = true, responses = [], search = '' } = {}) {
 
   runInNewContext(source, {
     window: { STROKESENSE_AWS_CONFIG: { apiBaseUrl: 'https://example.execute-api.us-east-1.amazonaws.com' },
-      location: { search } },
+      location: { search }, confirm: () => confirmDelete },
     document: {
       getElementById: id => elements.get(id),
       createElement: name => new FakeElement(name)
@@ -247,4 +247,67 @@ test('history route is included in build and navigation', () => {
   assert.match(history, /referrerpolicy="no-referrer"/);
   assert.match(history, /id="library-video-link"/);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
+});
+
+
+test('owner deletes a completed analysis with confirmation, and the library refreshes', async () => {
+  const page = makePage({ responses: [
+    { payload: { jobs: [{
+      job_id: JOB_A, status: 'succeeded', filename: 'morning-eight.mp4',
+      report_available: true, created_at: 1795046400,
+      allow_admin_review: true
+    }], next_cursor: null } },
+    { status: 200, payload: { job_id: JOB_A, status: 'deleted' } },
+    { payload: { jobs: [], next_cursor: null } }
+  ] });
+  await page.settle();
+  const card = page.elements.get('library-list').children[0];
+  const action = walk(card).find(item => item.tagName === 'button' && item.textContent === 'Delete analysis');
+  assert.ok(action, 'completed videos should offer a Delete analysis button');
+  action.click();
+  await page.settle();
+  await page.settle();
+  assert.equal(page.requests.length, 3);
+  assert.equal(new URL(page.requests[1].url).pathname, '/analysis/jobs/' + JOB_A + '/delete');
+  assert.equal(page.requests[1].options.method, 'POST');
+  assert.equal(page.requests[1].options.headers.Authorization, 'Bearer private-access-token');
+  assert.equal(page.requests[1].options.credentials, 'omit');
+  assert.equal(page.elements.get('library-list').hidden, true);
+  assert.match(page.elements.get('library-notice').textContent, /Analysis deleted/);
+});
+
+test('cancelled confirmation and in-progress videos never send a delete request', async () => {
+  const cancelled = makePage({ confirmDelete: false, responses: [
+    { payload: { jobs: [{
+      job_id: JOB_A, status: 'succeeded', filename: 'not-deleted.mp4',
+      report_available: true
+    }], next_cursor: null } }
+  ] });
+  await cancelled.settle();
+  const action = walk(cancelled.elements.get('library-list').children[0])
+    .find(item => item.tagName === 'button' && item.textContent === 'Delete analysis');
+  action.click();
+  await cancelled.settle();
+  assert.equal(cancelled.requests.length, 1);
+  const running = makePage({ responses: [
+    { payload: { jobs: [{ job_id: JOB_A, status: 'running' }], next_cursor: null } }
+  ] });
+  await running.settle();
+  assert.equal(walk(running.elements.get('library-list').children[0])
+    .some(item => item.textContent === 'Delete analysis'), false);
+});
+
+test('queued S3 cleanup is reported accurately and the item disappears', async () => {
+  const page = makePage({ responses: [
+    { payload: { jobs: [{ job_id: JOB_A, status: 'failed' }], next_cursor: null } },
+    { status: 202, payload: { job_id: JOB_A, status: 'deleting' } },
+    { payload: { jobs: [], next_cursor: null } }
+  ] });
+  await page.settle();
+  walk(page.elements.get('library-list').children[0])
+    .find(item => item.tagName === 'button' && item.textContent === 'Delete analysis').click();
+  await page.settle();
+  await page.settle();
+  assert.equal(page.requests.length, 3);
+  assert.match(page.elements.get('library-notice').textContent, /finishing media cleanup/);
 });

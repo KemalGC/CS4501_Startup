@@ -114,7 +114,7 @@ test('previous report expands into a validated owner-authorized sandboxed iframe
   assert.ok(anchorUrls.includes('/demos/?job=' + JOB));
   assert.ok(anchorUrls.includes('/library/?video=' + JOB));
   const frame = walk(details).find(node => node.tagName === 'iframe');
-  assert.equal(frame.attributes.get('sandbox'), '');
+  assert.equal(frame.attributes.get('sandbox'), 'allow-same-origin');
   assert.equal(frame.hidden, true);
   details.open = true;
   details.dispatch('toggle');

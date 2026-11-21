@@ -164,11 +164,13 @@ variable "enable_gpu" {
       var.gpu_smoke_mode &&
       var.gpu_smoke_approval == "I_APPROVE_ONE_G6F_SMOKE_INSTANCE" &&
       !var.enable_paid_gpu_queue_scaffold &&
-      !var.enable_cpu_analysis &&
       !var.enable_cpu_smoke_queue &&
       var.enable_gpu_image_repository
     )
-    error_message = "To provision only the isolated GPU smoke infrastructure, set gpu_smoke_mode=true, enable_gpu_image_repository=true, gpu_smoke_approval=I_APPROVE_ONE_G6F_SMOKE_INSTANCE; all paid/CPU queue switches must remain off."
+    # enable_cpu_analysis is deliberately NOT required to be false: the smoke
+    # stack (own ECS cluster, ASG, SGs, roles, log group) is isolated from the
+    # live CPU Batch analyzer, and forcing it off would disable production CPU.
+    error_message = "To provision only the isolated GPU smoke infrastructure, set gpu_smoke_mode=true, enable_gpu_image_repository=true, gpu_smoke_approval=I_APPROVE_ONE_G6F_SMOKE_INSTANCE; the paid GPU queue and CPU smoke queue must remain off."
   }
 }
 

@@ -7,7 +7,12 @@ numpy>=1.24,<2.1
 scipy>=1.10,<1.16
 opencv-python-headless>=4.8,<5
 matplotlib>=3.7,<4
-beautifulsoup4>=4.12,<5
+# matplotlib hard-requires Pillow. 13.x (fixes 2026 TIFF/JPEG/PDF/... CVEs) needs
+# Python >=3.11, which the Ubuntu 22.04 CUDA base lacks; the worker only encodes
+# its own PNG charts (no untrusted image decoding). Upgrade with the base image.
+pillow>=12.3.0,<13
+# beautifulsoup4/soupsieve intentionally omitted: only strokesense.llm_feedback
+# imports bs4, and it is not in the GPU worker's import closure.
 imageio-ffmpeg>=0.5,<1
 # 1.20.x PyPI wheels target CUDA 12.x + cuDNN 9 (matches the pinned base image).
 # 1.20.1 was never published for onnxruntime-gpu on PyPI (only the CPU package);

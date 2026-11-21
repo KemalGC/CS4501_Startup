@@ -131,15 +131,59 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         )
 
     @staticmethod
-    def ort(available, active):
+    def ort(available, active, input_shape=("batch", 3, 640, 640), run=None):
+        """Fake serving as both `onnxruntime` and the `numpy` zeros it needs."""
+        def zeros(shape, dtype=None):
+            return SimpleNamespace(shape=tuple(shape), dtype=dtype)
+
+        def default_run(_names, feeds):
+            (tensor,) = feeds.values()
+            assert tensor.shape[0] == 1 and tensor.dtype == "float32"
+            return [SimpleNamespace(shape=(1, 56, 8400), size=56 * 8400)]
+
         return SimpleNamespace(
+            __version__="1.20.2", float32="float32", zeros=zeros,
             get_available_providers=lambda: available,
             SessionOptions=lambda: SimpleNamespace(add_session_config_entry=lambda *_args: None),
             InferenceSession=lambda *args, **kwargs: SimpleNamespace(
                 get_providers=lambda: active,
                 disable_fallback=lambda: None,
+                get_inputs=lambda: [SimpleNamespace(name="images", shape=list(input_shape))],
+                run=run or default_run,
             ),
         )
+
+    def test_preflight_executes_cuda_inference_and_reports_metrics(self):
+        calls = []
+        ort = self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"],
+                       run=lambda names, feeds: calls.append(feeds) or
+                       [SimpleNamespace(shape=(1, 56, 8400), size=470400)])
+        ticks = iter(float(i) / 1000 for i in range(1000))
+        memory = iter(["3072,2600\n", "3072,2100\n"])
+        run = lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=next(memory))
+        result = validate_gpu_runtime(self.model, run=run, import_module=lambda _n: ort,
+                                      clock=lambda: next(ticks))
+        self.assertEqual(len(calls), 23)  # 3 warm-up + 20 timed real session.run calls
+        self.assertEqual(result["inference_runs"], 20)
+        self.assertEqual(result["input_shape"], [1, 3, 640, 640])
+        self.assertEqual(result["output_shapes"], [[1, 56, 8400]])
+        self.assertEqual(result["latency_ms_p50"], 1.0)
+        self.assertEqual(result["gpu_memory_used_after_inference_mib"], 972)
+        self.assertEqual(result["onnxruntime_version"], "1.20.2")
+
+    def test_inference_failures_fail_closed(self):
+        def boom(*_args):
+            raise RuntimeError("CUDNN_STATUS_EXECUTION_FAILED")
+        cases = [
+            (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"], run=boom), "cuda_inference_failed"),
+            (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"], run=lambda *_a: []), "empty_inference_output"),
+            (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"], input_shape=(1, 3, "h", "w")),
+             "unsupported_model_input_shape"),
+        ]
+        for ort, expected in cases:
+            with self.subTest(expected=expected), self.assertRaises(GpuPreflightError) as caught:
+                validate_gpu_runtime(self.model, run=self.nvidia_memory(), import_module=lambda _n, o=ort: o)
+            self.assertEqual(str(caught.exception), expected)
 
     def test_cuda_model_session_and_vram_must_be_real(self):
         ort = self.ort(["CUDAExecutionProvider", "CPUExecutionProvider"],

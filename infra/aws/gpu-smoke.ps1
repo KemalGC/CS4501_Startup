@@ -1,11 +1,12 @@
 # StrokeSense: single manual GPU preflight. Never launches a paid job.
-# After a reviewed Terraform apply: .\gpu-smoke.ps1 -ExpectedAccountId 123456789012 -ApproveCharge
+# After a reviewed Terraform apply: .\gpu-smoke.ps1 -ExpectedAccountId 123456789012 -AwsProfile strokesense-admin -ApproveCharge
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][ValidatePattern('^\d{12}$')][string]$ExpectedAccountId,
   [switch]$ApproveCharge,
   [ValidateRange(20,60)][int]$HardStopMinutes = 45,
-  [ValidateRange(3,15)][int]$BootWaitMinutes = 10
+  [ValidateRange(3,15)][int]$BootWaitMinutes = 10,
+  [ValidatePattern('^[A-Za-z0-9_.-]{1,64}$')][string]$AwsProfile
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -16,10 +17,15 @@ $cluster = $null
 $taskArn = $null
 $taskStopped = $false
 $payloadFile = $null
+$logGroup = $null
+$t0 = $null
+$timings = [ordered]@{}
+$profileArgs = @()
+if ($AwsProfile) { $profileArgs = @('--profile', $AwsProfile) }
 
 function Invoke-Aws {
   param([Parameter(Mandatory=$true)][string[]]$Arguments)
-  $raw = & aws @Arguments --region $region --no-cli-pager 2>&1
+  $raw = & aws @Arguments @profileArgs --region $region --no-cli-pager 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw "AWS command failed: $($Arguments[0]) $($Arguments[1]). Inspect CLI stderr locally."
   }
@@ -51,6 +57,7 @@ try {
   $taskDefinition = Get-TerraformOutput 'gpu_smoke_task_definition'
   $subnet = Get-TerraformOutput 'gpu_smoke_subnet_id'
   $sg = Get-TerraformOutput 'gpu_smoke_task_security_group'
+  $logGroup = Get-TerraformOutput 'gpu_smoke_log_group'
   if ($asgName -notmatch '^strokesense-[a-z0-9-]+-gpu-one-instance$' -or
       $cluster -notmatch '^arn:aws:ecs:us-east-1:[0-9]{12}:cluster/' -or
       $taskDefinition -notmatch '^arn:aws:ecs:us-east-1:[0-9]{12}:task-definition/' -or
@@ -91,6 +98,7 @@ try {
     throw 'Cloud-side GPU cutoff not confirmed; refusing to start host.'
   }
   Write-Host "AWS GPU hard cutoff scheduled for $cutoff."
+  $t0 = Get-Date
   [void](Invoke-Aws -Arguments @('autoscaling','update-auto-scaling-group','--auto-scaling-group-name',$asgName,'--min-size','0','--max-size','1','--desired-capacity','1'))
 
   $ready = $false
@@ -106,6 +114,7 @@ try {
     Start-Sleep -Seconds 15
   }
   if (!$ready) { throw 'GPU EC2 host did not register with ECS in time.' }
+  $timings['host_registered_seconds'] = [int]((Get-Date) - $t0).TotalSeconds
 
   $request = @{
     cluster = $cluster
@@ -133,8 +142,20 @@ try {
     if ($status.tasks[0].lastStatus -eq 'STOPPED') {
       $taskStopped = $true
       $worker = @($status.tasks[0].containers | Where-Object { $_.name -eq 'gpu-preflight' })
-      if ($worker.Count -ne 1 -or $worker[0].exitCode -ne 0) {
-        throw 'CUDA preflight failed; inspect private CloudWatch task logs.'
+      $timings['task_stopped_seconds'] = [int]((Get-Date) - $t0).TotalSeconds
+      $taskId = ($taskArn -split '/')[-1]
+      try {
+        $events = Invoke-Aws -Arguments @('logs','get-log-events','--log-group-name',$logGroup,
+          '--log-stream-name',"gpu-preflight/gpu-preflight/$taskId",'--start-from-head','--output','json') | ConvertFrom-Json
+        foreach ($e in @($events.events)) {
+          if ($e.message -match '^(STROKESENSE_GPU_PREFLIGHT |GPU preflight|INFO:|ERROR:)') { Write-Host "log: $($e.message)" }
+        }
+      } catch { Write-Warning 'Could not read preflight CloudWatch log stream.' }
+      $exit = $null
+      if ($worker.Count -eq 1 -and $worker[0].PSObject.Properties['exitCode']) { $exit = $worker[0].exitCode }
+      if ($worker.Count -ne 1 -or $exit -ne 0) {
+        $reason = if ($status.tasks[0].PSObject.Properties['stoppedReason']) { $status.tasks[0].stoppedReason } else { 'n/a' }
+        throw "CUDA preflight failed (exit=$exit, stoppedReason=$reason); inspect private CloudWatch task logs."
       }
       Write-Host 'CUDA preflight passed: task stopped with exit code 0.'
       break
@@ -155,7 +176,23 @@ finally {
     try {
       [void](Invoke-Aws -Arguments @('autoscaling','update-auto-scaling-group',
         '--auto-scaling-group-name',$asgName,'--min-size','0','--max-size','0','--desired-capacity','0'))
-      Write-Host 'GPU ASG set to min=0, max=0, desired=0. Verify EC2 is TERMINATED.'
+      Write-Host 'GPU ASG set to min=0, max=0, desired=0. Waiting for EC2 termination...'
     } catch { Write-Warning 'Immediate GPU cleanup failed; verify AWS scheduled cutoff and EC2 status.' }
+    # Verify actual termination, not merely a requested scale-in.
+    $terminated = $false
+    $termDeadline = (Get-Date).AddMinutes(10)
+    while ((Get-Date) -lt $termDeadline) {
+      try {
+        $g = (Invoke-Aws -Arguments @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName,'--output','json') | ConvertFrom-Json).AutoScalingGroups
+        $live = Invoke-Aws -Arguments @('ec2','describe-instances','--filters',"Name=tag:aws:autoscaling:groupName,Values=$asgName",
+          'Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped','--query','Reservations[].Instances[].InstanceId','--output','json') | ConvertFrom-Json
+        if (@($g).Count -eq 1 -and @($g[0].Instances).Count -eq 0 -and @($live).Count -eq 0) { $terminated = $true; break }
+      } catch { Write-Warning 'Termination check failed; retrying.' }
+      Start-Sleep -Seconds 15
+    }
+    if ($t0) { $timings['host_terminated_seconds'] = [int]((Get-Date) - $t0).TotalSeconds }
+    if ($terminated) { Write-Host 'VERIFIED: no GPU EC2 instance remains (all TERMINATED).' }
+    else { Write-Warning 'GPU EC2 termination NOT verified within 10 minutes; check the console NOW. Cloud cutoff remains scheduled.' }
+    if ($timings.Count) { Write-Host ('timings: ' + ($timings | ConvertTo-Json -Compress)) }
   }
 }

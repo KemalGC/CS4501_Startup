@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import logging
+import time
 from pathlib import Path
 import subprocess
 from typing import Any, Callable
@@ -23,7 +25,29 @@ class GpuPreflightError(RuntimeError):
     """Fixed diagnostic categories; no user media paths in error details."""
 
 
-def _device_memory(run: Callable[..., Any] = subprocess.run) -> tuple[int, int]:
+WARMUP_RUNS = 3
+TIMED_RUNS = 20
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round(pct / 100 * (len(ordered) - 1))))
+    return ordered[index]
+
+
+def _synthetic_input(session: Any, np: Any) -> tuple[str, Any]:
+    """All-zero tensor matching the model's fixed input; never user media."""
+    inputs = session.get_inputs()
+    if len(inputs) != 1:
+        raise GpuPreflightError("unexpected_model_inputs")
+    dims = list(inputs[0].shape)
+    shape = [1 if i == 0 and not isinstance(d, int) else d for i, d in enumerate(dims)]
+    if len(shape) != 4 or not all(isinstance(d, int) and d > 0 for d in shape):
+        raise GpuPreflightError("unsupported_model_input_shape")
+    return inputs[0].name, np.zeros(shape, dtype=np.float32)
+
+
+def _device_memory(run: Callable[..., Any] = subprocess.run, *, enforce_minimums: bool = True) -> tuple[int, int]:
     try:
         result = run(
             ["nvidia-smi", "--query-gpu=memory.total,memory.free", "--format=csv,noheader,nounits"],
@@ -41,13 +65,14 @@ def _device_memory(run: Callable[..., Any] = subprocess.run) -> tuple[int, int]:
     if len(fields) != 2 or any(not value.isdecimal() for value in fields):
         raise GpuPreflightError("invalid_gpu_memory_report")
     total, free = int(fields[0]), int(fields[1])
-    if total < GPU_MIN_TOTAL_MIB or free < GPU_MIN_FREE_MIB or free > total:
+    if free > total or (enforce_minimums and (total < GPU_MIN_TOTAL_MIB or free < GPU_MIN_FREE_MIB)):
         raise GpuPreflightError("insufficient_gpu_memory")
     return total, free
 
 
 def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.run,
-                         import_module: Callable[[str], Any] = importlib.import_module) -> dict[str, Any]:
+                         import_module: Callable[[str], Any] = importlib.import_module,
+                         clock: Callable[[], float] = time.perf_counter) -> dict[str, Any]:
     """Prove CUDA is the first active ONNX provider for the specified model."""
     if model.suffix.lower() != ".onnx" or not model.is_file():
         raise GpuPreflightError("model_not_found")
@@ -70,8 +95,37 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
         raise
     except Exception as exc:
         raise GpuPreflightError("cuda_session_initialization_failed") from exc
+    # Execute real CUDA kernels (cuDNN conv etc.) on a synthetic tensor: a
+    # provider list alone does not prove the GPU can run the model.
+    try:
+        np = import_module("numpy")
+        name, tensor = _synthetic_input(session, np)
+        latencies_ms: list[float] = []
+        outputs: Any = None
+        for i in range(WARMUP_RUNS + TIMED_RUNS):
+            started = clock()
+            outputs = session.run(None, {name: tensor})
+            if i >= WARMUP_RUNS:
+                latencies_ms.append((clock() - started) * 1000.0)
+        if not outputs or not all(getattr(o, "size", 0) > 0 for o in outputs):
+            raise GpuPreflightError("empty_inference_output")
+        if session.get_providers()[0] != GPU_PROVIDER:
+            raise GpuPreflightError("cuda_provider_not_active")
+    except GpuPreflightError:
+        raise
+    except Exception as exc:
+        raise GpuPreflightError("cuda_inference_failed") from exc
+    _, free_after = _device_memory(run, enforce_minimums=False)
     return {"provider": GPU_PROVIDER, "gpu_memory_total_mib": total,
-            "gpu_memory_free_mib": free, "model_loaded": True}
+            "gpu_memory_free_mib": free, "model_loaded": True,
+            "onnxruntime_version": str(getattr(ort, "__version__", "unknown")),
+            "input_shape": [int(d) for d in tensor.shape],
+            "output_shapes": [[int(d) for d in getattr(o, "shape", ())] for o in outputs],
+            "inference_runs": len(latencies_ms),
+            "latency_ms_p50": round(_percentile(latencies_ms, 50), 3),
+            "latency_ms_p95": round(_percentile(latencies_ms, 95), 3),
+            "latency_ms_max": round(max(latencies_ms), 3),
+            "gpu_memory_used_after_inference_mib": total - free_after}
 
 
 def main() -> int:
@@ -85,6 +139,8 @@ def main() -> int:
         return 2
     LOGGER.info("GPU preflight passed: %s MiB total; %s MiB free; CUDA provider active.",
                 result["gpu_memory_total_mib"], result["gpu_memory_free_mib"])
+    # One machine-readable line for CloudWatch evidence (no media, no paths).
+    print("STROKESENSE_GPU_PREFLIGHT " + json.dumps(result, sort_keys=True), flush=True)
     return 0
 
 

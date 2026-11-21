@@ -93,6 +93,11 @@ output "gpu_smoke_task_security_group" {
   value = try(aws_security_group.gpu_task[0].id, null)
 }
 
+output "gpu_smoke_log_group" {
+  value       = try(aws_cloudwatch_log_group.gpu_worker[0].name, null)
+  description = "Private CloudWatch log group holding the preflight evidence line."
+}
+
 output "gpu_smoke_subnet_id" {
   value       = var.enable_gpu && var.gpu_smoke_mode ? var.gpu_subnet_id : null
   description = "Reviewed one-instance GPU host/task subnet for operator-only smoke."

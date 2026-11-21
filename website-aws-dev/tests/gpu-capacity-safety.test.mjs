@@ -14,8 +14,14 @@ test('paid GPU resources stay off by default; smoke is a separate opt-in', () =>
   assert.match(vars, /condition\s*=\s*!var\.enable_gpu/);
   assert.match(vars, /var\.gpu_smoke_mode/);
   assert.match(vars, /I_APPROVE_ONE_G6F_SMOKE_INSTANCE/);
-  assert.match(vars, /!var\.enable_paid_gpu_queue_scaffold/);
-  assert.match(vars, /!var\.enable_cpu_analysis/);
+  const gpuGuard = vars.split('variable "enable_gpu" {')[1].split('\nvariable ')[0];
+  assert.match(gpuGuard, /!var\.enable_paid_gpu_queue_scaffold/);
+  assert.match(gpuGuard, /!var\.enable_cpu_smoke_queue/);
+  // The isolated smoke stack must coexist with the live CPU analyzer; forcing
+  // enable_cpu_analysis=false would disable production CPU on apply.
+  assert.doesNotMatch(gpuGuard.split('error_message')[0], /!var\.enable_cpu_analysis/);
+  const preflight = tf.split('resource "aws_ecs_task_definition" "gpu_preflight"')[1];
+  assert.doesNotMatch(preflight, /task_role_arn/, 'preflight must not carry a customer-data task role');
   for (const type of ['aws_ecs_cluster', 'aws_launch_template', 'aws_autoscaling_group', 'aws_ecs_capacity_provider', 'aws_ecs_task_definition', 'aws_vpc_endpoint']) {
     const block = tf.split('resource "' + type + '" "')[1];
     assert.ok(block, 'missing ' + type);

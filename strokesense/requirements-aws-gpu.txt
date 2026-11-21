@@ -1,11 +1,16 @@
-# Dedicated paid CUDA inference. Do not also install CPU onnxruntime.
+# Dedicated paid CUDA inference worker. Do not also install CPU onnxruntime.
+# Deliberately does NOT include requirements-hosted.txt: the worker never serves
+# HTTP (no starlette/uvicorn/httpx), and those pins require a newer Python than
+# the CUDA base image's Ubuntu 22.04 python3 (3.10), which broke the build.
 # Prototype constraints; lock all packages before paid launch.
--r requirements-hosted.txt
 numpy>=1.24,<2.1
 scipy>=1.10,<1.16
 opencv-python-headless>=4.8,<5
 matplotlib>=3.7,<4
 beautifulsoup4>=4.12,<5
 imageio-ffmpeg>=0.5,<1
-onnxruntime-gpu==1.20.1
+# 1.20.x PyPI wheels target CUDA 12.x + cuDNN 9 (matches the pinned base image).
+# 1.20.1 was never published for onnxruntime-gpu on PyPI (only the CPU package);
+# 1.20.2 is the same-minor patch release with cp310 manylinux_2_28 wheels.
+onnxruntime-gpu==1.20.2
 boto3>=1.34,<2

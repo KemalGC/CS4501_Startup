@@ -81,11 +81,18 @@ resource "aws_security_group" "gpu_task" {
   }
 }
 
-# ECS EC2 awsvpc task ENIs cannot receive public IPv4 addresses. S3 access
-# needs a gateway endpoint in the actual selected subnet route table; there is
-# no NAT gateway or long-lived worker service here.
+# ECS EC2 awsvpc task ENIs cannot receive public IPv4 addresses. Real-data GPU
+# workers reach S3 through a gateway endpoint in the GPU subnet's route table;
+# there is no NAT gateway or long-lived worker service here.
+#
+# The blank-input CUDA preflight needs no S3 (the EC2 host's ECS agent pulls
+# the image and ships logs over the host ENI). In aws-dev the only route table
+# is the VPC main table, implicitly used by every default subnet including the
+# live CPU Batch analyzer; adding an endpoint there would re-route all of its
+# S3 traffic. So smoke mode creates no endpoint; non-smoke GPU requires one
+# (enforced on the paid worker task definition below).
 resource "aws_vpc_endpoint" "gpu_s3" {
-  count             = var.enable_gpu ? 1 : 0
+  count             = var.enable_gpu && !var.gpu_smoke_mode ? 1 : 0
   vpc_id            = local.vpc_id
   service_name      = format("com.amazonaws.%s.s3", var.aws_region)
   vpc_endpoint_type = "Gateway"
@@ -137,6 +144,8 @@ resource "aws_launch_template" "gpu" {
     "#!/bin/bash",
     format("echo ECS_CLUSTER=%s >> /etc/ecs/ecs.config", aws_ecs_cluster.gpu[0].name),
     "echo ECS_ENABLE_GPU_SUPPORT=true >> /etc/ecs/ecs.config",
+    # awsvpc tasks must not reach IMDS and borrow the host instance-profile role.
+    "echo ECS_AWSVPC_BLOCK_IMDS=true >> /etc/ecs/ecs.config",
     "",
   ]))
 
@@ -147,15 +156,21 @@ resource "aws_launch_template" "gpu" {
 }
 
 resource "aws_autoscaling_group" "gpu" {
-  count            = var.enable_gpu ? 1 : 0
-  name             = format("%s-gpu-one-instance", local.prefix)
-  min_size         = 0
-  max_size         = 1
+  count    = var.enable_gpu ? 1 : 0
+  name     = format("%s-gpu-one-instance", local.prefix)
+  min_size = 0
+  # Smoke: idle at max 0; the operator script raises max to 1 for one attempt
+  # and returns it to 0, so a later ordinary apply cannot re-arm capacity.
+  max_size         = var.gpu_smoke_mode ? 0 : 1
   desired_capacity = 0
   # Smoke mode must allow explicit operator shutdown of the instance.
   protect_from_scale_in = !var.gpu_smoke_mode
   health_check_type     = "EC2"
   vpc_zone_identifier   = [var.gpu_subnet_id]
+  # Smoke: an unhealthy or rebalanced host must not silently become a second
+  # paid instance. Launch is additionally suspended by the script once the
+  # single host exists. Terminate and ScheduledActions stay active.
+  suspended_processes = var.gpu_smoke_mode ? ["AZRebalance", "ReplaceUnhealthy"] : []
 
   launch_template {
     id      = aws_launch_template.gpu[0].id
@@ -184,6 +199,9 @@ resource "aws_ecs_capacity_provider" "gpu" {
   auto_scaling_group_provider {
     auto_scaling_group_arn         = aws_autoscaling_group.gpu[0].arn
     managed_termination_protection = var.gpu_smoke_mode ? "DISABLED" : "ENABLED"
+    # Managed draining adds an ASG termination lifecycle hook that can hold a
+    # host while a standalone task runs; disposable smoke capacity skips it.
+    managed_draining = var.gpu_smoke_mode ? "DISABLED" : "ENABLED"
 
     managed_scaling {
       status                    = var.gpu_smoke_mode ? "DISABLED" : "ENABLED"
@@ -278,6 +296,10 @@ resource "aws_ecs_task_definition" "gpu" {
     precondition {
       condition     = can(regex("@sha256:[a-f0-9]{64}$", var.gpu_worker_image_uri))
       error_message = "GPU task image must be an operator-reviewed, ECR digest-pinned image."
+    }
+    precondition {
+      condition     = var.gpu_smoke_mode || length(var.gpu_s3_route_table_ids) >= 1
+      error_message = "Real-data GPU workers need a reviewed GPU-subnet S3 gateway route table."
     }
   }
 

@@ -70,6 +70,19 @@ def _device_memory(run: Callable[..., Any] = subprocess.run, *, enforce_minimums
     return total, free
 
 
+def _gpu_identity(run: Callable[..., Any] = subprocess.run) -> dict[str, str]:
+    """Evidence only (name/driver/vGPU product); never fails the preflight."""
+    try:
+        result = run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+                     capture_output=True, text=True, timeout=8, check=False)
+        fields = [v.strip() for v in result.stdout.strip().splitlines()[0].split(",")]
+        if result.returncode == 0 and len(fields) == 2:
+            return {"gpu_name": fields[0][:80], "nvidia_driver_version": fields[1][:40]}
+    except Exception:  # noqa: BLE001 - diagnostic best effort
+        pass
+    return {"gpu_name": "unknown", "nvidia_driver_version": "unknown"}
+
+
 def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.run,
                          import_module: Callable[[str], Any] = importlib.import_module,
                          clock: Callable[[], float] = time.perf_counter) -> dict[str, Any]:
@@ -109,6 +122,8 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
                 latencies_ms.append((clock() - started) * 1000.0)
         if not outputs or not all(getattr(o, "size", 0) > 0 for o in outputs):
             raise GpuPreflightError("empty_inference_output")
+        if not all(bool(np.all(np.isfinite(o))) for o in outputs):
+            raise GpuPreflightError("non_finite_inference_output")
         if session.get_providers()[0] != GPU_PROVIDER:
             raise GpuPreflightError("cuda_provider_not_active")
     except GpuPreflightError:
@@ -116,7 +131,10 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
     except Exception as exc:
         raise GpuPreflightError("cuda_inference_failed") from exc
     _, free_after = _device_memory(run, enforce_minimums=False)
-    return {"provider": GPU_PROVIDER, "gpu_memory_total_mib": total,
+    return {**_gpu_identity(run), "provider": GPU_PROVIDER,
+            "active_providers": list(session.get_providers()),
+            "cpu_ep_fallback_disabled": True, "outputs_finite": True,
+            "warmup_runs": WARMUP_RUNS, "gpu_memory_total_mib": total,
             "gpu_memory_free_mib": free, "model_loaded": True,
             "onnxruntime_version": str(getattr(ort, "__version__", "unknown")),
             "input_shape": [int(d) for d in tensor.shape],
@@ -133,7 +151,14 @@ def main() -> int:
     parser.add_argument("--model", required=True, type=Path, help="Locally mounted ONNX model path")
     args = parser.parse_args()
     try:
+        # Re-verify the packaged weights at runtime (size + SHA256 pin).
+        from aws_app.gpu_model_integrity import BASELINE_MODEL_SHA256, verify_gpu_model
+        try:
+            verify_gpu_model(args.model)
+        except Exception as exc:  # WorkerError or OSError; fixed category only
+            raise GpuPreflightError("model_integrity_failed") from exc
         result = validate_gpu_runtime(args.model)
+        result["model_sha256_verified"] = BASELINE_MODEL_SHA256
     except GpuPreflightError as exc:
         LOGGER.error("GPU preflight rejected: %s", str(exc))
         return 2

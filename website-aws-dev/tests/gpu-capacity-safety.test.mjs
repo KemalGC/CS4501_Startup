@@ -22,14 +22,23 @@ test('paid GPU resources stay off by default; smoke is a separate opt-in', () =>
   assert.doesNotMatch(gpuGuard.split('error_message')[0], /!var\.enable_cpu_analysis/);
   const preflight = tf.split('resource "aws_ecs_task_definition" "gpu_preflight"')[1];
   assert.doesNotMatch(preflight, /task_role_arn/, 'preflight must not carry a customer-data task role');
-  for (const type of ['aws_ecs_cluster', 'aws_launch_template', 'aws_autoscaling_group', 'aws_ecs_capacity_provider', 'aws_ecs_task_definition', 'aws_vpc_endpoint']) {
+  for (const type of ['aws_ecs_cluster', 'aws_launch_template', 'aws_autoscaling_group', 'aws_ecs_capacity_provider', 'aws_ecs_task_definition']) {
     const block = tf.split('resource "' + type + '" "')[1];
     assert.ok(block, 'missing ' + type);
     assert.match(block.slice(0, 180), /count\s*=\s*var\.enable_gpu \? 1 : 0/);
   }
+  // The smoke preflight must not touch shared routing (the VPC main route
+  // table also serves the live CPU analyzer); only real-data GPU gets S3.
+  const endpoint = tf.split('resource "aws_vpc_endpoint" "gpu_s3"')[1];
+  assert.match(endpoint.slice(0, 120), /count\s*=\s*var\.enable_gpu && !var\.gpu_smoke_mode \? 1 : 0/);
+  assert.match(tf, /var\.gpu_smoke_mode \|\| length\(var\.gpu_s3_route_table_ids\) >= 1/);
   assert.match(tf, /min_size\s*=\s*0/);
   assert.match(tf, /desired_capacity\s*=\s*0/);
-  assert.match(tf, /max_size\s*=\s*1/);
+  // Idle smoke capacity is max 0; the operator script raises it to 1 only.
+  assert.match(tf, /max_size\s*=\s*var\.gpu_smoke_mode \? 0 : 1/);
+  assert.match(tf, /suspended_processes\s*=\s*var\.gpu_smoke_mode \? \["AZRebalance", "ReplaceUnhealthy"\]/);
+  assert.match(tf, /managed_draining\s*=\s*var\.gpu_smoke_mode \? "DISABLED" : "ENABLED"/);
+  assert.match(tf, /ECS_AWSVPC_BLOCK_IMDS=true/);
   assert.match(tf, /instance_type\s*=\s*"g6f\.xlarge"/);
   assert.match(tf, /requires_compatibilities\s*=\s*\["EC2"\]/);
   assert.match(tf, /value\s*=\s*"0\.125"/);

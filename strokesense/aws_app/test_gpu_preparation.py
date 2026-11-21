@@ -143,6 +143,7 @@ class GpuRuntimePreparationTests(unittest.TestCase):
 
         return SimpleNamespace(
             __version__="1.20.2", float32="float32", zeros=zeros,
+            isfinite=lambda o: o, all=lambda o: getattr(o, "finite", True),
             get_available_providers=lambda: available,
             SessionOptions=lambda: SimpleNamespace(add_session_config_entry=lambda *_args: None),
             InferenceSession=lambda *args, **kwargs: SimpleNamespace(
@@ -160,9 +161,18 @@ class GpuRuntimePreparationTests(unittest.TestCase):
                        [SimpleNamespace(shape=(1, 56, 8400), size=470400)])
         ticks = iter(float(i) / 1000 for i in range(1000))
         memory = iter(["3072,2600\n", "3072,2100\n"])
-        run = lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=next(memory))
+
+        def run(cmd, *_a, **_k):
+            if "--query-gpu=name,driver_version" in cmd:
+                return SimpleNamespace(returncode=0, stdout="NVIDIA L4-3Q, 570.172.08\n")
+            return SimpleNamespace(returncode=0, stdout=next(memory))
         result = validate_gpu_runtime(self.model, run=run, import_module=lambda _n: ort,
                                       clock=lambda: next(ticks))
+        self.assertEqual(result["gpu_name"], "NVIDIA L4-3Q")
+        self.assertEqual(result["nvidia_driver_version"], "570.172.08")
+        self.assertEqual(result["active_providers"], ["CUDAExecutionProvider"])
+        self.assertTrue(result["outputs_finite"])
+        self.assertEqual(result["warmup_runs"], 3)
         self.assertEqual(len(calls), 23)  # 3 warm-up + 20 timed real session.run calls
         self.assertEqual(result["inference_runs"], 20)
         self.assertEqual(result["input_shape"], [1, 3, 640, 640])
@@ -177,6 +187,9 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         cases = [
             (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"], run=boom), "cuda_inference_failed"),
             (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"], run=lambda *_a: []), "empty_inference_output"),
+            (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"],
+                      run=lambda *_a: [SimpleNamespace(shape=(1, 2), size=2, finite=False)]),
+             "non_finite_inference_output"),
             (self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"], input_shape=(1, 3, "h", "w")),
              "unsupported_model_input_shape"),
         ]

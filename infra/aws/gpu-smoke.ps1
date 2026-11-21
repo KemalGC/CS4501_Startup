@@ -159,7 +159,7 @@ try {
       (Get-Prop $c0 'privileged') -eq $true -or (Get-Count (Get-Prop $c0 'mountPoints')) -ne 0 -or
       (Get-Count (Get-Prop $def 'volumes')) -ne 0 -or (Get-Count (Get-Prop $c0 'secrets')) -ne 0 -or
       (Get-Count (Get-Prop $c0 'environment')) -ne 0) {
-    throw 'Preflight task definition must be EC2/awsvpc, the exact approved image digest and command, 1/8 GPU, no task role, secrets, env, mounts or privilege.'
+    throw 'Preflight task definition must be EC2/awsvpc, the exact approved image digest and command, 1/8 GPU, NO customer task role, and no secrets, env, mounts or privilege.'
   }
   $evidence.task_definition_revision = $def.revision
   $evidence.image = $ExpectedImageUri

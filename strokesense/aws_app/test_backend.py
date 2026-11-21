@@ -45,6 +45,9 @@ class MemoryDynamo:
         self.accounts[uid] = account
 
     def get_item(self, **kwargs):
+        if kwargs["TableName"] == "users":
+            user_id = kwargs["Key"]["user_id"]["S"]
+            return {"Item": _item(self.accounts[user_id])} if user_id in self.accounts else {}
         job_id = kwargs["Key"]["job_id"]["S"]
         return {"Item": _item(self.jobs[job_id])} if job_id in self.jobs else {}
 
@@ -152,6 +155,11 @@ class MemoryDynamo:
                 used = prefix + ("used_bytes" if is_free else "used")
                 if expression.startswith(f"SET {available}"):
                     if account[available] < amount:
+                        self._conditional_failure()
+                    if ":member" in values and (
+                        account.get("paid_membership_status") != values[":member"]["S"]
+                        or account.get("paid_membership_expires_at", 0) <= int(values[":now"]["N"])
+                    ):
                         self._conditional_failure()
                     account[available] -= amount
                     account[reserved] += amount
@@ -389,9 +397,19 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(ApiError) as denied:
             self.backend.start_upload("alice", {"content_type": "video/mp4", "size_bytes": 1, "tier": "paid"})
         self.assertEqual(denied.exception.code, "billing_not_configured")
-        paid = AwsBackend(Settings("video-bucket", "users", "jobs", paid_billing_enabled=True), self.ddb, self.s3, clock=lambda: self.now)
+        settings = Settings("video-bucket", "users", "jobs", paid_billing_enabled=True)
+        blocked = AwsBackend(settings, self.ddb, self.s3, clock=lambda: self.now)
+        with self.assertRaises(ApiError) as gpu_disabled:
+            blocked.start_upload("alice", {"content_type": "video/mp4", "size_bytes": 1, "tier": "paid"})
+        self.assertEqual(gpu_disabled.exception.code, "gpu_not_configured")
+        # Simulated *future* configuration; production Terraform hardcodes off.
+        paid = AwsBackend(Settings("video-bucket", "users", "jobs", paid_billing_enabled=True,
+                                   paid_gpu_enabled=True, gpu_dispatch_ready=True),
+                          self.ddb, self.s3, clock=lambda: self.now)
         paid._account("alice")
-        self.ddb.accounts["alice"]["paid_credits_available"] = 1  # Simulate future verified webhook.
+        self.ddb.accounts["alice"]["paid_membership_status"] = "active"
+        self.ddb.accounts["alice"]["paid_membership_expires_at"] = self.now + 3600
+        self.ddb.accounts["alice"]["paid_credits_available"] = 1  # Simulated verified billing credit.
         video = paid.start_upload("alice", {"content_type": "video/mp4", "size_bytes": 750_000_000, "tier": "paid"})
         self.assertEqual(self.ddb.accounts["alice"]["paid_credits_reserved"], 1)
         self.assertEqual(video["part_count"], 90)

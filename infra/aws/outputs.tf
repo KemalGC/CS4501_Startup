@@ -68,3 +68,37 @@ output "cpu_worker_ecr_repository" {
 output "ops_sns_topic" {
   value = aws_sns_topic.ops.arn
 }
+
+output "gpu_worker_ecr_repository" {
+  value       = try(aws_ecr_repository.gpu_worker[0].repository_url, null)
+  description = "Private GPU CUDA ECR repository (optional bootstrap, never launches EC2)."
+}
+output "gpu_smoke_ecs_cluster" {
+  value       = try(aws_ecs_cluster.gpu[0].arn, null)
+  description = "Review-only ECS-on-EC2 GPU smoke cluster; null while disabled."
+}
+output "gpu_smoke_asg_name" {
+  value       = try(aws_autoscaling_group.gpu[0].name, null)
+  description = "ASG with max_size=1, desired=0; operator must explicitly start and stop one host."
+}
+output "gpu_smoke_task_definition" {
+  value       = try(aws_ecs_task_definition.gpu_preflight[0].arn, null)
+  description = "No-customer-media CUDA preflight; requires a manually started EC2 host."
+}
+output "gpu_smoke_capacity_provider" {
+  value       = try(aws_ecs_capacity_provider.gpu[0].name, null)
+  description = "Manual-scaling capacity provider for one-instance preflight."
+}
+output "gpu_smoke_task_security_group" {
+  value = try(aws_security_group.gpu_task[0].id, null)
+}
+
+output "gpu_smoke_log_group" {
+  value       = try(aws_cloudwatch_log_group.gpu_worker[0].name, null)
+  description = "Private CloudWatch log group holding the preflight evidence line."
+}
+
+output "gpu_smoke_subnet_id" {
+  value       = var.enable_gpu && var.gpu_smoke_mode ? var.gpu_subnet_id : null
+  description = "Reviewed one-instance GPU host/task subnet for operator-only smoke."
+}

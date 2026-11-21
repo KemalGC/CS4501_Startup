@@ -1,0 +1,45 @@
+{
+  "_comment": "NOT DEPLOYABLE. ASG-capped (0..1) EC2 GPU task architecture reference, not ECS Managed Instances. Replace all <...> placeholders and obtain cost approval.",
+  "family": "strokesense-dev-gpu-preflight-NOT-PRODUCTION",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "EC2"
+  ],
+  "cpu": "2048",
+  "memory": "8192",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "executionRoleArn": "<GPU_TASK_EXECUTION_ROLE_ARN>",
+  "taskRoleArn": "<GPU_TASK_ROLE_ARN_MINIMAL_READ_ONLY>",
+  "containerDefinitions": [
+    {
+      "name": "gpu-preflight",
+      "essential": true,
+      "image": "<REVIEWED_CUDA_IMAGE_WITH_ONNXRUNTIME_GPU_PINNED_BY_SHA256_DIGEST>",
+      "command": [
+        "python",
+        "-m",
+        "aws_app.gpu_preflight",
+        "--model",
+        "/app/models/yolo11n-pose.onnx"
+      ],
+      "resourceRequirements": [
+        {
+          "type": "GPU",
+          "value": "0.125"
+        }
+      ],
+      "readonlyRootFilesystem": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "<REVIEWED_LOG_GROUP_NAME>",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "gpu-preflight"
+        }
+      }
+    }
+  ]
+}

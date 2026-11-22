@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock
 
 from aws_app.core import ApiError, AwsBackend, Settings, _item
-from aws_app.gpu_preflight import GpuPreflightError, validate_gpu_runtime
+from aws_app.gpu_preflight import GpuPreflightError, WARMUP_RUNS, validate_gpu_runtime
 from aws_app.paid_access import evaluate_paid_membership, require_paid_membership
 from aws_app.test_backend import FakeS3, FakeBatch, MemoryDynamo
 
@@ -207,6 +207,33 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         )
         self.assertEqual(result["provider"], "CUDAExecutionProvider")
         self.assertEqual(result["gpu_memory_total_mib"], 3072)
+
+    def test_invalid_early_inference_is_not_hidden_by_later_valid_outputs(self):
+        good = [SimpleNamespace(shape=(1, 56, 8400), size=470400)]
+        invalid_outputs = [
+            ([], "empty_inference_output"),
+            ([SimpleNamespace(shape=(0,), size=0)], "empty_inference_output"),
+            ([SimpleNamespace(shape=(1, 56, 8400), size=470400, finite=False)],
+             "non_finite_inference_output"),
+        ]
+        for bad_at in (0, WARMUP_RUNS, WARMUP_RUNS + 5):
+            for bad, expected in invalid_outputs:
+                with self.subTest(bad_at=bad_at, expected=expected):
+                    call_count = 0
+
+                    def inference(*_args):
+                        nonlocal call_count
+                        result = bad if call_count == bad_at else good
+                        call_count += 1
+                        return result
+
+                    ort = self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"],
+                                   run=inference)
+                    with self.assertRaises(GpuPreflightError) as caught:
+                        validate_gpu_runtime(self.model, run=self.nvidia_memory(),
+                                             import_module=lambda _name: ort)
+                    self.assertEqual(str(caught.exception), expected)
+                    self.assertEqual(call_count, bad_at + 1)
 
     def test_cpu_fallback_and_absent_cuda_are_rejected(self):
         for available, active, expected in [

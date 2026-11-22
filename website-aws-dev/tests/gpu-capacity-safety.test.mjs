@@ -66,3 +66,43 @@ test('smoke host does not auto-launch and cannot exceed one instance', () => {
   assert.ok(ecr.includes('count                = var.enable_gpu_image_repository ? 1 : 0'));
   assert.ok(ecr.includes('image_tag_mutability = "IMMUTABLE"'));
 });
+
+test('fractional GPU host selects an official fixed AMI and a concrete template version', () => {
+  const imageLookup = tf.split('data "aws_ami" "gpu_ecs" {')[1]?.split(/\n(?:data|resource) /)[0];
+  assert.ok(imageLookup, 'the SSM image ID must be checked against EC2 AMI metadata');
+  assert.match(imageLookup, /count\s*=\s*var\.enable_gpu \? 1 : 0/);
+  assert.match(imageLookup, /owners\s*=\s*\["amazon"\]/);
+  const filters = new Map([...imageLookup.matchAll(/filter\s*\{([\s\S]*?)\}/g)].map(([, block]) => [
+    JSON.parse(block.match(/name\s*=\s*("[^"\n]+")/)[1]),
+    block.match(/values\s*=\s*(\[[^\n]+\])/)[1],
+  ]));
+  assert.equal(filters.get('image-id'), '[nonsensitive(data.aws_ssm_parameter.gpu_ecs_ami[0].value)]');
+  for (const [name, values] of Object.entries({
+    name: ['al2023-ami-ecs-gpu-hvm-2023.0.*'], architecture: ['x86_64'],
+    'virtualization-type': ['hvm'], 'root-device-type': ['ebs'], state: ['available'],
+  })) {
+    assert.deepEqual(JSON.parse(filters.get(name)), values, `AMI filter ${name}`);
+  }
+
+  // Exercise the release-name pattern and boundary used by the Terraform
+  // postcondition. Names may include the official kernel/architecture suffix.
+  const releaseGuard = imageLookup.match(/tonumber\(regex\(("(?:\\.|[^"\\])*"),\s*self\.name\)\[0\]\)\s*>=\s*(\d{8})/);
+  assert.ok(releaseGuard, 'an AMI without the GRID userspace fix must fail before launch');
+  const releasePattern = new RegExp(JSON.parse(releaseGuard[1]));
+  const minimumRelease = Number(releaseGuard[2]);
+  assert.ok(minimumRelease >= 20261119);
+  const accepts = name => {
+    const match = releasePattern.exec(name);
+    return match !== null && Number(match[1]) >= minimumRelease;
+  };
+  assert.equal(accepts('al2023-ami-ecs-gpu-hvm-2023.0.20261118-x86_64-ebs'), false);
+  assert.equal(accepts('al2023-ami-ecs-gpu-hvm-2023.0.20261119'), true);
+  assert.equal(accepts('al2023-ami-ecs-gpu-hvm-2023.0.20261119-kernel-6.1-x86_64-ebs'), true);
+  assert.equal(accepts('al2023-ami-ecs-gpu-hvm-2023.0.20270101-x86_64-ebs'), true);
+  assert.equal(accepts('al2023-ami-ecs-hvm-2023.0.20261119-x86_64'), false);
+  assert.equal(accepts('unofficial-al2023-ami-ecs-gpu-hvm-2023.0.20261119'), false);
+
+  const group = tf.split('resource "aws_autoscaling_group" "gpu" {')[1].split('\nresource ')[0];
+  assert.match(group, /version\s*=\s*tostring\(aws_launch_template\.gpu\[0\]\.latest_version\)/);
+  assert.doesNotMatch(group, /version\s*=\s*"\$(Latest|Default)"/);
+});

@@ -33,6 +33,22 @@ jobs:
         working-directory: website-aws-dev
         run: npm run build
 
+  gpu-operator-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Exercise GPU launch and cleanup with fake AWS
+        shell: ${{ matrix.shell }}
+        run: ./infra/aws/test-gpu-smoke.ps1
+      - name: Exercise quota and image preparation with fake AWS
+        shell: ${{ matrix.shell }}
+        run: ./infra/aws/test-prepare-gpu-smoke.ps1
+
   terraform-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15

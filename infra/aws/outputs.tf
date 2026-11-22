@@ -79,7 +79,23 @@ output "gpu_smoke_ecs_cluster" {
 }
 output "gpu_smoke_asg_name" {
   value       = try(aws_autoscaling_group.gpu[0].name, null)
-  description = "ASG with max_size=1, desired=0; operator must explicitly start and stop one host."
+  description = "Smoke ASG idle at min/max/desired=0; operator explicitly raises its maximum to one for a single host."
+}
+output "gpu_smoke_ami_id" {
+  value       = try(data.aws_ami.gpu_ecs[0].id, null)
+  description = "Reviewed official AL2023 ECS GPU AMI with GRID support for the G6f host."
+}
+output "gpu_smoke_ami_name" {
+  value       = try(data.aws_ami.gpu_ecs[0].name, null)
+  description = "Official GPU AMI release name, retained for the smoke evidence."
+}
+output "gpu_smoke_launch_template_id" {
+  value       = try(aws_launch_template.gpu[0].id, null)
+  description = "Launch template whose numeric version the operator verifies before scaling."
+}
+output "gpu_smoke_launch_template_version" {
+  value       = try(tostring(aws_launch_template.gpu[0].latest_version), null)
+  description = "Reviewed numeric launch-template version; never the mutable $Latest alias."
 }
 output "gpu_smoke_task_definition" {
   value       = try(aws_ecs_task_definition.gpu_preflight[0].arn, null)

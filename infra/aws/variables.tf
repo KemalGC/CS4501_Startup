@@ -132,7 +132,7 @@ variable "worker_image_tag" {
 variable "enable_cpu_analysis" {
   type        = bool
   default     = false
-  description = "Enable user-facing CPU submissions through the API and its Batch queue. Leave false during the operator-only smoke test."
+  description = "Enable user-facing CPU submissions through the API and its Batch queue. Preserve the deployed value during the isolated GPU smoke test."
 }
 
 variable "enable_cpu_smoke_queue" {
@@ -316,8 +316,8 @@ variable "daily_budget_usd" {
   }
 }
 
-# Explicitly reviewed hardware network/image inputs. These are inert while
-# enable_gpu is permanently blocked by the guard above.
+# Explicitly reviewed hardware network/image inputs. These remain inert while
+# enable_gpu=false; the guard above permits only the isolated GPU smoke mode.
 variable "gpu_subnet_id" {
   type        = string
   default     = ""
@@ -331,7 +331,7 @@ variable "gpu_subnet_id" {
 variable "gpu_s3_route_table_ids" {
   type        = list(string)
   default     = []
-  description = "Reviewed S3 Gateway VPC Endpoint route tables for the GPU task subnet."
+  description = "Reviewed S3 Gateway VPC Endpoint route tables for a future real-data GPU task subnet. Leave empty for the blank-input GPU smoke; it never changes shared S3 routing."
   validation {
     condition     = length(var.gpu_s3_route_table_ids) <= 5 && alltrue([for id in var.gpu_s3_route_table_ids : can(regex("^rtb-[0-9a-f]{8,17}$", id))])
     error_message = "Provide at most five valid route table IDs."

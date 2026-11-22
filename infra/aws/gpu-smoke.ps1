@@ -9,7 +9,7 @@ param(
   [Parameter(Mandatory=$true)][ValidatePattern('^\d{12}$')][string]$ExpectedAccountId,
   [Parameter(Mandatory=$true)][ValidatePattern('^\d{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$')][string]$ExpectedImageUri,
   [switch]$ApproveCharge,
-  [ValidateRange(20,60)][int]$HardStopMinutes = 45,
+  [ValidateRange(20,45)][int]$HardStopMinutes = 45,
   [ValidateRange(3,15)][int]$BootWaitMinutes = 12,
   [ValidatePattern('^[A-Za-z0-9_.-]{1,64}$')][string]$AwsProfile,
   [string]$EvidenceDir = (Join-Path ([System.IO.Path]::GetTempPath()) 'strokesense-gpu-smoke')
@@ -17,8 +17,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $region = 'us-east-1'
-$runId = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
-$startedBy = 'gpu-smoke-only'
+$runId = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8)
+$startedBy = "ss-gpu-$runId"
 $scheduledName = 'strokesense-gpu-smoke-cutoff'
 $asgVerified = $false
 $asgName = $null
@@ -30,6 +30,10 @@ $logGroup = $null
 $t0 = $null
 $instanceIds = @()
 $volumeIds = @()
+$failure = $null
+$cleanupErrors = @()
+$launchRequested = $false
+$expectedModelSha256 = '93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408'
 $evidence = [ordered]@{ run_id = $runId; region = $region; timings_utc = [ordered]@{} }
 $profileArgs = @()
 if ($AwsProfile) { $profileArgs = @('--profile', $AwsProfile) }
@@ -46,8 +50,15 @@ function Save-Evidence {
 
 function Invoke-Aws {
   param([Parameter(Mandatory=$true)][string[]]$Arguments)
-  $raw = & aws @Arguments @profileArgs --region $region --no-cli-pager 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  # Windows PowerShell 5.1 turns redirected native stderr into ErrorRecords.
+  # Capture those without losing the actual CLI exit code or cleanup path.
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $raw = & aws @Arguments @profileArgs --region $region --no-cli-pager --cli-connect-timeout 10 --cli-read-timeout 30 2>&1
+    $nativeExit = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $previousPreference }
+  if ($nativeExit -ne 0) {
     $text = ($raw | Out-String)
     $code = 'unknown'
     if ($text -match 'An error occurred \(([A-Za-z0-9.]+)\)') { $code = $Matches[1] }
@@ -76,6 +87,49 @@ function Get-Prop($Object, [string]$Name) {
 # Null-safe count: in PowerShell @($null).Count is 1.
 function Get-Count($Value) { if ($null -eq $Value) { return 0 } return @($Value).Count }
 
+function Read-PreflightEvidence([string]$Stream) {
+  # CloudWatch delivery can lag ECS STOPPED. Read a bounded number of times;
+  # absent or malformed evidence is a failed verification, never a pass.
+  for ($attempt = 0; $attempt -lt 4; $attempt++) {
+    try {
+      $events = Invoke-AwsJson @('logs','get-log-events','--log-group-name',$logGroup,'--log-stream-name',$Stream,'--start-from-head')
+      $lines = @(@($events.events) | ForEach-Object { $_.message } | Where-Object { $_ -match '^STROKESENSE_GPU_PREFLIGHT ' })
+      if ($lines.Count -gt 1) { throw 'Multiple preflight evidence records found in one task stream.' }
+      if ($lines.Count -eq 1) {
+        $result = $lines[0].Substring('STROKESENSE_GPU_PREFLIGHT '.Length) | ConvertFrom-Json
+        foreach ($flag in @('model_loaded','cpu_ep_fallback_disabled','outputs_finite')) {
+          $value = Get-Prop $result $flag
+          if ($value -isnot [bool] -or !$value) { throw "Preflight evidence did not confirm $flag." }
+        }
+        $providers = @(Get-Prop $result 'active_providers')
+        if ((Get-Prop $result 'provider') -ne 'CUDAExecutionProvider' -or
+            $providers.Count -eq 0 -or $providers[0] -ne 'CUDAExecutionProvider' -or
+            (Get-Prop $result 'model_sha256_verified') -ne $expectedModelSha256 -or
+            (Get-Prop $result 'warmup_runs') -ne 3 -or (Get-Prop $result 'inference_runs') -ne 20 -or
+            (Get-Count (Get-Prop $result 'output_shapes')) -eq 0) {
+          throw 'Preflight evidence does not match the pinned model and 23 CUDA inference runs.'
+        }
+        foreach ($metric in @('latency_ms_p50','latency_ms_p95','latency_ms_max','gpu_memory_total_mib','gpu_memory_used_after_inference_mib')) {
+          $value = Get-Prop $result $metric
+          if ($null -eq $value -or $value -is [string] -or $value -is [bool] -or
+              [double]::IsNaN([double]$value) -or [double]::IsInfinity([double]$value) -or [double]$value -lt 0) {
+            throw "Invalid preflight evidence metric $metric."
+          }
+        }
+        if ([double]$result.gpu_memory_total_mib -lt 2800) { throw 'Preflight reported less than the expected GPU memory.' }
+        $evidence.log_lines = $lines
+        $evidence.preflight = $result
+        return $result
+      }
+    } catch {
+      if ($attempt -eq 3) { throw }
+      $evidence.log_read_error = $_.Exception.Message
+    }
+    if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
+  }
+  throw 'No machine-readable CUDA inference evidence arrived in the task log stream.'
+}
+
 if (!$ApproveCharge) { throw 'Explicit -ApproveCharge required after reviewing real AWS GPU charges.' }
 if (!(Get-Command aws -ErrorAction SilentlyContinue) -or !(Get-Command terraform -ErrorAction SilentlyContinue)) {
   throw 'Install/configure AWS CLI v2 and Terraform before running a GPU smoke.'
@@ -85,6 +139,11 @@ try {
   # ---------- identity, ownership and idle-state checks (no mutation) ----------
   $identity = Invoke-AwsJson @('sts','get-caller-identity')
   if ($identity.Account -ne $ExpectedAccountId) { throw 'Wrong AWS account; no GPU resources changed.' }
+  $registryPrefix = "$ExpectedAccountId.dkr.ecr.us-east-1.amazonaws.com/"
+  if (!$ExpectedImageUri.StartsWith($registryPrefix)) { throw 'The image must belong to the expected AWS account.' }
+  $imageParts = $ExpectedImageUri.Substring($registryPrefix.Length).Split('@')
+  $published = (Invoke-AwsJson @('ecr','describe-images','--repository-name',$imageParts[0],'--image-ids',"imageDigest=$($imageParts[1])")).imageDetails
+  if ((Get-Count $published) -ne 1 -or $published[0].imageDigest -ne $imageParts[1]) { throw 'Approved image digest is not published in ECR.' }
 
   $asgName = Get-TerraformOutput 'gpu_smoke_asg_name'
   $cluster = Get-TerraformOutput 'gpu_smoke_ecs_cluster'
@@ -93,17 +152,24 @@ try {
   $subnet = Get-TerraformOutput 'gpu_smoke_subnet_id'
   $sg = Get-TerraformOutput 'gpu_smoke_task_security_group'
   $logGroup = Get-TerraformOutput 'gpu_smoke_log_group'
+  $expectedAmi = Get-TerraformOutput 'gpu_smoke_ami_id'
+  $templateId = Get-TerraformOutput 'gpu_smoke_launch_template_id'
+  $templateVersion = Get-TerraformOutput 'gpu_smoke_launch_template_version'
   $acct = [regex]::Escape($ExpectedAccountId)
   if ($asgName -notmatch '^strokesense-[a-z0-9-]+-gpu-one-instance$' -or
       $cluster -notmatch "^arn:aws:ecs:us-east-1:${acct}:cluster/strokesense-[a-z0-9-]+-gpu" -or
       $taskDefinition -notmatch "^arn:aws:ecs:us-east-1:${acct}:task-definition/strokesense-[a-z0-9-]+-gpu-preflight:\d+$" -or
       $provider -notmatch '^strokesense-[a-z0-9-]+-gpu-asg$' -or
       $subnet -notmatch '^subnet-[0-9a-f]{8,17}$' -or $sg -notmatch '^sg-[0-9a-f]{8,17}$' -or
-      $logGroup -notmatch '^/ecs/strokesense-[a-z0-9-]+/paid-gpu$') {
+      $logGroup -notmatch '^/ecs/strokesense-[a-z0-9-]+/paid-gpu$' -or
+      $expectedAmi -notmatch '^ami-[0-9a-f]{8,17}$' -or $templateId -notmatch '^lt-[0-9a-f]{8,17}$' -or
+      $templateVersion -notmatch '^[1-9][0-9]*$') {
     throw 'Terraform outputs are not the isolated StrokeSense us-east-1 GPU smoke resources.'
   }
   $evidence.cluster = $cluster; $evidence.asg = $asgName; $evidence.capacity_provider = $provider
   $evidence.task_definition = $taskDefinition; $evidence.log_group = $logGroup
+  $evidence.expected_ami = $expectedAmi
+  $evidence.launch_template = [ordered]@{ id = $templateId; version = $templateVersion }
 
   $quota = Invoke-AwsJson @('service-quotas','get-service-quota','--service-code','ec2','--quota-code','L-DB2E81BA')
   $liveG = Invoke-AwsJson @('ec2','describe-instances','--filters','Name=instance-type,Values=g*,vt*',
@@ -115,6 +181,20 @@ try {
   $group = (Invoke-AwsJson @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName)).AutoScalingGroups
   if (@($group).Count -ne 1) { throw 'Expected exactly one smoke ASG.' }
   $group = $group[0]
+  $groupTemplate = Get-Prop $group 'LaunchTemplate'
+  if (!$groupTemplate -or $groupTemplate.LaunchTemplateId -ne $templateId -or
+      [string]$groupTemplate.Version -ne $templateVersion -or (Get-Prop $group 'NewInstancesProtectedFromScaleIn') -eq $true) {
+    throw 'ASG does not use the reviewed numeric launch-template version, or new instances are protected from shutdown.'
+  }
+  $versions = (Invoke-AwsJson @('ec2','describe-launch-template-versions','--launch-template-id',$templateId,'--versions',$templateVersion)).LaunchTemplateVersions
+  if ((Get-Count $versions) -ne 1) { throw 'Reviewed launch-template version is missing.' }
+  $hostConfig = $versions[0].LaunchTemplateData
+  $userData = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($hostConfig.UserData))
+  if ($hostConfig.ImageId -ne $expectedAmi -or $hostConfig.InstanceType -ne 'g6f.xlarge' -or
+      $hostConfig.MetadataOptions.HttpTokens -ne 'required' -or
+      $userData -notmatch 'ECS_ENABLE_GPU_SUPPORT=true' -or $userData -notmatch 'ECS_AWSVPC_BLOCK_IMDS=true') {
+    throw 'Launch template does not match the reviewed G6f AMI, GPU support, and metadata isolation.'
+  }
   $suspended = @($group.SuspendedProcesses | ForEach-Object { $_.ProcessName })
   if ($group.MinSize -ne 0 -or $group.DesiredCapacity -ne 0 -or $group.MaxSize -gt 1 -or (Get-Count $group.Instances) -ne 0) {
     throw 'GPU ASG must be idle (min=0, desired=0, max<=1, no instances).'
@@ -177,11 +257,13 @@ try {
     throw 'Cloud-side GPU cutoff not confirmed; refusing to start host.'
   }
   $evidence.cloud_cutoff_utc = $cutoffUtc
-  Write-Host "AWS GPU hard cutoff (min/max/desired 0) confirmed for $cutoffUtc."
+  Write-Host "AWS GPU shutdown action (min/max/desired 0) confirmed for $cutoffUtc; termination still requires verification."
 
   # ---------- exactly one host ----------
   $t0 = Get-Date
+  if ((Get-Remaining) -lt (($BootWaitMinutes + 8) * 60)) { throw 'Insufficient time remains for host startup and verified cleanup; not launching.' }
   Add-Mark 'scale_out_requested'
+  $launchRequested = $true
   [void](Invoke-Aws -Arguments @('autoscaling','update-auto-scaling-group','--auto-scaling-group-name',$asgName,'--min-size','0','--max-size','1','--desired-capacity','1'))
 
   $bootDeadline = $t0.AddMinutes($BootWaitMinutes)
@@ -205,7 +287,7 @@ try {
   $evidence.instance = [ordered]@{ id = $inst.InstanceId; type = $inst.InstanceType; ami = $inst.ImageId;
     launch_time = $inst.LaunchTime; az = $inst.Placement.AvailabilityZone; volumes = $volumeIds }
   Save-Evidence
-  if ($inst.InstanceType -ne 'g6f.xlarge') { throw "Unexpected instance type $($inst.InstanceType)." }
+  if ($inst.InstanceType -ne 'g6f.xlarge' -or $inst.ImageId -ne $expectedAmi) { throw 'Actual instance type or AMI differs from the reviewed launch template.' }
   Write-Host "Instance $($inst.InstanceId) ($($inst.InstanceType), $($inst.ImageId)) launched $($inst.LaunchTime)."
 
   $ready = $false
@@ -218,17 +300,36 @@ try {
         $gpuRes = @($d.registeredResources | Where-Object { $_.name -eq 'GPU' })
         $evidence.container_instance = [ordered]@{ arn = $arn; agent = $d.versionInfo.agentVersion;
           gpu_registered = $gpuRes | ConvertTo-Json -Depth 5 -Compress }
-        if ($gpuRes.Count -eq 0) { throw 'ECS agent registered no GPU resource on the g6f host (known g6f issue); not launching the task.' }
+        if ($gpuRes.Count -eq 0) { throw 'ECS agent registered no GPU resource. Inspect the selected AMI, GRID driver and ECS agent startup logs; not launching the task.' }
         $ready = $true
       }
     }
     if (!$ready) { Start-Sleep -Seconds 10 }
   }
   if (!$ready) { throw 'GPU EC2 host did not register with ECS in time.' }
+  # ASG can expose a pending instance before its EBS mapping is populated.
+  # Re-read after ECS registration so an empty initial mapping cannot produce
+  # a false claim that all test volumes were deleted.
+  $booted = (Invoke-AwsJson @('ec2','describe-instances','--instance-ids',$instanceIds[0])).Reservations[0].Instances[0]
+  $mappings = @(Get-Prop $booted 'BlockDeviceMappings')
+  $rootDevice = Get-Prop $booted 'RootDeviceName'
+  $rootVolumes = @($mappings | Where-Object { $_ -and (Get-Prop $_ 'DeviceName') -eq $rootDevice -and (Get-Prop $_ 'Ebs') })
+  if (!$rootDevice -or $rootVolumes.Count -ne 1 -or !$rootVolumes[0].Ebs.VolumeId -or
+      (Get-Prop $rootVolumes[0].Ebs 'DeleteOnTermination') -ne $true -or
+      $booted.InstanceType -ne 'g6f.xlarge' -or $booted.ImageId -ne $expectedAmi) {
+    throw 'The ready host has no verified delete-on-termination root volume or differs from the reviewed instance.'
+  }
+  $volumeIds = @($mappings | ForEach-Object { $disk = Get-Prop $_ 'Ebs'; if ($disk) { $disk.VolumeId } } | Sort-Object -Unique)
+  $evidence.instance.volumes = $volumeIds
+  $evidence.instance.root_volume_id = $rootVolumes[0].Ebs.VolumeId
+  $evidence.root_volume_identified = $true
   Add-Mark 'host_registered'
 
   # ---------- exactly one task (idempotent) ----------
   $clientToken = "ss-gpu-smoke-$runId"
+  $evidence.client_token = $clientToken
+  $evidence.started_by = $startedBy
+  Save-Evidence
   $request = @{
     cluster = $cluster; taskDefinition = $taskDefinition; count = 1; startedBy = $startedBy
     clientToken = $clientToken
@@ -283,13 +384,15 @@ try {
         foreach ($line in $evidence.log_lines) { Write-Host "log: $line" }
       } catch { Write-Warning "Could not read preflight log stream: $($_.Exception.Message)" }
       Save-Evidence
-      if ($evidence.task.image_digest -and $ExpectedImageUri -notlike "*@$($evidence.task.image_digest)") {
+      if (!$evidence.task.image_digest -or $ExpectedImageUri -notlike "*@$($evidence.task.image_digest)") {
         throw "Task ran image $($evidence.task.image_digest), not the approved digest."
       }
       if ($exit -ne 0) {
         throw "CUDA preflight failed (exit=$exit, stopCode=$($evidence.task.stop_code), reason=$($evidence.task.stopped_reason) / $($evidence.task.container_reason))."
       }
-      Write-Host 'CUDA preflight passed: task stopped with exit code 0.'
+      [void](Read-PreflightEvidence $stream)
+      Add-Mark 'inference_evidence_verified'
+      Write-Host 'CUDA inference evidence verified; checking host shutdown next.'
       break
     }
     Start-Sleep -Seconds 10
@@ -297,13 +400,26 @@ try {
   if (!$taskStopped) { throw 'GPU preflight timed out before the cleanup margin; enforcing shutdown.' }
 }
 catch {
-  $evidence.error = $_.Exception.Message
+  $failure = $_.Exception.Message
+  $evidence.error = $failure
   Write-Warning $evidence.error
-  throw
 }
 finally {
   if ($payloadFile -and (Test-Path $payloadFile)) { Remove-Item -LiteralPath $payloadFile -Force -ErrorAction SilentlyContinue }
   if ($asgVerified) {
+    # A second lost RunTask response can leave an owned task without a local
+    # ARN. The unique startedBy value prevents adopting another operator's run.
+    if (!$taskArn -and $evidence.Contains('client_token')) {
+      try {
+        $owned = @((Invoke-AwsJson @('ecs','list-tasks','--cluster',$cluster,'--started-by',$startedBy)).taskArns)
+        foreach ($ownedArn in $owned) {
+          [void](Invoke-Aws -Arguments @('ecs','stop-task','--cluster',$cluster,'--task',$ownedArn,'--reason','Smoke response recovery cleanup'))
+        }
+        if ($owned.Count -eq 1) { $taskArn = $owned[0] }
+        if ($owned.Count -gt 1) { $cleanupErrors += 'Multiple tasks were found for the single-attempt client token; inspect their stop states.' }
+        $evidence.recovered_task_arns = $owned
+      } catch { $cleanupErrors += "Task-response reconciliation failed: $($_.Exception.Message)" }
+    }
     if ($taskArn -and !$taskStopped) {
       try { [void](Invoke-Aws -Arguments @('ecs','stop-task','--cluster',$cluster,'--task',$taskArn,'--reason','Operator smoke cutoff')) ; Add-Mark 'task_stop_requested' }
       catch { Write-Warning "Could not stop ECS task: $($_.Exception.Message). Cloud cutoff remains scheduled." }
@@ -321,13 +437,22 @@ finally {
         $g = (Invoke-AwsJson @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName)).AutoScalingGroups[0]
         $live = Invoke-AwsJson @('ec2','describe-instances','--filters',"Name=tag:aws:autoscaling:groupName,Values=$asgName",
           'Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped','--query','Reservations[].Instances[].InstanceId')
+        if ($launchRequested) {
+          $instanceIds = @(@($instanceIds) + @($g.Instances | ForEach-Object { $_.InstanceId }) + @($live) | Where-Object { $_ } | Sort-Object -Unique)
+          $evidence.instance_ids = $instanceIds
+          if ($instanceIds.Count -gt 1 -and !$failure) { $failure = 'More than one EC2 instance was observed for this single-attempt smoke.' }
+        }
         $mine = $true
         $stateList = @()
         if (@($instanceIds).Count -gt 0) {
           $stateList = @(Invoke-AwsJson (@('ec2','describe-instances','--instance-ids') + $instanceIds + @('--query','Reservations[].Instances[].State.Name')))
-          $mine = (@($stateList | Where-Object { $_ -ne 'terminated' }).Count -eq 0)
+          $mine = ($stateList.Count -eq $instanceIds.Count -and @($stateList | Where-Object { $_ -ne 'terminated' }).Count -eq 0)
         }
-        if ($g.MinSize -eq 0 -and $g.MaxSize -eq 0 -and $g.DesiredCapacity -eq 0 -and (Get-Count $g.Instances) -eq 0 -and (Get-Count $live) -eq 0 -and $mine) {
+        if ($taskArn -and !$taskStopped) {
+          $remainingTask = (Invoke-AwsJson @('ecs','describe-tasks','--cluster',$cluster,'--tasks',$taskArn)).tasks
+          $taskStopped = (Get-Count $remainingTask) -eq 1 -and $remainingTask[0].lastStatus -eq 'STOPPED'
+        }
+        if ($g.MinSize -eq 0 -and $g.MaxSize -eq 0 -and $g.DesiredCapacity -eq 0 -and (Get-Count $g.Instances) -eq 0 -and (Get-Count $live) -eq 0 -and $mine -and (!$taskArn -or $taskStopped)) {
           $terminated = $true; break
         }
       } catch { Write-Warning "Termination check failed: $($_.Exception.Message); retrying." }
@@ -336,19 +461,37 @@ finally {
     if ($terminated) {
       Add-Mark 'instances_terminated_observed'
       $evidence.terminated_verified = $true
+      $evidence.task_stopped_verified = !$taskArn -or $taskStopped
       Write-Host "VERIFIED: ASG 0/0/0 and instance(s) $($instanceIds -join ',') TERMINATED."
       $remainingVolumes = @()
       foreach ($v in $volumeIds) {
-        $vr = & aws ec2 describe-volumes --volume-ids $v @profileArgs --region $region --no-cli-pager --output json 2>&1
-        if ($LASTEXITCODE -eq 0) { $vs = ($vr | Out-String | ConvertFrom-Json).Volumes; if (@($vs).Count -gt 0 -and $vs[0].State -ne 'deleted') { $remainingVolumes += "$v=$($vs[0].State)" } }
+        try {
+          # Filters return an empty list for a deleted volume. Permission or
+          # network failures must not be mistaken for successful deletion.
+          for ($attempt = 0; $attempt -lt 8; $attempt++) {
+            $vs = (Invoke-AwsJson @('ec2','describe-volumes','--filters',"Name=volume-id,Values=$v")).Volumes
+            if ((Get-Count $vs) -eq 0) { break }
+            if ($attempt -lt 7) { Start-Sleep -Seconds 3 }
+          }
+          if ((Get-Count $vs) -gt 0) { $remainingVolumes += "$v=$($vs[0].State)" }
+        } catch { $cleanupErrors += "Volume deletion could not be verified for ${v}: $($_.Exception.Message)" }
       }
       $evidence.remaining_volumes = $remainingVolumes
-      if ($remainingVolumes.Count) { Write-Warning "Root volume(s) not yet deleted: $($remainingVolumes -join ', ')" }
+      if ($remainingVolumes.Count) { $cleanupErrors += "Root volume(s) not deleted: $($remainingVolumes -join ', ')" }
     } else {
       $evidence.terminated_verified = $false
-      Write-Warning 'GPU EC2 termination NOT verified within 10 minutes; check NOW. AWS cutoff remains scheduled.'
+      $cleanupErrors += 'GPU EC2/task termination NOT verified within 10 minutes; check NOW. AWS cutoff remains scheduled.'
     }
+    $evidence.cleanup_errors = $cleanupErrors
+    if ($failure) { $evidence.error = $failure }
     Save-Evidence
     Write-Host ('evidence: ' + (Join-Path $EvidenceDir "gpu-smoke-$runId.json"))
   }
 }
+if ($cleanupErrors.Count -gt 0) {
+  $details = $cleanupErrors -join ' | '
+  if ($failure) { $details = "$failure | Cleanup: $details" }
+  throw $details
+}
+if ($failure) { throw $failure }
+Write-Host 'PASS: verified CUDA inference, stopped task, terminated host and deleted root volume.'

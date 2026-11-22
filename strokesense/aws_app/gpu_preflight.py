@@ -1,8 +1,8 @@
-"""Fail-closed ONNX/CUDA readiness check for a FUTURE GPU worker image.
+"""Fail-closed ONNX/CUDA readiness check for the GPU worker image.
 
 Running this manually never launches AWS compute, schedules a GPU job, or
 updates any paid credit. Tests inject fake dependencies on CPU-only hosts.
-The real GPU worker and billing adapter have NOT been implemented.
+Synthetic model inference does not validate the video or billing pipeline.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 LOGGER = logging.getLogger(__name__)
 GPU_PROVIDER = "CUDAExecutionProvider"
-GPU_MIN_TOTAL_MIB = 2800  # The target g6f.large exposes approximately 3 GiB.
+GPU_MIN_TOTAL_MIB = 2800  # The target g6f.xlarge exposes approximately 3 GiB.
 GPU_MIN_FREE_MIB = 1800
 
 
@@ -120,10 +120,12 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
             outputs = session.run(None, {name: tensor})
             if i >= WARMUP_RUNS:
                 latencies_ms.append((clock() - started) * 1000.0)
-        if not outputs or not all(getattr(o, "size", 0) > 0 for o in outputs):
-            raise GpuPreflightError("empty_inference_output")
-        if not all(bool(np.all(np.isfinite(o))) for o in outputs):
-            raise GpuPreflightError("non_finite_inference_output")
+            # A later good result must not hide an invalid warm-up or timed
+            # result. Validate outside the timed region on every invocation.
+            if not outputs or not all(getattr(o, "size", 0) > 0 for o in outputs):
+                raise GpuPreflightError("empty_inference_output")
+            if not all(bool(np.all(np.isfinite(o))) for o in outputs):
+                raise GpuPreflightError("non_finite_inference_output")
         if session.get_providers()[0] != GPU_PROVIDER:
             raise GpuPreflightError("cuda_provider_not_active")
     except GpuPreflightError:

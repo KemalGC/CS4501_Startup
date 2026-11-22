@@ -13,6 +13,49 @@ data "aws_ssm_parameter" "gpu_ecs_ami" {
   name  = "/aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id"
 }
 
+# G6f requires GRID, not the Tesla driver used by full-GPU instances. Current
+# official AL2023 ECS GPU AMIs select the GRID module for the fractional L4 at
+# boot and start nvidia-gridd before ECS. Keep that supported bootstrap rather
+# than installing another driver in user data. The 20261119 AMI fixes leftover
+# GRID runfile userspace libraries:
+# https://github.com/aws/amazon-ecs-ami/pull/837
+data "aws_ami" "gpu_ecs" {
+  count  = var.enable_gpu ? 1 : 0
+  owners = ["amazon"]
+
+  filter {
+    name   = "image-id"
+    values = [nonsensitive(data.aws_ssm_parameter.gpu_ecs_ami[0].value)]
+  }
+  filter {
+    name   = "name"
+    values = ["al2023-ami-ecs-gpu-hvm-2023.0.*"]
+  }
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = try(tonumber(regex("^al2023-ami-ecs-gpu-hvm-2023\\.0\\.([0-9]{8})(-|$)", self.name)[0]) >= 20261119, false)
+      error_message = "The G6f host requires an official AL2023 ECS GPU AMI from 20261119 or newer with the GRID userspace fix. Review the AWS ECS AMI release notes before launching."
+    }
+  }
+}
+
 data "aws_iam_policy_document" "gpu_ec2_trust" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -109,13 +152,13 @@ resource "aws_vpc_endpoint" "gpu_s3" {
 resource "aws_launch_template" "gpu" {
   count         = var.enable_gpu ? 1 : 0
   name_prefix   = format("%s-gpu-", local.prefix)
-  image_id      = data.aws_ssm_parameter.gpu_ecs_ami[0].value
+  image_id      = data.aws_ami.gpu_ecs[0].id
   instance_type = "g6f.xlarge" # Fixed: 4 vCPU, 16 GiB RAM, 0.125 L4 / 3 GB VRAM
   ebs_optimized = true
 
   # Bounded boot/image cache space for CUDA/ONNX video processing.
   block_device_mappings {
-    device_name = "/dev/xvda"
+    device_name = data.aws_ami.gpu_ecs[0].root_device_name
     ebs {
       volume_size           = 80
       volume_type           = "gp3"
@@ -173,8 +216,9 @@ resource "aws_autoscaling_group" "gpu" {
   suspended_processes = var.gpu_smoke_mode ? ["AZRebalance", "ReplaceUnhealthy"] : []
 
   launch_template {
-    id      = aws_launch_template.gpu[0].id
-    version = "$Latest"
+    id = aws_launch_template.gpu[0].id
+    # A later, unreviewed template version must not change this smoke launch.
+    version = tostring(aws_launch_template.gpu[0].latest_version)
   }
 
   tag {

@@ -1,0 +1,193 @@
+name: StrokeSense GPU Image
+
+on:
+  pull_request:
+    branches: [aws-dev]
+    paths:
+      - .github/workflows/strokesense-gpu-image.yml
+      - strokesense/Dockerfile.aws-gpu
+      - strokesense/requirements-aws-gpu.txt
+      - strokesense/.dockerignore
+      - strokesense/strokesense/**
+      - strokesense/aws_app/**
+  workflow_dispatch:
+
+# Builds a downloadable image on a CPU runner. No AWS credentials, registry
+# publication, terraform apply, or cloud GPU allocation occurs in this workflow.
+permissions:
+  contents: read
+
+concurrency:
+  group: strokesense-gpu-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+      CUDA_BASE_IMAGE: nvidia/cuda@sha256:5f0d2d827f6436b3cb7468fd8acbdc8c1d41261614e579ae49afe6141da51133
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Build the Linux amd64 image
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          image_ref="strokesense-gpu:$SOURCE_SHA"
+          echo "GPU_IMAGE=$image_ref" >> "$GITHUB_ENV"
+          docker build --platform linux/amd64 --progress plain \
+            --file strokesense/Dockerfile.aws-gpu \
+            --build-arg "CUDA_BASE_IMAGE=$CUDA_BASE_IMAGE" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --label "org.opencontainers.image.source=$SOURCE_URL" \
+            --tag "$image_ref" strokesense
+
+      - name: Verify runtime packages, model, and CPU-host rejection
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint python3 -i "$GPU_IMAGE" - <<'PY'
+          import importlib.metadata as metadata
+          import os
+          import platform
+          from pathlib import Path
+          import onnxruntime as ort
+          from aws_app.gpu_model_integrity import verify_gpu_model
+          from aws_app.gpu_preflight import GpuPreflightError, validate_gpu_runtime
+
+          assert os.geteuid() == 10001, "worker must run as the non-root UID"
+          assert platform.machine() == "x86_64", "image must be linux/amd64"
+          assert metadata.version("onnxruntime-gpu") == ort.__version__
+          try:
+              metadata.distribution("onnxruntime")
+          except metadata.PackageNotFoundError:
+              pass
+          else:
+              raise AssertionError("CPU-only onnxruntime shadows the GPU package")
+          assert "CUDAExecutionProvider" in ort.get_available_providers()
+          model = Path("/app/models/yolo11n-pose.onnx")
+          verify_gpu_model(model)
+          try:
+              validate_gpu_runtime(model)
+          except GpuPreflightError as exc:
+              assert str(exc) == "nvidia_driver_unavailable", str(exc)
+          else:
+              raise AssertionError("CPU-host validation must not be reported as GPU inference")
+          print("Non-root packages/model verified; missing NVIDIA driver rejected as expected.")
+          PY
+
+      - name: Run GPU unit tests inside the built image
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint python3 "$GPU_IMAGE" \
+            -m unittest discover -s aws_app -p 'test_gpu*.py' -v
+
+      - name: Verify the default worker remains disabled
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --network none "$GPU_IMAGE" > "$RUNNER_TEMP/gpu-worker-disabled.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/gpu-worker-disabled.log"
+          test "$status" -eq 2
+          grep -Fq gpu_worker_disabled "$RUNNER_TEMP/gpu-worker-disabled.log"
+
+      - name: Save the tested image and its provenance
+        run: |
+          set -euo pipefail
+          # Stream compression avoids a second full-size, uncompressed image tar.
+          # This runner belongs only to this job; discard its unused build cache.
+          docker builder prune --force
+          mkdir -p "$RUNNER_TEMP/strokesense-gpu-artifact"
+          docker image save "$GPU_IMAGE" | gzip -1 > "$RUNNER_TEMP/strokesense-gpu-artifact/strokesense-gpu-image.tar.gz"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          import subprocess
+
+          folder = Path(os.environ["RUNNER_TEMP"]) / "strokesense-gpu-artifact"
+          archive = folder / "strokesense-gpu-image.tar.gz"
+          digest = hashlib.sha256()
+          with archive.open("rb") as stream:
+              for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                  digest.update(chunk)
+          image = json.loads(subprocess.check_output(
+              ["docker", "image", "inspect", os.environ["GPU_IMAGE"]], text=True))[0]
+          image_platform = image["Os"] + "/" + image["Architecture"]
+          assert image_platform == "linux/amd64", image_platform
+          assert image["Config"]["User"] == "10001:10001"
+          assert image["Config"]["Labels"]["org.opencontainers.image.revision"] == os.environ["SOURCE_SHA"]
+          manifest = {
+              "schema_version": 1,
+              "source_repository": os.environ["SOURCE_URL"],
+              "source_commit": os.environ["SOURCE_SHA"],
+              "base_image": os.environ["CUDA_BASE_IMAGE"],
+              "image_tag": os.environ["GPU_IMAGE"],
+              "image_id": image["Id"],
+              "platform": image_platform,
+              "archive_file": archive.name,
+              "archive_sha256": digest.hexdigest(),
+              "archive_size_bytes": archive.stat().st_size,
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "workflow_run_url": os.environ["SOURCE_URL"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"],
+              "validation": {
+                  "gpu_unit_tests": "passed_with_mocked_hardware",
+                  "runtime_package_and_model_checks": "passed",
+                  "cpu_host_preflight": "nvidia_driver_unavailable_as_expected",
+                  "default_worker": "gpu_worker_disabled_as_expected",
+                  "real_gpu_inference_verified": False,
+                  "vulnerability_scan_performed": False,
+                  "published_to_ecr": False,
+              },
+          }
+          (folder / "image-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          (folder / "SHA256SUMS").write_text(digest.hexdigest() + "  " + archive.name + "\n", encoding="ascii")
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Upload the tested image for local publication
+        id: image_artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: strokesense-gpu-${{ env.SOURCE_SHA }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/strokesense-gpu-artifact/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+      - name: Explain the artifact and remaining GPU validation
+        env:
+          IMAGE_ARTIFACT_URL: ${{ steps.image_artifact.outputs.artifact-url }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          summary = f"""## GPU image built and checked on a CPU runner
+
+          - Source commit: `{os.environ['SOURCE_SHA']}`.
+          - Image tag: `{os.environ['GPU_IMAGE']}`.
+          - [Download the tested image]({os.environ['IMAGE_ARTIFACT_URL']}); expires after three days.
+          - Verify the archive with `SHA256SUMS` or `image-manifest.json`, then load it with `docker load --input strokesense-gpu-image.tar.gz`.
+          - Publish that loaded image using authorized local ECR credentials, then obtain the registry digest from ECR.
+          - The archive hash and Docker image ID are **not** the ECR manifest digest. This workflow cannot supply a new Terraform image URI.
+          - CUDA provider availability and mocked unit tests passed; the CPU host correctly rejected real preflight because no NVIDIA driver is available.
+          - An AWS hardware smoke test and vulnerability review remain required. This workflow launched no GPU instances and performed no ECR push.
+          """
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(line[10:] if line.startswith("          ") else line for line in summary.splitlines()) + "\n")
+          PY

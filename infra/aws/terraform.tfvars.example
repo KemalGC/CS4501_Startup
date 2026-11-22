@@ -71,9 +71,12 @@ terminal_job_record_grace_days = 7
 # gpu_smoke_mode      = true
 # gpu_smoke_approval  = "I_APPROVE_ONE_G6F_SMOKE_INSTANCE"
 # gpu_subnet_id       = "subnet-<reviewed-value>"
-# gpu_s3_route_table_ids = ["rtb-<reviewed-value>"]
+# gpu_s3_route_table_ids = [] # Blank-input smoke does not create an S3 endpoint
 # gpu_worker_image_uri   = "<account-id>.dkr.ecr.us-east-1.amazonaws.com/<repo>@sha256:<verified-digest>"
 #
-# Applying these values creates INERT GPU infrastructure with ASG desired=0.
+# Preserve the EXISTING enable_cpu_analysis value; this GPU smoke is isolated.
+# Applying these values creates INERT GPU infrastructure with ASG min/max/desired=0.
+# The host uses the official AL2023 ECS GPU AMI with GRID support (release
+# 20261119 or newer), pinned by the reviewed numeric launch-template version.
 # A separate operator-only command starts 1 EC2 host and a preflight task.
 # GPU paid billing/queue flags MUST stay OFF and have separate review gates.

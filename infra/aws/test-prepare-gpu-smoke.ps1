@@ -121,3 +121,7 @@ try {
 }
 if ($script:failures) { throw "$script:failures GPU readiness scenario(s) failed." }
 Write-Host 'All GPU readiness scenarios passed.'
+# Intentional fake AWS failures leave a nonzero native exit code. GitHub's
+# PowerShell wrapper propagates LASTEXITCODE; reset it only after all assertions
+# pass, so a real test exception still terminates the step with a failure.
+$global:LASTEXITCODE = 0

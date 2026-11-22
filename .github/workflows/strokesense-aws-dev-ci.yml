@@ -40,13 +40,14 @@ jobs:
       fail-fast: false
       matrix:
         shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Exercise GPU launch and cleanup with fake AWS
-        shell: ${{ matrix.shell }}
         run: ./infra/aws/test-gpu-smoke.ps1
       - name: Exercise quota and image preparation with fake AWS
-        shell: ${{ matrix.shell }}
         run: ./infra/aws/test-prepare-gpu-smoke.ps1
 
   terraform-checks:

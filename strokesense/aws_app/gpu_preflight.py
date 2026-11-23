@@ -201,7 +201,10 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
             raise GpuPreflightError("cuda_provider_unavailable")
         stage = "session_options"
         options = ort.SessionOptions()
-        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        # ORT legitimately uses CPU for some metadata/shape nodes. Disabling
+        # every CPU graph node prevents this pinned model from initializing.
+        # Profiling below must instead prove real CUDA kernels executed.
+        options.enable_profiling = True
         stage = "session_creation"
         session = ort.InferenceSession(str(model), options, providers=[GPU_PROVIDER])
         stage = "provider_activation"
@@ -241,6 +244,9 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
                 raise GpuPreflightError("empty_inference_output")
             if not all(bool(np.all(np.isfinite(o))) for o in outputs):
                 raise GpuPreflightError("non_finite_inference_output")
+        stage = "provider_audit"
+        from aws_app.gpu_provider_audit import audit_cuda_profile
+        audit = audit_cuda_profile(session.end_profiling())
         stage = "provider_recheck"
         if session.get_providers()[0] != GPU_PROVIDER:
             raise GpuPreflightError("cuda_provider_not_active")
@@ -254,7 +260,8 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
     _, free_after = _device_memory(run, enforce_minimums=False)
     return {**_gpu_identity(run), "provider": GPU_PROVIDER,
             "active_providers": list(session.get_providers()),
-            "cpu_ep_fallback_disabled": True, "outputs_finite": True,
+            "cpu_ep_fallback_disabled": False, "cuda_node_execution_verified": True,
+            "provider_audit": audit, "outputs_finite": True,
             "warmup_runs": WARMUP_RUNS, "gpu_memory_total_mib": total,
             "gpu_memory_free_mib": free, "model_loaded": True,
             "onnxruntime_version": str(getattr(ort, "__version__", "unknown")),

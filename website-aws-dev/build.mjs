@@ -17,7 +17,8 @@ const config = {
   cognitoDomain: process.env.STROKESENSE_COGNITO_DOMAIN || '',
   cognitoClientId: process.env.STROKESENSE_COGNITO_CLIENT_ID || '',
   cpuAnalysisEnabled: process.env.STROKESENSE_ENABLE_CPU_ANALYSIS === 'true',
-  deepAnalysisEnabled: process.env.STROKESENSE_ENABLE_DEEP_ANALYSIS === 'true'
+  premiumAnalysisEnabled: process.env.STROKESENSE_ENABLE_PREMIUM_ANALYSIS === 'true' ||
+    process.env.STROKESENSE_ENABLE_DEEP_ANALYSIS === 'true'
 };
 for (const [key, value] of Object.entries(config)) {
   if (typeof value === 'string' && value && !/^https:\/\//.test(value) && key !== 'cognitoClientId') {

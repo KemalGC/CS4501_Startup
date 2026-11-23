@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#001e4a">
-  <meta name="description" content="Restricted StrokeSense staff review of voluntarily shared rowing videos.">
-  <title>Staff Video Review — StrokeSense</title>
+  <meta name="description" content="StrokeSense administration: manage Premium access and review voluntarily shared rowing videos.">
+  <title>Admin — StrokeSense</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +16,7 @@
   <script src="/assets/site.js" defer></script>
   <script src="/assets/aws-config.js" defer></script>
   <script src="/assets/admin.js" defer></script>
+  <script src="/assets/admin-premium.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -30,10 +31,32 @@
 
   <main id="main">
     <section class="interior-hero admin-hero" aria-labelledby="admin-heading">
-      <div class="container"><span class="eyebrow">Restricted staff area</span><h1 id="admin-heading">Video <span class="accent">review.</span></h1><p>Only recordings explicitly shared by their owners may be reviewed. Authorization is checked on every request, and owners can revoke future access.</p></div>
+      <div class="container"><span class="eyebrow">Restricted administrator area</span><h1 id="admin-heading">Manage <span class="accent">StrokeSense.</span></h1><p>Manage Premium access and review recordings shared by their owners. Premium membership does not grant administrator permissions or access to someone else’s videos.</p></div>
     </section>
     <section class="page-section" aria-labelledby="admin-list-heading">
       <div class="container admin-layout">
+        <section class="admin-premium-panel" aria-labelledby="premium-admin-heading">
+          <div class="admin-video-heading"><div><span class="eyebrow">Account access</span><h2 id="premium-admin-heading">Premium members</h2></div></div>
+          <p>Find an existing user by the exact email they use with Google. New users must sign in to StrokeSense once before you can grant access.</p>
+          <p id="premium-admin-notice" class="library-notice" role="status" aria-live="polite">Checking administrator access…</p>
+          <div id="premium-admin-controls" hidden>
+            <p id="premium-admin-runtime" class="admin-premium-runtime"></p>
+            <form id="premium-user-search" class="admin-premium-search">
+              <div class="admin-premium-field"><label for="premium-search-email">Google sign-in email</label><input id="premium-search-email" name="email" type="email" autocomplete="off" spellcheck="false" maxlength="254" placeholder="name@example.com" required></div>
+              <button id="premium-find-user" class="aws-button aws-button-primary" type="submit">Find verified user</button>
+            </form>
+            <section id="premium-user-result" class="admin-premium-result" aria-labelledby="premium-user-email" hidden>
+              <div class="admin-video-heading"><div><span class="eyebrow">Verified account</span><h3 id="premium-user-email"></h3></div><span id="premium-user-state" class="library-badge"></span></div>
+              <dl class="admin-premium-identity"><dt>Account ID</dt><dd id="premium-user-id"></dd></dl>
+              <form id="premium-change-form">
+                <div class="admin-premium-field"><label for="premium-change-reason">Reason for this access change</label><textarea id="premium-change-reason" name="reason" rows="3" minlength="3" maxlength="500" aria-describedby="premium-reason-help" required></textarea><p id="premium-reason-help">Recorded with the administrator and time of the change. Use one line of 3–500 visible characters; do not include passwords or private video details.</p></div>
+                <button id="premium-change-button" class="aws-button aws-button-primary" type="submit" disabled>Grant Premium access</button>
+              </form>
+              <p class="admin-premium-note">Access applies to future Premium analyses when GPU processing is available. It does not alter Free Analysis, administrator permissions, or video-review consent.</p>
+            </section>
+          </div>
+        </section>
+
         <div class="library-topline"><div><span class="eyebrow">Consent-based access</span><h2 id="admin-list-heading">Available <span class="accent">reviews.</span></h2></div></div>
 
         <div class="library-account-bar">

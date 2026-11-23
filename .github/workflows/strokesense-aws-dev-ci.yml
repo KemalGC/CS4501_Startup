@@ -53,6 +53,8 @@ jobs:
         run: ./infra/aws/test-confirm-gpu-smoke-plan.ps1
       - name: Exercise direct ECR publication with fake AWS
         run: ./infra/aws/test-publish-gpu-artifact.ps1
+      - name: Verify Premium owner setup with fake AWS
+        run: ./infra/aws/test-prepare-premium-owner.ps1
 
   terraform-checks:
     runs-on: ubuntu-latest

@@ -77,6 +77,14 @@ resource "aws_iam_role_policy_attachment" "api_logs" {
 # Only GET /health and rate-limited POST /feedback are public routes. The
 # Lambda separately checks Cognito sub against user records and S3 keys.
 data "aws_iam_policy_document" "api" {
+  # Premium access is attached to a freshly verified Cognito identity. The
+  # API cannot create users or change administrator group membership.
+  statement {
+    sid       = "VerifyPremiumUserIdentity"
+    actions   = ["cognito-idp:ListUsers", "cognito-idp:AdminGetUser"]
+    resources = [aws_cognito_user_pool.users.arn]
+  }
+
   statement {
     sid = "ReadWriteQuotaAndJobs"
     actions = [
@@ -99,7 +107,8 @@ data "aws_iam_policy_document" "api" {
   }
 
   statement {
-    sid       = "AuditAdminReviewWithConditionalConsent"
+    sid = "AuditAdminReviewWithConditionalConsent"
+    # Also used by atomic Premium entitlement + audit transactions.
     actions   = ["dynamodb:PutItem", "dynamodb:TransactWriteItems"]
     resources = [aws_dynamodb_table.admin_access_audit.arn]
   }

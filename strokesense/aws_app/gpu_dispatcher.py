@@ -37,7 +37,7 @@ class GpuDispatcherConfig:
 
     def check(self) -> None:
         if not self.enabled:
-            raise ApiError(503, "gpu_dispatch_disabled", "Paid GPU dispatch is not enabled")
+            raise ApiError(503, "gpu_dispatch_disabled", "Premium GPU dispatch is not enabled")
         if not all(_RESOURCE.fullmatch(x) for x in (self.cluster, self.task_definition, self.capacity_provider)):
             raise ApiError(503, "gpu_dispatch_not_configured", "GPU service configuration is invalid")
         if (not self.subnets or not self.security_groups or
@@ -121,14 +121,14 @@ def enqueue_paid_analysis(
     the job remains 'gpu_queued' for an outbox/reconciler to retry safely.
     """
     if not enabled or not service.cfg.paid_gpu_enabled or not service.cfg.gpu_dispatch_ready:
-        raise ApiError(503, "gpu_dispatch_disabled", "Paid GPU dispatch is not enabled")
+        raise ApiError(503, "gpu_dispatch_disabled", "Premium GPU dispatch is not enabled")
     if not isinstance(queue_url, str) or not queue_url.endswith(".fifo"):
         raise ApiError(503, "gpu_queue_not_configured", "A dedicated FIFO queue is required")
     record = service._record(job_id, user_id)
     _keys(record)
     require_paid_membership(service, user_id)
     if record.get("status") != "uploaded":
-        raise ApiError(409, "invalid_state", "The paid upload is not ready")
+        raise ApiError(409, "invalid_state", "The Premium upload is not ready")
     now = service._now()
     try:
         service.ddb.update_item(
@@ -147,7 +147,7 @@ def enqueue_paid_analysis(
         )
     except Exception as exc:
         if _is_conditional(exc):
-            raise ApiError(409, "job_changed", "Paid analysis is already queued or changed") from exc
+            raise ApiError(409, "job_changed", "Premium analysis is already queued or changed") from exc
         raise
     try:
         sqs.send_message(

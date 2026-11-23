@@ -153,6 +153,8 @@ class Settings:
     raw_upload_ttl_seconds: int = DEFAULT_RAW_UPLOAD_TTL_SECONDS
     admin_audit_table: str = ""
     terminal_record_grace_seconds: int = TERMINAL_RECORD_GRACE_SECONDS
+    cognito_user_pool_id: str = ""
+    premium_owner_sub: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -179,18 +181,21 @@ class Settings:
             raw_upload_ttl_seconds=int(os.getenv("RAW_UPLOAD_TTL_SECONDS", DEFAULT_RAW_UPLOAD_TTL_SECONDS)),
             admin_audit_table=os.getenv("ADMIN_AUDIT_TABLE", ""),
             terminal_record_grace_seconds=int(os.getenv("TERMINAL_RECORD_GRACE_SECONDS", TERMINAL_RECORD_GRACE_SECONDS)),
+            cognito_user_pool_id=os.getenv("COGNITO_USER_POOL_ID", "").strip(),
+            premium_owner_sub=os.getenv("PREMIUM_OWNER_SUB", "").strip(),
         )
 
 
 class AwsBackend:
     """Small synchronous API service; AWS clients are injected for unit tests."""
 
-    def __init__(self, settings: Settings, dynamodb: Any, s3: Any, batch: Any = None, clock: Any = time.time):
+    def __init__(self, settings: Settings, dynamodb: Any, s3: Any, batch: Any = None, clock: Any = time.time, cognito: Any = None):
         self.cfg = settings
         self.ddb = dynamodb
         self.s3 = s3
         self.batch = batch
         self.clock = clock
+        self.cognito = cognito
 
     def _now(self) -> int:
         return int(self.clock())
@@ -239,8 +244,13 @@ class AwsBackend:
                 # Recheck entitlement *atomically* when reserving paid credit;
                 # an earlier strong read alone would race subscription expiry.
                 conditions += " AND paid_membership_status = :member AND paid_membership_expires_at > :now"
+                # An explicit administrator revocation also wins a race with
+                # the earlier entitlement read. Keep older membership records
+                # compatible; a new Premium grant never creates paid credits.
+                conditions += " AND (attribute_not_exists(premium_access_granted) OR premium_access_granted = :premium_granted)"
                 values[":member"] = _s("active")
                 values[":now"] = _n(self._now())
+                values[":premium_granted"] = {"BOOL": True}
             return {
                 "UpdateExpression": f"SET {available} = {available} - :amount, {reserved} = {reserved} + :amount",
                 "ConditionExpression": conditions,
@@ -319,16 +329,19 @@ class AwsBackend:
 
     def _validate_start(self, body: dict[str, Any]) -> tuple[str, str, int]:
         tier = body.get("tier", "free")
+        if tier == "premium":
+            tier = "paid"  # Existing private keys and worker contracts remain stable.
         if tier not in {"free", "paid"}:
-            raise ApiError(400, "invalid_request", "tier must be free or paid")
+            raise ApiError(400, "invalid_request", "tier must be free or premium")
         if tier == "paid" and not self.cfg.paid_billing_enabled:
-            raise ApiError(503, "billing_not_configured", "Paid analysis is not yet available")
+            raise ApiError(503, "billing_not_configured", "Premium analysis is not yet available")
         if tier == "paid" and (not self.cfg.paid_gpu_enabled or not self.cfg.gpu_dispatch_ready):
-            raise ApiError(503, "gpu_not_configured", "Deep Analysis GPU processing is not yet available")
+            raise ApiError(503, "gpu_not_configured", "Premium GPU processing is not yet available")
         size_bytes = _positive_int(body.get("size_bytes"), "size_bytes")
         cap = self.cfg.free_video_bytes if tier == "free" else self.cfg.paid_video_bytes
         if size_bytes > cap:
-            raise ApiError(413, "video_too_large", f"The {tier} video limit is {cap} bytes")
+            label = "Premium" if tier == "paid" else "free"
+            raise ApiError(413, "video_too_large", f"The {label} video limit is {cap} bytes")
         content_type = body.get("content_type", "")
         if content_type not in CONTENT_TYPES:
             raise ApiError(415, "unsupported_media_type", "Only MP4, MOV and WebM video types are supported")
@@ -649,7 +662,7 @@ class AwsBackend:
         # Never place a paid deep-analysis video on the free CPU Batch queue,
         # even if flags or an operator-created paid record are misconfigured.
         if record.get("tier") != "free":
-            raise ApiError(503, "gpu_dispatch_unavailable", "Paid GPU job dispatch is not yet configured")
+            raise ApiError(503, "gpu_dispatch_unavailable", "Premium GPU job dispatch is not yet configured")
         if record.get("status") != "uploaded":
             raise ApiError(409, "invalid_state", "Complete this upload before starting analysis")
         # One transaction enforces the job's one-shot state transition and

@@ -43,6 +43,7 @@ function loadPage(storage) {
   });
   const fetch = async (url, options = {}) => {
     requests.push({ url, method: options.method || 'GET' });
+    if (url === `${apiBase}/me`) return response({ is_admin: false, premium_access: { granted: false, available: false } });
     if (url === `${apiBase}/analysis/jobs/${jobId}`) return response({ job_id: jobId, status: 'succeeded' });
     if (url === `${apiBase}/reports/${jobId}`) return response({ download_url: reportUrl });
     if (url === `${apiBase}/reports/${jobId}/artifacts`) return response({ job_id: jobId, rowers: {} });
@@ -75,7 +76,7 @@ function loadPage(storage) {
       setItem: (key, value) => storage.set(key, value),
       removeItem: key => storage.delete(key)
     },
-    URL: SafeURL, URLSearchParams, Blob, fetch, AbortController, Date, Promise
+    URL: SafeURL, URLSearchParams, Blob, fetch, AbortController, Date, Promise, setTimeout, clearTimeout
   });
   return {
     elements, handlers, requests,
@@ -100,8 +101,9 @@ test('a completed private job restores on every refresh without resubmitting or 
     assert.equal(page.elements.get('download-report').clickCount, 0,
       'refresh must not trigger another automatic download');
     assert.equal(page.renderCount, 1, 'saved media must be rehydrated through owner-scoped routes');
-    assert.deepEqual(page.requests.map(request => request.method), ['GET', 'GET', 'GET', 'GET']);
-    assert.equal(page.requests[0].url, `${apiBase}/analysis/jobs/${jobId}`);
+    const reportRequests = page.requests.filter(request => request.url !== `${apiBase}/me`);
+    assert.deepEqual(reportRequests.map(request => request.method), ['GET', 'GET', 'GET', 'GET']);
+    assert.equal(reportRequests[0].url, `${apiBase}/analysis/jobs/${jobId}`);
   }
 
   const signedInPage = loadPage(storage);

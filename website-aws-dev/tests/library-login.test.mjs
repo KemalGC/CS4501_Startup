@@ -55,6 +55,7 @@ function analyzer(storage, search, fetcher = async () => { throw Error('unexpect
       removeItem: key => storage.delete(key)
     },
     crypto: webcrypto, TextEncoder, btoa, atob, URL, URLSearchParams, Date, Promise,
+    AbortController, setTimeout, clearTimeout,
     fetch: async (url, options) => {
       calls.requests.push({ url, options });
       return fetcher(url, options);

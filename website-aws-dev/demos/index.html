@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#001e4a">
-  <meta name="description" content="StrokeSense AWS development preview: free CPU analysis and planned GPU Deep Analysis.">
+  <meta name="description" content="StrokeSense AWS development: Free Analysis and Premium GPU analysis for approved accounts.">
   <title>Analyzer — StrokeSense</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,7 +33,7 @@
 
   <main id="main">
     <section class="interior-hero aws-hero" aria-labelledby="demo-heading">
-      <div class="container"><span class="eyebrow">AWS development environment · aws-dev</span><h1 id="demo-heading">Test the next <span class="accent">StrokeSense.</span></h1><p>CPU-powered Free Analysis and planned GPU-powered Deep Analysis. This is a separate preview; it does not change the live site or process videos on Render.</p></div>
+      <div class="container"><span class="eyebrow">AWS development environment · aws-dev</span><h1 id="demo-heading">Test the next <span class="accent">StrokeSense.</span></h1><p>Free Analysis for your rowing technique, with Premium GPU analysis being prepared for approved accounts. Sign in to see your access and current availability.</p></div>
     </section>
     <section class="page-section" id="analysis-studio" aria-labelledby="studio-heading">
       <div class="container aws-workspace">
@@ -46,12 +46,12 @@
 
         <section class="aws-auth-panel" aria-labelledby="account-heading">
           <div><span class="studio-label">01 · Your account</span><h3 id="account-heading">Sign in to save your allowance and reports.</h3><p id="account-status">Google sign-in will be enabled once the Cognito configuration is connected.</p><p id="auth-feedback" class="aws-feedback" role="status" aria-live="polite"></p></div>
-          <div class="aws-auth-actions"><button id="google-login" class="aws-button aws-button-primary" type="button" disabled>Continue with Google</button><button id="google-logout" class="aws-button aws-button-outline" type="button" hidden>Sign out</button></div>
+          <div class="aws-auth-actions"><button id="google-login" class="aws-button aws-button-primary" type="button" disabled>Continue with Google</button><button id="premium-refresh" class="aws-button aws-button-outline" type="button" hidden>Refresh account access</button><a id="admin-console-link" class="aws-button aws-button-outline" href="/admin/" hidden>Open admin</a><button id="google-logout" class="aws-button aws-button-outline" type="button" hidden>Sign out</button></div>
         </section>
 
         <div class="aws-tier-grid" role="radiogroup" aria-label="Choose an analysis tier">
-          <label class="aws-tier-card is-selected" for="tier-free"><input id="tier-free" type="radio" name="analysis-tier" value="free" checked><span class="aws-tier-label">FREE TRIAL</span><strong>Free Analysis</strong><span class="aws-tier-compute">CPU · AWS Fargate</span><p>Core stroke metrics, technique cues, and a coaching report.</p><ul><li>300 MB total per account, for life</li><li>100 MB maximum per video</li><li>Reports available for 3 days</li><li>Failed analyses return your allowance</li></ul><span id="free-allowance" class="aws-tier-footer">Quota available after sign-in</span></label>
-          <label class="aws-tier-card" for="tier-paid"><input id="tier-paid" type="radio" name="analysis-tier" value="paid"><span class="aws-tier-label">PLANNED · CREDITS</span><strong>Deep Analysis</strong><span class="aws-tier-compute">GPU · EC2 G6f.large</span><p>Deeper pose tracking and individualized coaching.</p><ul><li>750 MB maximum per video</li><li>Advanced rower-by-rower and stroke comparisons</li><li>Annotated motion-tracking video</li><li>More detailed AI coaching report</li><li>Reports available for 30 days</li></ul><span class="aws-tier-footer">Purchases disabled until pricing is approved</span></label>
+          <label class="aws-tier-card is-selected" for="tier-free"><input id="tier-free" type="radio" name="analysis-tier" value="free" checked><span class="aws-tier-label">FREE TRIAL</span><strong>Free Analysis</strong><span class="aws-tier-compute">CPU analysis</span><p>Core stroke metrics, technique cues, and a coaching report.</p><ul><li>300 MB total per account, for life</li><li>100 MB maximum per video</li><li>Reports available for 3 days</li><li>Failed analyses return your allowance</li></ul><span id="free-allowance" class="aws-tier-footer">Quota available after sign-in</span></label>
+          <label class="aws-tier-card" for="tier-paid"><input id="tier-paid" type="radio" name="analysis-tier" value="paid" aria-describedby="premium-access-status premium-runtime-status" disabled><span class="aws-tier-label">ADMIN-APPROVED ACCESS</span><strong>Premium</strong><span class="aws-tier-compute">GPU analysis</span><p>Enhanced pose tracking and coaching, with access managed by a StrokeSense administrator.</p><ul><li>750 MB maximum per video</li><li>Individual rower and stroke comparisons</li><li>Annotated motion-tracking video</li><li>Detailed coaching report</li><li>Reports available for 30 days</li></ul><span class="aws-tier-footer"><span id="premium-access-status" class="aws-premium-access" role="status" aria-live="polite">Sign in to check Premium access</span><span id="premium-runtime-status" class="aws-premium-runtime">Premium availability is checked for your account.</span></span></label>
         </div>
 
         <section class="aws-upload-panel" aria-labelledby="upload-heading">
@@ -60,7 +60,7 @@
           <input id="video-upload" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" hidden>
           <div id="file-review" class="aws-file-review" hidden><div><strong id="selected-file-name"></strong><p id="selected-file-size"></p></div><button id="clear-file" class="aws-button aws-button-outline" type="button">Remove</button></div>
           <video id="local-preview" class="aws-video-preview" controls playsinline preload="metadata" hidden aria-label="Selected rowing video preview"></video>
-          <p class="aws-privacy-note">Video uploads will go directly to private Amazon S3 storage. Free reports expire after 3 days; Deep Analysis reports expire after 30 days. No footage is uploaded while AWS is unconfigured.</p>
+          <p class="aws-privacy-note">Video uploads go to private storage. Free reports expire after 3 days; Premium reports expire after 30 days. Selecting a video only previews it on this device until you start an available analysis.</p>
           <label class="aws-admin-review-choice" for="allow-admin-review">
             <input id="allow-admin-review" type="checkbox" name="allow_admin_review" value="true">
             <span><strong>Allow StrokeSense administrator to review my uploaded video and analysis</strong><span>Optional and off by default. Your video and report stay private to your account unless you choose to share them for review. You can run an analysis without enabling this.</span></span>
@@ -84,7 +84,7 @@
           <p id="upload-feedback" class="aws-feedback" role="status" aria-live="polite"></p>
           <div id="analysis-result" class="aws-result" hidden>
             <h3>Analysis complete</h3>
-            <p>Your private report is available for 3 days. Download a copy before it expires.</p>
+            <p>Download a copy of your private report before it expires. Free reports are available for 3 days; Premium reports for 30 days.</p>
             <a id="download-report" class="aws-button aws-button-primary" href="#" rel="noopener noreferrer" target="_blank">Download report (JSON)</a>
             <section id="report-media" class="aws-report-media" aria-labelledby="report-media-heading" hidden>
               <div class="aws-report-media-title"><div><span class="studio-label">Frame review</span><h4 id="report-media-heading">Your rowers, frame by frame</h4></div><p id="rower-media-source">Choose a rower to browse its analyzed frames.</p></div>

@@ -263,7 +263,7 @@ variable "terminal_job_record_grace_days" {
 variable "admin_cognito_subs" {
   type        = list(string)
   default     = []
-  description = "Cognito user sub IDs allowed to review opted-in videos, additionally requiring strokesense-admin group membership. Empty denies every admin request; never use email."
+  description = "Cognito user sub IDs allowed to manage Premium access and review opted-in videos, additionally requiring strokesense-admin group membership. Empty denies every admin request; never use email."
   sensitive   = true
 
   validation {
@@ -272,10 +272,28 @@ variable "admin_cognito_subs" {
   }
 }
 
+variable "premium_owner_sub" {
+  type        = string
+  default     = ""
+  nullable    = false
+  sensitive   = true
+  description = "Verified Cognito sub for the initial Premium owner. Resolve with prepare-premium-owner.ps1; never use an email. This grants access only, without enabling GPU dispatch or billing."
+
+  validation {
+    condition     = var.premium_owner_sub == "" || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.premium_owner_sub))
+    error_message = "premium_owner_sub must be empty or an operator-verified Cognito UUID, not an email address."
+  }
+
+  validation {
+    condition     = var.premium_owner_sub == "" || contains(var.admin_cognito_subs, var.premium_owner_sub)
+    error_message = "The Premium owner must also be included in admin_cognito_subs so the existing administrator checks remain effective."
+  }
+}
+
 variable "admin_audit_retention_days" {
   type        = number
   default     = 90
-  description = "Security audit retention for admin video-link issuance; no raw URLs or emails are recorded."
+  description = "Security audit retention for admin video-link issuance and Premium access changes; raw video URLs are never recorded."
 
   validation {
     condition     = var.admin_audit_retention_days >= 30 && var.admin_audit_retention_days <= 365 && floor(var.admin_audit_retention_days) == var.admin_audit_retention_days

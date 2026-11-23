@@ -46,7 +46,7 @@ function browserWithOAuthResponse(query, { pending, tokenResponse } = {}) {
         json: async () => tokenResponse?.json ?? { access_token: 'test-access-token', expires_in: 3600 }
       };
     },
-    URL, URLSearchParams, AbortController
+    URL, URLSearchParams, AbortController, setTimeout, clearTimeout
   });
   return {
     elements, storage, requests, replacedUrls,

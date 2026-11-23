@@ -1,4 +1,4 @@
-"""Server-side entitlement verification for future paid GPU Deep Analysis.
+"""Legacy membership checks for future Premium GPU analysis.
 
 No subscription webhook or payment processor is connected. Only a verified,
 trusted billing integration may later write these DynamoDB account fields.
@@ -12,15 +12,18 @@ from .core import ApiError, AwsBackend, _decode, _s
 
 def evaluate_paid_membership(record: dict[str, Any], now: int) -> None:
     """Raise a non-disclosing API error unless a current member has credits."""
+    if "premium_access_granted" in record and record.get("premium_access_granted") is not True:
+        raise ApiError(403, "premium_access_required",
+                       "Premium access is required for GPU analysis")
     expiry = record.get("paid_membership_expires_at")
     if (record.get("paid_membership_status") != "active" or
             type(expiry) is not int or expiry <= now):
         raise ApiError(403, "paid_membership_required",
-                       "An active paid membership is required for Deep Analysis")
+                       "An active Premium allowance is required for GPU analysis")
     credits = record.get("paid_credits_available")
     if type(credits) is not int or credits < 1:
         raise ApiError(409, "paid_credits_exhausted",
-                       "No unused Deep Analysis credits are available")
+                       "No unused Premium analysis credits are available")
 
 
 def require_paid_membership(service: AwsBackend, user_id: str) -> None:

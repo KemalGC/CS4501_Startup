@@ -161,6 +161,8 @@ class MemoryDynamo:
                         or account.get("paid_membership_expires_at", 0) <= int(values[":now"]["N"])
                     ):
                         self._conditional_failure()
+                    if ":premium_granted" in values and "premium_access_granted" in account and account["premium_access_granted"] is not True:
+                        self._conditional_failure()
                     account[available] -= amount
                     account[reserved] += amount
                 elif f"{used} = {used} + :amount" in expression:

@@ -208,7 +208,7 @@ function global:aws {
       }
       if ($W.scenario -eq 'nologs' -or ($W.scenario -eq 'delayedlogs' -and $W.logReads -lt 3)) { return '{"events":[]}' }
       $result = @{ provider = 'CUDAExecutionProvider'; active_providers = @('CUDAExecutionProvider'); model_loaded = $true
-        cpu_ep_fallback_disabled = $true; outputs_finite = $true; warmup_runs = 3; inference_runs = 20
+        cuda_node_execution_verified = $true; provider_audit = @{cuda_nodes=100;cuda_conv_nodes=50;cpu_structural_nodes=10}; outputs_finite = $true; warmup_runs = 3; inference_runs = 20
         model_sha256_verified = '93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408'
         output_shapes = @(,@(1,56,8400)); gpu_memory_total_mib = $W.gpuMemoryMiB; gpu_memory_used_after_inference_mib = 512
         latency_ms_p50 = 2.0; latency_ms_p95 = 2.5; latency_ms_max = 3.0 }

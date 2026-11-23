@@ -30,6 +30,7 @@ $logGroup = $null
 $t0 = $null
 $instanceIds = @()
 $volumeIds = @()
+$volumeInstancesChecked = New-Object 'System.Collections.Generic.HashSet[string]'
 $failure = $null
 $cleanupErrors = @()
 $launchRequested = $false
@@ -86,6 +87,23 @@ function Get-Prop($Object, [string]$Name) {
 }
 # Null-safe count: in PowerShell @($null).Count is 1.
 function Get-Count($Value) { if ($null -eq $Value) { return 0 } return @($Value).Count }
+
+function Test-ScalingActivitiesTerminal($Response) {
+  # Keep CLI pagination enabled. A partial or unidentified history cannot
+  # establish that an earlier launch has finished becoming visible.
+  if (!$Response -or !$Response.PSObject.Properties['Activities'] -or
+      $Response.Activities -isnot [array] -or (Get-Prop $Response 'NextToken')) {
+    throw 'Complete ASG scaling activity history could not be verified.'
+  }
+  $terminal = $true
+  foreach ($activity in $Response.Activities) {
+    if ((Get-Prop $activity 'AutoScalingGroupName') -cne $asgName) {
+      throw 'ASG scaling activity does not identify the reviewed group.'
+    }
+    if ((Get-Prop $activity 'StatusCode') -cnotin @('Successful','Failed','Cancelled')) { $terminal = $false }
+  }
+  return $terminal
+}
 
 function Read-PreflightEvidence([string]$Stream) {
   # CloudWatch delivery can lag ECS STOPPED. Read a bounded number of times;
@@ -181,6 +199,9 @@ try {
   $group = (Invoke-AwsJson @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName)).AutoScalingGroups
   if (@($group).Count -ne 1) { throw 'Expected exactly one smoke ASG.' }
   $group = $group[0]
+  if ((Get-Prop $group 'VPCZoneIdentifier') -cne $subnet) {
+    throw 'ASG must use exactly the one reviewed Terraform smoke subnet.'
+  }
   $groupTemplate = Get-Prop $group 'LaunchTemplate'
   if (!$groupTemplate -or $groupTemplate.LaunchTemplateId -ne $templateId -or
       [string]$groupTemplate.Version -ne $templateVersion -or (Get-Prop $group 'NewInstancesProtectedFromScaleIn') -eq $true) {
@@ -207,9 +228,23 @@ try {
   }
   $hooks = Invoke-AwsJson @('autoscaling','describe-lifecycle-hooks','--auto-scaling-group-name',$asgName)
   if (@($hooks.LifecycleHooks).Count -ne 0) { throw 'Smoke ASG has lifecycle hooks (e.g. managed draining); termination could be delayed.' }
+  # Do not reuse an idle-looking group while a previous scaling operation is
+  # unresolved. Leave CLI pagination enabled so later activity pages are read.
+  $activities = Invoke-AwsJson @('autoscaling','describe-scaling-activities','--auto-scaling-group-name',$asgName)
+  if (!(Test-ScalingActivitiesTerminal $activities)) {
+    throw 'A previous ASG scaling operation is still in progress or could not be verified; not launching.'
+  }
   $existingActions = Invoke-AwsJson @('autoscaling','describe-scheduled-actions','--auto-scaling-group-name',$asgName)
-  if (@($existingActions.ScheduledUpdateGroupActions | Where-Object { $_.ScheduledActionName -ne $scheduledName }).Count -ne 0) {
-    throw 'Unexpected scheduled actions on the smoke ASG could scale it up.'
+  foreach ($action in @($existingActions.ScheduledUpdateGroupActions)) {
+    if ($action.ScheduledActionName -cne $scheduledName -or
+        $action.AutoScalingGroupName -cne $asgName -or
+        $action.MinSize -ne 0 -or $action.MaxSize -ne 0 -or $action.DesiredCapacity -ne 0 -or
+        (Get-Prop $action 'Recurrence')) {
+      throw 'Existing smoke shutdown action must be the single nonrecurring zero-capacity cutoff on the reviewed ASG.'
+    }
+  }
+  if (@($existingActions.ScheduledUpdateGroupActions).Count -gt 1) {
+    throw 'More than one scheduled action was returned for the smoke ASG.'
   }
 
   $cp = (Invoke-AwsJson @('ecs','describe-capacity-providers','--capacity-providers',$provider)).capacityProviders
@@ -224,6 +259,23 @@ try {
   $containerInstances = Invoke-AwsJson @('ecs','list-container-instances','--cluster',$cluster)
   if ((Get-Count $services.serviceArns) -ne 0 -or (Get-Count $existingTasks) -ne 0 -or (Get-Count $containerInstances.containerInstanceArns) -ne 0) {
     throw 'Smoke cluster must have no services, running tasks or container instances; refusing to adopt them.'
+  }
+  # A task whose desired status is STOPPED can still be stopping. Historical
+  # completed tasks are fine; every task still returned must actually be done.
+  $prior = Invoke-AwsJson @('ecs','list-tasks','--cluster',$cluster,'--desired-status','STOPPED')
+  if (!$prior.PSObject.Properties['taskArns'] -or $prior.taskArns -isnot [array] -or (Get-Prop $prior 'nextToken')) {
+    throw 'Complete previous ECS task state could not be verified.'
+  }
+  $priorArns = @($prior.taskArns)
+  for ($offset = 0; $offset -lt $priorArns.Count; $offset += 100) {
+    $batch = @($priorArns | Select-Object -Skip $offset -First 100)
+    $details = Invoke-AwsJson (@('ecs','describe-tasks','--cluster',$cluster,'--tasks') + $batch)
+    $oldTasks = @(Get-Prop $details 'tasks')
+    if ((Get-Count (Get-Prop $details 'failures')) -ne 0 -or $oldTasks.Count -ne $batch.Count -or
+        @($oldTasks | Where-Object { (Get-Prop $_ 'lastStatus') -cne 'STOPPED' }).Count -ne 0 -or
+        (Compare-Object $batch @($oldTasks | ForEach-Object { $_.taskArn }))) {
+      throw 'A previous ECS task is still stopping or its completed state could not be verified.'
+    }
   }
 
   $def = (Invoke-AwsJson @('ecs','describe-task-definition','--task-definition',$taskDefinition)).taskDefinition
@@ -252,6 +304,7 @@ try {
     '--start-time',$cutoffUtc,'--min-size','0','--max-size','0','--desired-capacity','0'))
   $actions = @((Invoke-AwsJson @('autoscaling','describe-scheduled-actions','--auto-scaling-group-name',$asgName,'--scheduled-action-names',$scheduledName)).ScheduledUpdateGroupActions)
   if ($actions.Count -ne 1 -or $actions[0].AutoScalingGroupName -ne $asgName -or
+      $actions[0].ScheduledActionName -cne $scheduledName -or (Get-Prop $actions[0] 'Recurrence') -or
       $actions[0].MinSize -ne 0 -or $actions[0].MaxSize -ne 0 -or $actions[0].DesiredCapacity -ne 0 -or
       [Math]::Abs(([datetime]$actions[0].StartTime).ToUniversalTime().Subtract($deadline.ToUniversalTime()).TotalSeconds) -gt 90) {
     throw 'Cloud-side GPU cutoff not confirmed; refusing to start host.'
@@ -287,7 +340,8 @@ try {
   $evidence.instance = [ordered]@{ id = $inst.InstanceId; type = $inst.InstanceType; ami = $inst.ImageId;
     launch_time = $inst.LaunchTime; az = $inst.Placement.AvailabilityZone; volumes = $volumeIds }
   Save-Evidence
-  if ($inst.InstanceType -ne 'g6f.xlarge' -or $inst.ImageId -ne $expectedAmi) { throw 'Actual instance type or AMI differs from the reviewed launch template.' }
+  if ($inst.InstanceType -ne 'g6f.xlarge' -or $inst.ImageId -ne $expectedAmi -or
+      (Get-Prop $inst 'SubnetId') -cne $subnet) { throw 'Actual instance type, AMI, or subnet differs from the reviewed smoke configuration.' }
   Write-Host "Instance $($inst.InstanceId) ($($inst.InstanceType), $($inst.ImageId)) launched $($inst.LaunchTime)."
 
   $ready = $false
@@ -316,13 +370,15 @@ try {
   $rootVolumes = @($mappings | Where-Object { $_ -and (Get-Prop $_ 'DeviceName') -eq $rootDevice -and (Get-Prop $_ 'Ebs') })
   if (!$rootDevice -or $rootVolumes.Count -ne 1 -or !$rootVolumes[0].Ebs.VolumeId -or
       (Get-Prop $rootVolumes[0].Ebs 'DeleteOnTermination') -ne $true -or
-      $booted.InstanceType -ne 'g6f.xlarge' -or $booted.ImageId -ne $expectedAmi) {
+      $booted.InstanceType -ne 'g6f.xlarge' -or $booted.ImageId -ne $expectedAmi -or
+      (Get-Prop $booted 'SubnetId') -cne $subnet) {
     throw 'The ready host has no verified delete-on-termination root volume or differs from the reviewed instance.'
   }
   $volumeIds = @($mappings | ForEach-Object { $disk = Get-Prop $_ 'Ebs'; if ($disk) { $disk.VolumeId } } | Sort-Object -Unique)
   $evidence.instance.volumes = $volumeIds
   $evidence.instance.root_volume_id = $rootVolumes[0].Ebs.VolumeId
   $evidence.root_volume_identified = $true
+  [void]$volumeInstancesChecked.Add($instanceIds[0])
   Add-Mark 'host_registered'
 
   # ---------- exactly one task (idempotent) ----------
@@ -407,6 +463,15 @@ catch {
 finally {
   if ($payloadFile -and (Test-Path $payloadFile)) { Remove-Item -LiteralPath $payloadFile -Force -ErrorAction SilentlyContinue }
   if ($asgVerified) {
+    # Insufficient-capacity failures occur before the first host is observed.
+    # Lock this path as well, and still attempt scale-to-zero if locking fails.
+    try {
+      [void](Invoke-Aws -Arguments @('autoscaling','suspend-processes','--auto-scaling-group-name',$asgName,'--scaling-processes','Launch'))
+      Add-Mark 'cleanup_launch_suspension_requested'
+    } catch {
+      $cleanupErrors += "Launch suspension request failed: $($_.Exception.Message)"
+      Write-Warning 'Launch suspension failed; still requesting zero capacity and checking the observed lock.'
+    }
     # A second lost RunTask response can leave an owned task without a local
     # ARN. The unique startedBy value prevents adopting another operator's run.
     if (!$taskArn -and $evidence.Contains('client_token')) {
@@ -434,6 +499,19 @@ finally {
     $termDeadline = (Get-Date).AddMinutes(10)
     while ((Get-Date) -lt $termDeadline) {
       try {
+        # Read activity completion before the fresh instance snapshot. A launch
+        # that was still pending at this point needs another bounded poll even
+        # if the ASG currently looks empty.
+        $scalingTerminal = $false
+        try {
+          $cleanupActivities = Invoke-AwsJson @('autoscaling','describe-scaling-activities','--auto-scaling-group-name',$asgName)
+          $scalingTerminal = Test-ScalingActivitiesTerminal $cleanupActivities
+        } catch {
+          $activityError = "Cleanup scaling activity verification failed: $($_.Exception.Message)"
+          if ($cleanupErrors -notcontains $activityError) { $cleanupErrors += $activityError }
+          Write-Warning $activityError
+        }
+        $evidence.scaling_activities_terminal_verified = $scalingTerminal
         $g = (Invoke-AwsJson @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName)).AutoScalingGroups[0]
         $live = Invoke-AwsJson @('ec2','describe-instances','--filters',"Name=tag:aws:autoscaling:groupName,Values=$asgName",
           'Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped','--query','Reservations[].Instances[].InstanceId')
@@ -442,6 +520,39 @@ finally {
           $evidence.instance_ids = $instanceIds
           if ($instanceIds.Count -gt 1 -and !$failure) { $failure = 'More than one EC2 instance was observed for this single-attempt smoke.' }
         }
+        foreach ($id in $instanceIds) {
+          if ($volumeInstancesChecked.Add($id)) {
+            try {
+              # A launch may appear only after shutdown was requested. Its
+              # root disk still needs verification; an empty earlier list
+              # must not become a claim that every volume was deleted.
+              $lateResponse = Invoke-AwsJson @('ec2','describe-instances','--instance-ids',$id)
+              $lateInstances = @($lateResponse.Reservations | ForEach-Object { $_.Instances })
+              if ($lateInstances.Count -ne 1 -or $lateInstances[0].InstanceId -cne $id) {
+                throw 'Expected exactly the discovered EC2 instance.'
+              }
+              $late = $lateInstances[0]
+              $lateRoot = Get-Prop $late 'RootDeviceName'
+              $lateMappings = @(Get-Prop $late 'BlockDeviceMappings')
+              $lateRootMappings = @($lateMappings | Where-Object {
+                $_ -and (Get-Prop $_ 'DeviceName') -ceq $lateRoot -and (Get-Prop $_ 'Ebs')
+              })
+              $discoveredVolumes = @($lateMappings | ForEach-Object {
+                $disk = Get-Prop $_ 'Ebs'; if ($disk -and (Get-Prop $disk 'VolumeId')) { $disk.VolumeId }
+              })
+              $volumeIds = @(@($volumeIds) + $discoveredVolumes | Sort-Object -Unique)
+              if (!$lateRoot -or $lateRootMappings.Count -ne 1 -or !(Get-Prop $lateRootMappings[0].Ebs 'VolumeId')) {
+                throw 'Root volume identity was not returned; deletion cannot be certified.'
+              }
+            } catch {
+              $cleanupErrors += "Root-volume discovery failed for ${id}: $($_.Exception.Message)"
+            }
+          }
+        }
+        $evidence.observed_volume_ids = $volumeIds
+        $cleanupSuspended = @($g.SuspendedProcesses | ForEach-Object { $_.ProcessName })
+        $launchSuspended = $cleanupSuspended -contains 'Launch'
+        $evidence.launch_suspended_verified = $launchSuspended
         $mine = $true
         $stateList = @()
         if (@($instanceIds).Count -gt 0) {
@@ -452,7 +563,7 @@ finally {
           $remainingTask = (Invoke-AwsJson @('ecs','describe-tasks','--cluster',$cluster,'--tasks',$taskArn)).tasks
           $taskStopped = (Get-Count $remainingTask) -eq 1 -and $remainingTask[0].lastStatus -eq 'STOPPED'
         }
-        if ($g.MinSize -eq 0 -and $g.MaxSize -eq 0 -and $g.DesiredCapacity -eq 0 -and (Get-Count $g.Instances) -eq 0 -and (Get-Count $live) -eq 0 -and $mine -and (!$taskArn -or $taskStopped)) {
+        if ($g.MinSize -eq 0 -and $g.MaxSize -eq 0 -and $g.DesiredCapacity -eq 0 -and (Get-Count $g.Instances) -eq 0 -and (Get-Count $live) -eq 0 -and $mine -and (!$taskArn -or $taskStopped) -and $launchSuspended -and $scalingTerminal) {
           $terminated = $true; break
         }
       } catch { Write-Warning "Termination check failed: $($_.Exception.Message); retrying." }
@@ -462,7 +573,14 @@ finally {
       Add-Mark 'instances_terminated_observed'
       $evidence.terminated_verified = $true
       $evidence.task_stopped_verified = !$taskArn -or $taskStopped
-      Write-Host "VERIFIED: ASG 0/0/0 and instance(s) $($instanceIds -join ',') TERMINATED."
+      $evidence.no_instance_observed = ($instanceIds.Count -eq 0)
+      if ($instanceIds.Count -eq 0) {
+        $evidence.instance_termination_status = 'NO_INSTANCE_OBSERVED'
+        Write-Host 'VERIFIED: ASG 0/0/0, Launch suspended, no instance observed and no active tagged EC2 instances.'
+      } else {
+        $evidence.instance_termination_status = 'TERMINATED'
+        Write-Host "VERIFIED: ASG 0/0/0, Launch suspended and instance(s) $($instanceIds -join ',') TERMINATED."
+      }
       $remainingVolumes = @()
       foreach ($v in $volumeIds) {
         try {
@@ -480,7 +598,7 @@ finally {
       if ($remainingVolumes.Count) { $cleanupErrors += "Root volume(s) not deleted: $($remainingVolumes -join ', ')" }
     } else {
       $evidence.terminated_verified = $false
-      $cleanupErrors += 'GPU EC2/task termination NOT verified within 10 minutes; check NOW. AWS cutoff remains scheduled.'
+      $cleanupErrors += 'GPU EC2/task termination, terminal scaling activities and Launch suspension NOT verified within 10 minutes; check NOW. AWS cutoff remains scheduled.'
     }
     $evidence.cleanup_errors = $cleanupErrors
     if ($failure) { $evidence.error = $failure }

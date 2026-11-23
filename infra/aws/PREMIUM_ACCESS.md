@@ -55,6 +55,16 @@ an ephemeral variable. Future plans need the current, deployed GPU inputs,
 including the original `gpu-smoke.tfvars.json`; otherwise old GPU-disabled
 shell values can propose removing the newly created infrastructure.
 
+If the test completed cleanup after an insufficient-capacity error, follow
+[GPU capacity recovery](GPU_CAPACITY_RETRY.md) before another hardware attempt.
+It reconstructs GPU-only inputs from the deployed resources and verifies a
+subnet in another Availability Zone. This also handles the reported missing
+`gpu-smoke.tfvars.json`; the recovery instructions retain the verified inputs
+after applying the subnet update. Keep the already prepared
+`premium-owner.auto.tfvars.json`. A successful owner verification and Lambda
+ZIP build do not need to be repeated merely because the GPU host could not
+launch.
+
 ## 1. Update the working checkout
 
 After the active smoke process has completed cleanup, use the same checkout

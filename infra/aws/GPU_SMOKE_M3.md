@@ -3,6 +3,13 @@
 This supersedes the 2C permanent-disable note for an isolated manual NVIDIA
 preflight. Paid Deep Analysis remains disabled, and PR #163 remains a DRAFT.
 
+**Existing deployment: insufficient instance capacity.** If the one-instance
+test reports no `g6f.xlarge` capacity in `us-east-1a`, use
+[GPU capacity recovery](GPU_CAPACITY_RETRY.md). The initial 15-resource apply
+has already completed. Recovery reviews a subnet-only ASG update at zero
+capacity and then a separately started smoke; it does not rebuild the image
+or repeat the infrastructure bootstrap.
+
 ### What changed
 
 - `enable_gpu=false` is still the default. Setting it true now requires all
@@ -279,6 +286,8 @@ The offline checks use fake AWS/Terraform commands and launch nothing:
 ```powershell
 powershell -NoProfile -File .\test-prepare-gpu-smoke.ps1
 powershell -NoProfile -File .\test-confirm-gpu-smoke-plan.ps1
+powershell -NoProfile -File .\test-prepare-gpu-capacity-retry.ps1
+powershell -NoProfile -File .\test-confirm-gpu-capacity-plan.ps1
 powershell -NoProfile -File .\test-gpu-smoke.ps1
 powershell -NoProfile -File .\test-publish-gpu-artifact.ps1
 ```

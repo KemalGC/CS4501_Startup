@@ -115,6 +115,8 @@ output "gpu_smoke_log_group" {
 }
 
 output "gpu_smoke_subnet_id" {
-  value       = var.enable_gpu && var.gpu_smoke_mode ? var.gpu_subnet_id : null
+  # Depend on the managed ASG so a targeted capacity-recovery plan refreshes
+  # the host/task placement output together with its subnet change.
+  value       = var.enable_gpu && var.gpu_smoke_mode ? one(aws_autoscaling_group.gpu[0].vpc_zone_identifier) : null
   description = "Reviewed one-instance GPU host/task subnet for operator-only smoke."
 }

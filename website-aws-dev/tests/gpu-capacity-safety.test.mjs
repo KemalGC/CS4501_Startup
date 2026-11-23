@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 
 const tf = readFileSync(new URL('../../infra/aws/gpu_capacity.tf', import.meta.url), 'utf8');
 const vars = readFileSync(new URL('../../infra/aws/variables.tf', import.meta.url), 'utf8');
+const outputs = readFileSync(new URL('../../infra/aws/outputs.tf', import.meta.url), 'utf8');
 const queue = readFileSync(new URL('../../infra/aws/gpu_queue.tf', import.meta.url), 'utf8');
 const recover = readFileSync(new URL('../../infra/aws/gpu_recovery.tf', import.meta.url), 'utf8');
 const dispatch = readFileSync(new URL('../../strokesense/aws_app/gpu_dispatcher.py', import.meta.url), 'utf8');
@@ -39,9 +40,9 @@ test('paid GPU resources stay off by default; smoke is a separate opt-in', () =>
   assert.match(tf, /suspended_processes\s*=\s*var\.gpu_smoke_mode \? \["AZRebalance", "ReplaceUnhealthy"\]/);
   assert.match(tf, /managed_draining\s*=\s*var\.gpu_smoke_mode \? "DISABLED" : "ENABLED"/);
   assert.match(tf, /ECS_AWSVPC_BLOCK_IMDS=true/);
-  assert.match(tf, /instance_type\s*=\s*"g6f\.xlarge"/);
+  assert.match(tf, /instance_type\s*=\s*var\.gpu_smoke_instance_type/);
   assert.match(tf, /requires_compatibilities\s*=\s*\["EC2"\]/);
-  assert.match(tf, /value\s*=\s*"0\.125"/);
+  assert.match(tf, /value\s*=\s*local\.gpu_smoke_gpu_resource/);
   assert.match(tf, /gpu_worker_image_uri/);
   assert.doesNotMatch(tf, /resource "aws_nat_gateway"/);
 });
@@ -61,13 +62,13 @@ test('smoke host does not auto-launch and cannot exceed one instance', () => {
   assert.match(tf, /resource "aws_ecs_task_definition" "gpu_preflight"/);
   assert.match(tf, /name\s*=\s*"gpu-preflight"/);
   assert.ok(tf.includes('command   = ["python3", "-m", "aws_app.gpu_preflight"'));
-  assert.match(tf, /value\s*=\s*"0\.125"/);
+  assert.match(tf, /value\s*=\s*local\.gpu_smoke_gpu_resource/);
   const ecr = readFileSync(new URL('../../infra/aws/gpu_ecr.tf', import.meta.url), 'utf8');
   assert.ok(ecr.includes('count                = var.enable_gpu_image_repository ? 1 : 0'));
   assert.ok(ecr.includes('image_tag_mutability = "IMMUTABLE"'));
 });
 
-test('fractional GPU host selects an official fixed AMI and a concrete template version', () => {
+test('reviewed GPU hosts select an official fixed AMI and a concrete template version', () => {
   const imageLookup = tf.split('data "aws_ami" "gpu_ecs" {')[1]?.split(/\n(?:data|resource) /)[0];
   assert.ok(imageLookup, 'the SSM image ID must be checked against EC2 AMI metadata');
   assert.match(imageLookup, /count\s*=\s*var\.enable_gpu \? 1 : 0/);
@@ -105,4 +106,36 @@ test('fractional GPU host selects an official fixed AMI and a concrete template 
   const group = tf.split('resource "aws_autoscaling_group" "gpu" {')[1].split('\nresource ')[0];
   assert.match(group, /version\s*=\s*tostring\(aws_launch_template\.gpu\[0\]\.latest_version\)/);
   assert.doesNotMatch(group, /version\s*=\s*"\$(Latest|Default)"/);
+});
+
+test('hardware is limited to two four-vCPU profiles with matching approval and task GPU units', () => {
+  const hardware = vars.split('variable "gpu_smoke_instance_type" {')[1]?.split('\nvariable ')[0];
+  assert.ok(hardware);
+  assert.match(hardware, /default\s*=\s*"g6f\.xlarge"/);
+  const allowed = hardware.match(/contains\((\[[^\n]+\]),\s*var\.gpu_smoke_instance_type\)/);
+  assert.ok(allowed, 'the hardware selector must reject unsupported instances');
+  assert.deepEqual(JSON.parse(allowed[1]), ['g6f.xlarge', 'g4dn.xlarge']);
+
+  const gpuGuard = vars.split('variable "enable_gpu" {')[1].split('\nvariable ')[0];
+  assert.match(gpuGuard, /var\.gpu_smoke_approval\s*==\s*\(var\.gpu_smoke_instance_type\s*==\s*"g4dn\.xlarge"\s*\?\s*"I_APPROVE_ONE_G4DN_SMOKE_INSTANCE"\s*:\s*"I_APPROVE_ONE_G6F_SMOKE_INSTANCE"\)/);
+
+  const allocation = tf.match(/gpu_smoke_gpu_resources\s*=\s*\{([^}]+)\}/)?.[1];
+  assert.ok(allocation);
+  const gpuUnits = Object.fromEntries([...allocation.matchAll(/"([^"\n]+)"\s*=\s*"([^"\n]+)"/g)].map(([, type, units]) => [type, units]));
+  assert.deepEqual(gpuUnits, { 'g6f.xlarge': '0.125', 'g4dn.xlarge': '1' });
+  assert.match(tf, /gpu_smoke_gpu_resource\s*=\s*local\.gpu_smoke_gpu_resources\[var\.gpu_smoke_instance_type\]/);
+  for (const name of ['gpu', 'gpu_preflight']) {
+    const task = tf.split(`resource "aws_ecs_task_definition" "${name}" {`)[1].split('\nresource ')[0];
+    assert.match(task, /resourceRequirements\s*=\s*\[\s*\{\s*type\s*=\s*"GPU",\s*value\s*=\s*local\.gpu_smoke_gpu_resource\s*\}/);
+  }
+
+  // Capacity-only targeted plans must refresh outputs from their managed
+  // resources, not leave a direct variable output stale in the saved state.
+  const typeOutput = outputs.split('output "gpu_smoke_instance_type" {')[1].split('\noutput ')[0];
+  const unitsOutput = outputs.split('output "gpu_smoke_gpu_resource" {')[1].split('\noutput ')[0];
+  const workerOutput = outputs.split('output "gpu_smoke_worker_task_definition" {')[1].split('\noutput ')[0];
+  assert.match(typeOutput, /aws_launch_template\.gpu\[0\]\.instance_type/);
+  assert.match(unitsOutput, /jsondecode\(aws_ecs_task_definition\.gpu_preflight\[0\]\.container_definitions\)/);
+  assert.match(unitsOutput, /requirement\.value if requirement\.type == "GPU"/);
+  assert.match(workerOutput, /aws_ecs_task_definition\.gpu\[0\]\.arn/);
 });

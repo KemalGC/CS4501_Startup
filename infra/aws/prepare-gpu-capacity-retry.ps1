@@ -1,4 +1,4 @@
-# Read-only preparation for moving the idle GPU smoke ASG to one reviewed AZ.
+# Read-only preparation for an idle GPU subnet retry or an explicit type change.
 # Writes a separate GPU-only varfile; never plans/applies Terraform, changes
 # AWS resources, or launches EC2/ECS. Run the reviewed plan/smoke separately.
 [CmdletBinding()]
@@ -7,10 +7,12 @@ param(
   [Parameter(Mandatory=$true)][string]$ExpectedImageUri,
   [ValidatePattern('^[A-Za-z0-9_.-]{1,64}$')][string]$AwsProfile = 'strokesense-admin',
   [ValidateSet('us-east-1b','us-east-1c','us-east-1d')][string]$AvailabilityZone = 'us-east-1b',
+  [ValidateSet('g6f.xlarge','g4dn.xlarge')][string]$InstanceType,
   [string]$OutputPath = 'gpu-capacity-retry.tfvars.json'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'gpu-smoke-profile.ps1')
 $region = 'us-east-1'
 $savedProfile = [Environment]::GetEnvironmentVariable('AWS_PROFILE', 'Process')
 $savedPythonEncoding = [Environment]::GetEnvironmentVariable('PYTHONIOENCODING', 'Process')
@@ -292,8 +294,16 @@ try {
       [string](Get-RetryField $versions[0] 'VersionNumber') -cne $templateVersion) { throw 'Reviewed launch-template version is missing or changed.' }
   Assert-RetryArn (Get-RetryField $versions[0] 'CreatedBy') '(?:iam|sts)' '' '.+'
   $hostConfig = Get-RetryField $versions[0] 'LaunchTemplateData'
+  $currentType = Get-RetryField $hostConfig 'InstanceType'
+  try { $currentProfile = Get-GpuSmokeProfile -InstanceType $currentType }
+  catch { throw 'The existing GPU host type is not a supported reviewed smoke profile.' }
+  $targetType = if ($InstanceType) { $InstanceType } else { $currentType }
+  $targetProfile = Get-GpuSmokeProfile -InstanceType $targetType
+  $isTypeChange = $targetType -cne $currentType
+  $typeOutput = Get-RetryField (Get-RetryField $outputs 'gpu_smoke_instance_type') 'value'
+  if ($null -ne $typeOutput -and $typeOutput -cne $currentType) { throw 'Terraform GPU type output differs from the existing numeric launch-template version.' }
   $interfaces = Get-RetryList $hostConfig 'NetworkInterfaces'
-  if ((Get-RetryField $hostConfig 'InstanceType') -cne 'g6f.xlarge' -or (Get-RetryField $hostConfig 'ImageId') -cne $amiId -or
+  if ((Get-RetryField $hostConfig 'ImageId') -cne $amiId -or
       (Get-RetryField (Get-RetryField $hostConfig 'MetadataOptions') 'HttpTokens') -cne 'required' -or
       $interfaces.Count -ne 1 -or (Get-RetryField $interfaces[0] 'DeviceIndex') -ne 0 -or
       !(Test-RetryTrue (Get-RetryField $interfaces[0] 'AssociatePublicIpAddress')) -or
@@ -318,6 +328,9 @@ try {
   Assert-RetrySubnet $old[0] $oldSubnetId ''
   $oldZones = Get-RetryList $groups[0] 'AvailabilityZones'
   if ($oldZones.Count -ne 1 -or $oldZones[0] -cne (Get-RetryField $old[0] 'AvailabilityZone')) { throw 'Original subnet and live ASG Availability Zone disagree.' }
+  if ($isTypeChange -and $AvailabilityZone -cne $oldZones[0]) {
+    throw 'An instance-type change must retain the existing subnet and Availability Zone. Select the current AZ explicitly.'
+  }
   $securityGroups = Get-RetryList (Read-RetryAws @('ec2','describe-security-groups','--group-ids',$hostGroups[0],$taskGroup)) 'SecurityGroups'
   if ($securityGroups.Count -ne 2) { throw 'Expected both reviewed GPU host and task security groups.' }
   foreach ($id in @($hostGroups[0],$taskGroup)) {
@@ -359,7 +372,7 @@ try {
   if ((Get-RetryField $container 'name') -cne 'gpu-preflight' -or (Get-RetryField $container 'image') -cne $ExpectedImageUri -or
       ($command -join ' ') -cne 'python3 -m aws_app.gpu_preflight --model /app/models/yolo11n-pose.onnx' -or
       $requirements.Count -ne 1 -or (Get-RetryField $requirements[0] 'type') -cne 'GPU' -or
-      [string](Get-RetryField $requirements[0] 'value') -cne '0.125' -or (Get-RetryField $container 'privileged') -eq $true) {
+      [string](Get-RetryField $requirements[0] 'value') -cne $currentProfile.GpuResource -or (Get-RetryField $container 'privileged') -eq $true) {
     throw 'Existing preflight image digest, command, or GPU requirement differs from the reviewed smoke.'
   }
   foreach ($field in @('environment','secrets','mountPoints','entryPoint')) {
@@ -376,22 +389,27 @@ try {
   $quota = Get-RetryField (Read-RetryAws @('service-quotas','get-service-quota','--service-code','ec2','--quota-code','L-DB2E81BA')) 'Quota'
   $quotaValue = Get-RetryField $quota 'Value'
   if ((Get-RetryField $quota 'ServiceCode') -cne 'ec2' -or (Get-RetryField $quota 'QuotaCode') -cne 'L-DB2E81BA' -or
-      !(Test-RetryInteger $quotaValue) -or $quotaValue -lt 4) { throw 'Applied EC2 G/VT quota must still cover 4 vCPUs; no quota request was made.' }
+      !(Test-RetryInteger $quotaValue) -or $quotaValue -lt $targetProfile.Vcpus) { throw 'Applied EC2 G/VT quota must still cover the reviewed 4-vCPU host; no quota request was made.' }
 
   $offerings = Get-RetryList (Read-RetryAws @('ec2','describe-instance-type-offerings','--location-type','availability-zone',
-    '--filters','Name=instance-type,Values=g6f.xlarge',"Name=location,Values=$AvailabilityZone")) 'InstanceTypeOfferings'
+    '--filters',"Name=instance-type,Values=$targetType","Name=location,Values=$AvailabilityZone")) 'InstanceTypeOfferings'
   if (@($offerings | Where-Object {
-    (Get-RetryField $_ 'InstanceType') -ceq 'g6f.xlarge' -and (Get-RetryField $_ 'LocationType') -ceq 'availability-zone' -and
+    (Get-RetryField $_ 'InstanceType') -ceq $targetType -and (Get-RetryField $_ 'LocationType') -ceq 'availability-zone' -and
     (Get-RetryField $_ 'Location') -ceq $AvailabilityZone
-  }).Count -ne 1) { throw "g6f.xlarge is not reported as offered in $AvailabilityZone for this account. Select another allowed AZ explicitly." }
-  $candidates = Get-RetryList (Read-RetryAws @('ec2','describe-subnets','--filters',"Name=vpc-id,Values=$vpcId", "Name=availability-zone,Values=$AvailabilityZone")) 'Subnets'
+  }).Count -ne 1) { throw "$targetType is not reported as offered in $AvailabilityZone for this account. Select another allowed AZ explicitly." }
+  if ($isTypeChange) {
+    # Keep a hardware-profile migration separate from a subnet migration.
+    $candidates = @($old[0])
+  } else {
+    $candidates = Get-RetryList (Read-RetryAws @('ec2','describe-subnets','--filters',"Name=vpc-id,Values=$vpcId", "Name=availability-zone,Values=$AvailabilityZone")) 'Subnets'
+  }
   $valid = New-Object System.Collections.ArrayList
   $rejected = New-Object System.Collections.ArrayList
   foreach ($candidate in @($candidates | Sort-Object -Property SubnetId)) {
     $candidateId = Get-RetryField $candidate 'SubnetId'
     try {
       Assert-RetrySubnet $candidate '' $AvailabilityZone
-      if ($candidateId -ceq $oldSubnetId) { throw 'Candidate is already the current subnet; no placement recovery would occur.' }
+      if (!$isTypeChange -and $candidateId -ceq $oldSubnetId) { throw 'Candidate is already the current subnet; no placement recovery would occur.' }
       Assert-RetryPublicRouting $candidateId
       Assert-RetryAcl $candidateId
       [void]$valid.Add($candidateId)
@@ -414,7 +432,8 @@ try {
   $inputs = [ordered]@{
     enable_gpu = $true
     gpu_smoke_mode = $true
-    gpu_smoke_approval = 'I_APPROVE_ONE_G6F_SMOKE_INSTANCE'
+    gpu_smoke_instance_type = $targetType
+    gpu_smoke_approval = $targetProfile.Approval
     enable_gpu_image_repository = $true
     enable_paid_gpu_queue_scaffold = $false
     enable_cpu_smoke_queue = $false
@@ -434,9 +453,13 @@ try {
     finally { $stream.Dispose() }
   }
   $hash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256).Hash.ToLowerInvariant()
-  Write-Host "Reviewed retry subnet: $subnetId ($AvailabilityZone), replacing $oldSubnetId in the same VPC."
+  if ($isTypeChange) {
+    Write-Host "Reviewed instance-type change: $currentType to $targetType; retaining subnet $subnetId ($AvailabilityZone)."
+  } else {
+    Write-Host "Reviewed retry subnet: $subnetId ($AvailabilityZone), replacing $oldSubnetId in the same VPC; type remains $currentType."
+  }
   Write-Host 'The launch template explicitly supplies the host public IP; the subnet auto-assignment default is not changed.'
-  Write-Host 'Offerings confirm support, not spare capacity. Review a new saved subnet-only plan before another bounded smoke attempt.'
+  Write-Host 'Offerings confirm support, not spare capacity. Review a new saved plan with the validator appropriate to this change before another bounded smoke attempt.'
   Write-Host "GPU-only inputs retained: $resolvedPath"
   [pscustomobject][ordered]@{
     ReadyForPlan = $true
@@ -449,6 +472,10 @@ try {
     LaunchTemplateId = $templateId
     LaunchTemplateVersion = $templateVersion
     ImageUri = $ExpectedImageUri
+    IsInstanceTypeChange = $isTypeChange
+    CurrentInstanceType = $currentType
+    InstanceType = $targetType
+    GpuResource = $targetProfile.GpuResource
   }
 } finally {
   Restore-RetryEnvironment 'AWS_PROFILE' $savedProfile

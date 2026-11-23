@@ -10,6 +10,11 @@ has already completed. Recovery reviews a subnet-only ASG update at zero
 capacity and then a separately started smoke; it does not rebuild the image
 or repeat the infrastructure bootstrap.
 
+**Alternative hardware:** [switch the idle smoke to G4dn](GPU_INSTANCE_RETRY.md)
+when the operator chooses a full T4 GPU after G6f capacity failures. The
+published image can be retained. The selected instance type, approval and ECS
+GPU requirement are changed together in a separate reviewed migration.
+
 ### What changed
 
 - `enable_gpu=false` is still the default. Setting it true now requires all

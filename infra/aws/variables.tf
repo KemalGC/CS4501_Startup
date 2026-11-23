@@ -162,7 +162,7 @@ variable "enable_gpu" {
   validation {
     condition = !var.enable_gpu || (
       var.gpu_smoke_mode &&
-      var.gpu_smoke_approval == "I_APPROVE_ONE_G6F_SMOKE_INSTANCE" &&
+      var.gpu_smoke_approval == (var.gpu_smoke_instance_type == "g4dn.xlarge" ? "I_APPROVE_ONE_G4DN_SMOKE_INSTANCE" : "I_APPROVE_ONE_G6F_SMOKE_INSTANCE") &&
       !var.enable_paid_gpu_queue_scaffold &&
       !var.enable_cpu_smoke_queue &&
       var.enable_gpu_image_repository
@@ -170,7 +170,7 @@ variable "enable_gpu" {
     # enable_cpu_analysis is deliberately NOT required to be false: the smoke
     # stack (own ECS cluster, ASG, SGs, roles, log group) is isolated from the
     # live CPU Batch analyzer, and forcing it off would disable production CPU.
-    error_message = "To provision only the isolated GPU smoke infrastructure, set gpu_smoke_mode=true, enable_gpu_image_repository=true, gpu_smoke_approval=I_APPROVE_ONE_G6F_SMOKE_INSTANCE; the paid GPU queue and CPU smoke queue must remain off."
+    error_message = "To provision only the isolated GPU smoke infrastructure, set gpu_smoke_mode=true, enable_gpu_image_repository=true, and the matching gpu_smoke_approval: I_APPROVE_ONE_G6F_SMOKE_INSTANCE for g6f.xlarge or I_APPROVE_ONE_G4DN_SMOKE_INSTANCE for g4dn.xlarge; the paid GPU queue and CPU smoke queue must remain off."
   }
 }
 
@@ -367,6 +367,16 @@ variable "gpu_worker_image_uri" {
 }
 
 # Dual-gated, manually scaled, ONE-INSTANCE GPU smoke test; not production.
+variable "gpu_smoke_instance_type" {
+  type        = string
+  default     = "g6f.xlarge"
+  description = "Reviewed four-vCPU smoke hardware: fractional L4 g6f.xlarge or full T4 g4dn.xlarge. Requires the matching explicit gpu_smoke_approval."
+  validation {
+    condition     = contains(["g6f.xlarge", "g4dn.xlarge"], var.gpu_smoke_instance_type)
+    error_message = "GPU smoke hardware must be exactly g6f.xlarge or g4dn.xlarge."
+  }
+}
+
 variable "gpu_smoke_mode" {
   type        = bool
   default     = false

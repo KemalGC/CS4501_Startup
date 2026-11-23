@@ -83,7 +83,7 @@ output "gpu_smoke_asg_name" {
 }
 output "gpu_smoke_ami_id" {
   value       = try(data.aws_ami.gpu_ecs[0].id, null)
-  description = "Reviewed official AL2023 ECS GPU AMI with GRID support for the G6f host."
+  description = "Reviewed official AL2023 ECS GPU AMI supporting the selected G6f or G4dn host."
 }
 output "gpu_smoke_ami_name" {
   value       = try(data.aws_ami.gpu_ecs[0].name, null)
@@ -97,9 +97,24 @@ output "gpu_smoke_launch_template_version" {
   value       = try(tostring(aws_launch_template.gpu[0].latest_version), null)
   description = "Reviewed numeric launch-template version; never the mutable $Latest alias."
 }
+output "gpu_smoke_instance_type" {
+  value       = try(aws_launch_template.gpu[0].instance_type, null)
+  description = "Reviewed hardware from the managed launch template; updated with targeted capacity changes."
+}
+output "gpu_smoke_gpu_resource" {
+  value = try(one([
+    for requirement in jsondecode(aws_ecs_task_definition.gpu_preflight[0].container_definitions)[0].resourceRequirements :
+    requirement.value if requirement.type == "GPU"
+  ]), null)
+  description = "GPU resource units from the managed preflight task definition, matched to the reviewed hardware."
+}
 output "gpu_smoke_task_definition" {
   value       = try(aws_ecs_task_definition.gpu_preflight[0].arn, null)
   description = "No-customer-media CUDA preflight; requires a manually started EC2 host."
+}
+output "gpu_smoke_worker_task_definition" {
+  value       = try(aws_ecs_task_definition.gpu[0].arn, null)
+  description = "Inert worker task revision, retained to verify its GPU units during a hardware change."
 }
 output "gpu_smoke_capacity_provider" {
   value       = try(aws_ecs_capacity_provider.gpu[0].name, null)

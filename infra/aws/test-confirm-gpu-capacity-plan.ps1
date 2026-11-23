@@ -53,6 +53,7 @@ function New-CapacityFixture {
   $inputs = @{
     aws_region = 'us-east-1'; enable_cpu_smoke_queue = $false; enable_paid_gpu_queue_scaffold = $false
     enable_gpu_image_repository = $true; enable_gpu = $true; gpu_smoke_mode = $true
+    gpu_smoke_instance_type = 'g6f.xlarge'
     gpu_smoke_approval = 'I_APPROVE_ONE_G6F_SMOKE_INSTANCE'; gpu_subnet_id = $script:NewSubnet
     gpu_s3_route_table_ids = @(); gpu_worker_image_uri = $script:Image
     # Targeted recovery must not depend on terminal CPU variables or infer a
@@ -79,6 +80,7 @@ function New-CapacityFixture {
   )) { $outputs[$entry[0]] = @{ value = $entry[1] } }
   return @{
     Plan = $plan; Outputs = $outputs; Calls = (New-Object System.Collections.ArrayList); Scenario = ''; WorkspaceCalls = 0
+    ExpectedType = 'g6f.xlarge'; ExpectedGpuResource = '0.125'
     Account = $script:Account; PlanPath = $script:PlanPath; Canary = $script:Canary
     LiveAsg = @{ AutoScalingGroupName = $script:Asg; AutoScalingGroupARN = $script:AsgArn
       MinSize = 0; MaxSize = 0; DesiredCapacity = 0; Instances = @(); VPCZoneIdentifier = $script:OldSubnet
@@ -89,12 +91,23 @@ function New-CapacityFixture {
       @{ SubnetId = $script:NewSubnet; OwnerId = $script:Account; VpcId = $script:Vpc; State = 'available'; AvailableIpAddressCount = 32; AvailabilityZone = 'us-east-1b' }
     )
     Reservations = @(); Services = @(); Tasks = @()
-    TaskDefinition = @{ taskDefinitionArn = $script:Task; containerDefinitions = @(@{ name = 'gpu-preflight'; image = $script:Image }) }
+    TaskDefinition = @{ taskDefinitionArn = $script:Task; containerDefinitions = @(@{ name = 'gpu-preflight'; image = $script:Image
+      resourceRequirements = @(@{ type = 'GPU'; value = '0.125' }) }) }
     Published = @(@{ registryId = $script:Account; imageDigest = $script:Digest })
   }
 }
 function Find-CapacityChange([string]$Address = 'aws_autoscaling_group.gpu[0]') {
   return ($global:CapacityWorld.Plan.resource_changes | Where-Object { $_.address -ceq $Address }).change
+}
+function Use-G4dnCapacityFixture {
+  $template = Find-CapacityChange 'aws_launch_template.gpu[0]'
+  $template.before.instance_type = 'g4dn.xlarge'
+  $template.after.instance_type = 'g4dn.xlarge'
+  $global:CapacityWorld.Plan.variables.gpu_smoke_instance_type.value = 'g4dn.xlarge'
+  $global:CapacityWorld.Plan.variables.gpu_smoke_approval.value = 'I_APPROVE_ONE_G4DN_SMOKE_INSTANCE'
+  $global:CapacityWorld.TaskDefinition.containerDefinitions[0].resourceRequirements[0].value = '1'
+  $global:CapacityWorld.ExpectedType = 'g4dn.xlarge'
+  $global:CapacityWorld.ExpectedGpuResource = '1'
 }
 function global:aws {
   $a = @($args | ForEach-Object { [string]$_ })
@@ -172,6 +185,7 @@ function Invoke-CapacityCase([string]$Scenario, [string]$FailureText = '', [scri
       $results[0].OldSubnetId -ceq $script:OldSubnet -and $results[0].SubnetId -ceq $script:NewSubnet -and
       $results[0].ImageUri -ceq $script:Image -and $results[0].AsgName -ceq $script:Asg -and
       $results[0].LaunchTemplateId -ceq $script:Lt -and $results[0].LaunchTemplateVersion -ceq '1' -and
+      $results[0].InstanceType -ceq $global:CapacityWorld.ExpectedType -and $results[0].GpuResource -ceq $global:CapacityWorld.ExpectedGpuResource -and
       $results[0].Workspace -ceq 'capacity-tests' -and $results[0].PlanPath -ceq $script:PlanPath -and
       $results[0].PlanHash -ceq (Get-FileHash -LiteralPath $script:PlanPath -Algorithm SHA256).Hash.ToLowerInvariant()
   }
@@ -194,6 +208,41 @@ try {
   if ($probe.address -isnot [System.Management.Automation.PSMethod]) { throw 'Array.Address collision fixture did not reproduce.' }
   Write-Host 'PASS Windows PowerShell Array.Address collision represented'
   Invoke-CapacityCase 'valid-targeted-incomplete-plan'
+  Invoke-CapacityCase 'valid-g4dn-subnet-only-plan' '' { Use-G4dnCapacityFixture }
+  Invoke-CapacityCase 'valid-g4dn-current-type-output' '' {
+    Use-G4dnCapacityFixture
+    $global:CapacityWorld.Outputs.gpu_smoke_instance_type = @{ value = 'g4dn.xlarge' }
+  }
+  Invoke-CapacityCase 'subnet-plan-rejects-type-change-input' 'gpu_smoke_instance_type' {
+    $global:CapacityWorld.Plan.variables.gpu_smoke_instance_type.value = 'g4dn.xlarge'
+  }
+  Invoke-CapacityCase 'subnet-plan-rejects-actual-type-migration' 'exactly one in-place' {
+    (Find-CapacityChange 'aws_launch_template.gpu[0]').actions = @('update')
+    (Find-CapacityChange 'aws_launch_template.gpu[0]').after.instance_type = 'g4dn.xlarge'
+  }
+  Invoke-CapacityCase 'g4dn-rejects-g6f-approval' 'gpu_smoke_approval' {
+    Use-G4dnCapacityFixture
+    $global:CapacityWorld.Plan.variables.gpu_smoke_approval.value = 'I_APPROVE_ONE_G6F_SMOKE_INSTANCE'
+  }
+  Invoke-CapacityCase 'g4dn-rejects-fractional-task' 'GPU requirement' {
+    Use-G4dnCapacityFixture
+    $global:CapacityWorld.TaskDefinition.containerDefinitions[0].resourceRequirements[0].value = '0.125'
+  }
+  Invoke-CapacityCase 'g6f-rejects-full-gpu-task' 'GPU requirement' {
+    $global:CapacityWorld.TaskDefinition.containerDefinitions[0].resourceRequirements[0].value = '1'
+  }
+  Invoke-CapacityCase 'missing-gpu-requirement' 'GPU requirement' {
+    $global:CapacityWorld.TaskDefinition.containerDefinitions[0].resourceRequirements = @()
+  }
+  Invoke-CapacityCase 'extra-gpu-requirement' 'GPU requirement' {
+    $global:CapacityWorld.TaskDefinition.containerDefinitions[0].resourceRequirements += @{ type = 'GPU'; value = '0.125' }
+  }
+  Invoke-CapacityCase 'deployed-type-output-drift' 'type output differs' {
+    $global:CapacityWorld.Outputs.gpu_smoke_instance_type = @{ value = 'g4dn.xlarge' }
+  }
+  Invoke-CapacityCase 'missing-type-input' 'gpu_smoke_instance_type' {
+    $global:CapacityWorld.Plan.variables.Remove('gpu_smoke_instance_type')
+  }
   Invoke-CapacityCase 'valid-unset-profile-and-encoding-restored' '' {
     Remove-Item Env:AWS_PROFILE -ErrorAction SilentlyContinue
     Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue

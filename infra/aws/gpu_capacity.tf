@@ -3,6 +3,16 @@
 # acknowledged operator-only GPU smoke mode, which disables paid dispatch,
 # billing and ECS automatic scaling. See GPU_SMOKE_M3.md before ANY apply.
 
+locals {
+  # G6f allocates one eighth of an L4; G4dn allocates one whole T4. Both
+  # reviewed xlarge types consume four vCPUs from the same G/VT quota.
+  gpu_smoke_gpu_resources = {
+    "g6f.xlarge"  = "0.125"
+    "g4dn.xlarge" = "1"
+  }
+  gpu_smoke_gpu_resource = local.gpu_smoke_gpu_resources[var.gpu_smoke_instance_type]
+}
+
 resource "aws_ecs_cluster" "gpu" {
   count = var.enable_gpu ? 1 : 0
   name  = format("%s-paid-gpu", local.prefix)
@@ -13,7 +23,7 @@ data "aws_ssm_parameter" "gpu_ecs_ami" {
   name  = "/aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id"
 }
 
-# G6f requires GRID, not the Tesla driver used by full-GPU instances. Current
+# G6f requires GRID; G4dn uses the Tesla driver for its full T4. Current
 # official AL2023 ECS GPU AMIs select the GRID module for the fractional L4 at
 # boot and start nvidia-gridd before ECS. Keep that supported bootstrap rather
 # than installing another driver in user data. The 20261119 AMI fixes leftover
@@ -51,7 +61,7 @@ data "aws_ami" "gpu_ecs" {
   lifecycle {
     postcondition {
       condition     = try(tonumber(regex("^al2023-ami-ecs-gpu-hvm-2023\\.0\\.([0-9]{8})(-|$)", self.name)[0]) >= 20261119, false)
-      error_message = "The G6f host requires an official AL2023 ECS GPU AMI from 20261119 or newer with the GRID userspace fix. Review the AWS ECS AMI release notes before launching."
+      error_message = "GPU smoke hosts require an official AL2023 ECS GPU AMI from 20261119 or newer, preserving the GRID userspace fix required by G6f. Review the AWS ECS AMI release notes before launching."
     }
   }
 }
@@ -153,7 +163,7 @@ resource "aws_launch_template" "gpu" {
   count         = var.enable_gpu ? 1 : 0
   name_prefix   = format("%s-gpu-", local.prefix)
   image_id      = data.aws_ami.gpu_ecs[0].id
-  instance_type = "g6f.xlarge" # Fixed: 4 vCPU, 16 GiB RAM, 0.125 L4 / 3 GB VRAM
+  instance_type = var.gpu_smoke_instance_type
   ebs_optimized = true
 
   # Bounded boot/image cache space for CUDA/ONNX video processing.
@@ -323,7 +333,7 @@ resource "aws_ecs_task_definition" "gpu" {
       memory    = 8192
       command   = ["python3", "-m", "aws_app.gpu_worker"]
       resourceRequirements = [
-        { type = "GPU", value = "0.125" }
+        { type = "GPU", value = local.gpu_smoke_gpu_resource }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -409,7 +419,7 @@ resource "aws_ecs_task_definition" "gpu_preflight" {
       memory    = 8192
       command   = ["python3", "-m", "aws_app.gpu_preflight", "--model", "/app/models/yolo11n-pose.onnx"]
       resourceRequirements = [
-        { type = "GPU", value = "0.125" }
+        { type = "GPU", value = local.gpu_smoke_gpu_resource }
       ]
       logConfiguration = {
         logDriver = "awslogs"

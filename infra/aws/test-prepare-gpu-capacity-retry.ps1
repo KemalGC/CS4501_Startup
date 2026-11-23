@@ -28,6 +28,7 @@ $script:Root = Join-Path ([IO.Path]::GetTempPath()) ('strokesense-capacity-tests
 $script:EnvironmentNames = @(
   'AWS_PROFILE','AWS_ACCESS_KEY_ID','PYTHONIOENCODING','TF_CLI_ARGS','TF_CLI_ARGS_output',
   'TF_VAR_worker_image_tag','TF_VAR_enable_cpu_analysis','TF_VAR_enable_gpu','TF_VAR_gpu_worker_image_uri',
+  'TF_VAR_gpu_smoke_instance_type','TF_VAR_gpu_smoke_approval',
   'TF_VAR_gpu_subnet_id','TF_VAR_premium_owner_sub','TF_VAR_admin_cognito_subs','STROKESENSE_GPU_PLAN_PATH'
 )
 $script:SavedEnvironment = @{}
@@ -75,6 +76,8 @@ function New-CapacityWorld([string]$Case) {
     ExpectedAccount = $script:Account; ExpectedDigest = $script:Digest; Vpc = $script:Vpc
     SecretCanary = $script:SecretCanary; InfraDirectory = $PSScriptRoot
     Az = 'us-east-1b'; ExpectedSubnet = $script:SubnetA; OutputName = 'gpu-capacity-retry.tfvars.json'
+    RequestedType = ''; ExpectedType = 'g6f.xlarge'; ExpectedCurrentType = 'g6f.xlarge'
+    ExpectedGpuResource = '0.125'; ExpectedTypeChange = $false; Repeat = $false
     Identity = @{ Account = $script:Account; Arn = "arn:aws:iam::$($script:Account):user/kemal-strokesense-admin" }
     Outputs = $outputs
     Group = @{ AutoScalingGroupName = $script:Asg
@@ -113,7 +116,7 @@ function New-CapacityWorld([string]$Case) {
     ExplicitRoutes = @{}; MainRoute = (New-TestRoute)
     Gateway = @{ InternetGatewayId = $script:Gateway; OwnerId = $script:Account
       Attachments = @(@{ VpcId = $script:Vpc; State = 'available' }) }
-    Acls = @{ $script:SubnetA = (New-TestAcl $script:SubnetA); $script:SubnetB = (New-TestAcl $script:SubnetB) }
+    Acls = @{ $script:SubnetA = (New-TestAcl $script:SubnetA); $script:SubnetB = (New-TestAcl $script:SubnetB); $script:OldSubnet = (New-TestAcl $script:OldSubnet) }
   }
 }
 function Read-FakeArgument([string[]]$Arguments, [string]$Name) {
@@ -190,6 +193,7 @@ function global:aws {
     'service-quotas get-service-quota' { $data = @{ Quota = $w.Quota } }
     'ec2 describe-instance-type-offerings' {
       if ($a -cnotcontains "Name=location,Values=$($w.Az)") { throw 'Helper tried another AZ without an explicit selection.' }
+      if ($a -cnotcontains "Name=instance-type,Values=$($w.ExpectedType)") { throw 'Helper queried offerings for an unselected instance type.' }
       $data = @{ InstanceTypeOfferings = $w.Offerings }
     }
     'ec2 describe-route-tables' {
@@ -212,10 +216,31 @@ function global:aws {
 }
 function Expected-TestInputs {
   return [ordered]@{
-    enable_gpu = $true; gpu_smoke_mode = $true; gpu_smoke_approval = 'I_APPROVE_ONE_G6F_SMOKE_INSTANCE'
+    enable_gpu = $true; gpu_smoke_mode = $true; gpu_smoke_instance_type = $global:CapacityWorld.ExpectedType
+    gpu_smoke_approval = $(if ($global:CapacityWorld.ExpectedType -ceq 'g4dn.xlarge') { 'I_APPROVE_ONE_G4DN_SMOKE_INSTANCE' } else { 'I_APPROVE_ONE_G6F_SMOKE_INSTANCE' })
     enable_gpu_image_repository = $true; enable_paid_gpu_queue_scaffold = $false; enable_cpu_smoke_queue = $false
     gpu_subnet_id = $global:CapacityWorld.ExpectedSubnet; gpu_s3_route_table_ids = @(); gpu_worker_image_uri = $script:Image
   }
+}
+function Use-G4dnTypeChangeFixture {
+  $global:CapacityWorld.RequestedType = 'g4dn.xlarge'
+  $global:CapacityWorld.ExpectedType = 'g4dn.xlarge'
+  $global:CapacityWorld.ExpectedGpuResource = '1'
+  $global:CapacityWorld.ExpectedTypeChange = $true
+  $global:CapacityWorld.ExpectedSubnet = $script:OldSubnet
+  $global:CapacityWorld.OldSubnet.AvailabilityZone = 'us-east-1b'
+  $global:CapacityWorld.Group.AvailabilityZones = @('us-east-1b')
+  $global:CapacityWorld.Group.SuspendedProcesses += @{ ProcessName = 'Launch' }
+  $global:CapacityWorld.Offerings[0].InstanceType = 'g4dn.xlarge'
+  $global:CapacityWorld.OutputName = 'gpu-g4dn-retry.tfvars.json'
+}
+function Use-DeployedG4dnFixture {
+  $global:CapacityWorld.ExpectedType = 'g4dn.xlarge'
+  $global:CapacityWorld.ExpectedCurrentType = 'g4dn.xlarge'
+  $global:CapacityWorld.ExpectedGpuResource = '1'
+  $global:CapacityWorld.Template.LaunchTemplateData.InstanceType = 'g4dn.xlarge'
+  $global:CapacityWorld.Task.containerDefinitions[0].resourceRequirements[0].value = '1'
+  $global:CapacityWorld.Offerings[0].InstanceType = 'g4dn.xlarge'
 }
 function Invoke-CapacityCase([string]$Case, [bool]$ExpectFailure, [scriptblock]$Mutate = {}, [string]$ExpectedError = '') {
   $script:CaseCount++
@@ -228,6 +253,7 @@ function Invoke-CapacityCase([string]$Case, [bool]$ExpectFailure, [scriptblock]$
   $env:AWS_PROFILE = 'previous-profile'; $env:AWS_ACCESS_KEY_ID = 'TEST_ONLY_AMBIENT_CREDENTIAL_CANARY'
   $env:PYTHONIOENCODING = 'ascii'; $env:TF_VAR_worker_image_tag = 'live-cpu-image'; $env:TF_VAR_enable_cpu_analysis = 'true'
   $env:TF_VAR_enable_gpu = 'false'; $env:TF_VAR_gpu_worker_image_uri = 'original-image-value'
+  $env:TF_VAR_gpu_smoke_instance_type = 'original-type-value'; $env:TF_VAR_gpu_smoke_approval = 'original-approval-value'
   $env:TF_VAR_gpu_subnet_id = $script:OldSubnet; $env:TF_VAR_premium_owner_sub = 'original-owner-sub'
   $env:TF_VAR_admin_cognito_subs = '["original-admin"]'; $env:STROKESENSE_GPU_PLAN_PATH = 'existing-reviewed-plan'
   Remove-Item Env:TF_CLI_ARGS,Env:TF_CLI_ARGS_output -ErrorAction SilentlyContinue
@@ -246,13 +272,16 @@ function Invoke-CapacityCase([string]$Case, [bool]$ExpectFailure, [scriptblock]$
   $failure = $null
   $repeatOkay = $true
   try {
-    & $script:Under -ExpectedAccountId $script:Account -ExpectedImageUri $script:Image -AwsProfile 'capacity-test-profile' -AvailabilityZone $global:CapacityWorld.Az -OutputPath $output *>&1 |
+    $invoke = @{ ExpectedAccountId = $script:Account; ExpectedImageUri = $script:Image; AwsProfile = 'capacity-test-profile'
+      AvailabilityZone = $global:CapacityWorld.Az; OutputPath = $output }
+    if ($global:CapacityWorld.RequestedType) { $invoke.InstanceType = $global:CapacityWorld.RequestedType }
+    & $script:Under @invoke *>&1 |
       ForEach-Object { [void]$messages.Add($_) }
-    if ($Case -eq 'ready-repeat-same-output') {
+    if ($Case -eq 'ready-repeat-same-output' -or $global:CapacityWorld.Repeat) {
       $firstHash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash
       $firstWrite = [IO.File]::GetLastWriteTimeUtc($output)
       $messages.Clear()
-      & $script:Under -ExpectedAccountId $script:Account -ExpectedImageUri $script:Image -AwsProfile 'capacity-test-profile' -AvailabilityZone $global:CapacityWorld.Az -OutputPath $output *>&1 |
+      & $script:Under @invoke *>&1 |
         ForEach-Object { [void]$messages.Add($_) }
       $repeatOkay = $firstHash -ceq (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash -and
         $firstWrite -eq [IO.File]::GetLastWriteTimeUtc($output)
@@ -281,6 +310,10 @@ function Invoke-CapacityCase([string]$Case, [bool]$ExpectFailure, [scriptblock]$
       $result.OldSubnetId -ceq $script:OldSubnet -and $result.SubnetId -ceq $global:CapacityWorld.ExpectedSubnet -and
       $result.AvailabilityZone -ceq $global:CapacityWorld.Az -and $result.AsgName -ceq $script:Asg -and
       $result.LaunchTemplateId -ceq $script:Template -and $result.LaunchTemplateVersion -ceq '1' -and
+      $result.CurrentInstanceType -ceq $global:CapacityWorld.ExpectedCurrentType -and
+      $result.InstanceType -ceq $global:CapacityWorld.ExpectedType -and
+      $result.IsInstanceTypeChange -eq $global:CapacityWorld.ExpectedTypeChange -and
+      $result.GpuResource -ceq $global:CapacityWorld.ExpectedGpuResource -and
       $result.ImageUri -ceq $script:Image -and ($actualNames -join ',') -ceq ($expectedNames -join ',')
     foreach ($name in $expected.Keys) {
       if ((ConvertTo-Json -InputObject $content.$name -Depth 5 -Compress) -cne
@@ -305,6 +338,47 @@ try {
     $global:CapacityWorld.Group.SuspendedProcesses += @{ ProcessName = 'Launch' }
   }
   Invoke-CapacityCase 'ready-repeat-same-output' $false
+  Invoke-CapacityCase 'ready-g4dn-type-change-same-subnet' $false { Use-G4dnTypeChangeFixture }
+  Invoke-CapacityCase 'ready-g4dn-type-change-repeat' $false { Use-G4dnTypeChangeFixture; $global:CapacityWorld.Repeat = $true }
+  Invoke-CapacityCase 'ready-g4dn-type-change-explicit-route' $false {
+    Use-G4dnTypeChangeFixture
+    $global:CapacityWorld.ExplicitRoutes[$script:OldSubnet] = New-TestRoute $script:OldSubnet
+  }
+  Invoke-CapacityCase 'ready-deployed-g4dn-subnet-inferred' $false { Use-DeployedG4dnFixture }
+  Invoke-CapacityCase 'ready-deployed-g4dn-subnet-explicit' $false {
+    Use-DeployedG4dnFixture
+    $global:CapacityWorld.RequestedType = 'g4dn.xlarge'
+    $global:CapacityWorld.Outputs.gpu_smoke_instance_type = @{ value = 'g4dn.xlarge'; sensitive = $false; type = 'string' }
+  }
+  Invoke-CapacityCase 'type-change-keeps-existing-az' $true {
+    Use-G4dnTypeChangeFixture
+    $global:CapacityWorld.Az = 'us-east-1c'
+  } 'must retain the existing subnet'
+  Invoke-CapacityCase 'type-change-checks-current-gpu-count' $true {
+    Use-G4dnTypeChangeFixture
+    $global:CapacityWorld.Task.containerDefinitions[0].resourceRequirements[0].value = '1'
+  } 'GPU requirement'
+  Invoke-CapacityCase 'deployed-g4dn-rejects-fractional-task' $true {
+    Use-DeployedG4dnFixture
+    $global:CapacityWorld.Task.containerDefinitions[0].resourceRequirements[0].value = '0.125'
+  } 'GPU requirement'
+  Invoke-CapacityCase 'type-change-offering-must-match-target' $true {
+    Use-G4dnTypeChangeFixture
+    $global:CapacityWorld.Offerings[0].InstanceType = 'g6f.xlarge'
+  } 'not reported as offered'
+  Invoke-CapacityCase 'type-change-current-subnet-route-required' $true {
+    Use-G4dnTypeChangeFixture
+    $global:CapacityWorld.MainRoute.Routes = @()
+  } 'active IPv4 default'
+  Invoke-CapacityCase 'deployed-type-output-mismatch' $true {
+    $global:CapacityWorld.Outputs.gpu_smoke_instance_type = @{ value = 'g4dn.xlarge'; sensitive = $false; type = 'string' }
+  } 'type output differs'
+  Invoke-CapacityCase 'unsupported-requested-type' $true { $global:CapacityWorld.RequestedType = 'g5.xlarge' }
+  Invoke-CapacityCase 'same-type-same-subnet-is-not-recovery' $true {
+    $global:CapacityWorld.OldSubnet.AvailabilityZone = 'us-east-1b'
+    $global:CapacityWorld.Group.AvailabilityZones = @('us-east-1b')
+    $global:CapacityWorld.Candidates = @($global:CapacityWorld.OldSubnet)
+  } 'already the current subnet'
   Invoke-CapacityCase 'ready-explicit-route' $false {
     $global:CapacityWorld.ExplicitRoutes[$script:SubnetA] = New-TestRoute $script:SubnetA
   }

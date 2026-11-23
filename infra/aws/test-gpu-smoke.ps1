@@ -14,7 +14,15 @@ function New-World([string]$Scenario) {
     actions = @(); instState = $null; tasks = @(); runTaskCalls = 0; tokens = @()
     clock = [datetime]::UtcNow; logReads = 0; instanceReads = 0
     scaledOut = $false; lateObserved = $false; suspendCalls = 0; evidence = $null; cleanupActivityReads = 0
+    instanceType = 'g6f.xlarge'; gpuResource = '0.125'; gpuMemoryMiB = 3072
   }
+  if ($Scenario -like 'g4dn-*') {
+    $W.instanceType = 'g4dn.xlarge'; $W.gpuResource = '1'; $W.gpuMemoryMiB = 15360
+  }
+  if ($Scenario -eq 'g4dn-fractional-task') { $W.gpuResource = '0.125' }
+  if ($Scenario -eq 'g6f-whole-task') { $W.gpuResource = '1' }
+  if ($Scenario -eq 'g4dn-low-memory') { $W.gpuMemoryMiB = 13999 }
+  if ($Scenario -eq 'g4dn-memory-boundary') { $W.gpuMemoryMiB = 14000 }
   if ($Scenario -eq 'retrylatched') { $W.asg.suspended += 'Launch' }
   if ($Scenario -in @('stale-cutoff','cutoff-recurring','cutoff-foreign','cutoff-capacity','cutoff-asg')) {
     $action = @{ ScheduledActionName = 'strokesense-gpu-smoke-cutoff'; AutoScalingGroupName = 'strokesense-aws-dev-gpu-one-instance'
@@ -122,8 +130,9 @@ function global:aws {
       return '{"Activities":[]}' }
     'ec2 describe-launch-template-versions' {
       $ami = 'ami-0b8f7c7154f9e8f8b'; if ($W.scenario -eq 'wrongami') { $ami = 'ami-0123456789abcdef0' }
+      $instanceType = $W.instanceType; if ($W.scenario -eq 'g4dn-wrong-template-type') { $instanceType = 'g6f.xlarge' }
       $userData = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("ECS_ENABLE_GPU_SUPPORT=true`nECS_AWSVPC_BLOCK_IMDS=true"))
-      return (@{ LaunchTemplateVersions = @(@{ LaunchTemplateData = @{ ImageId=$ami; InstanceType='g6f.xlarge';
+      return (@{ LaunchTemplateVersions = @(@{ LaunchTemplateData = @{ ImageId=$ami; InstanceType=$instanceType;
         UserData=$userData; MetadataOptions=@{HttpTokens='required'} } }) } | ConvertTo-Json -Depth 6)
     }
     'ec2 describe-instances' {
@@ -135,11 +144,13 @@ function global:aws {
       }
       if ($W.scenario -eq 'latevolumeaccess') { $global:LASTEXITCODE = 254; return 'An error occurred (UnauthorizedOperation) when calling DescribeInstances' }
       $W.instanceReads++
-      $instance = @{InstanceId='i-0abc';InstanceType='g6f.xlarge';ImageId='ami-0b8f7c7154f9e8f8b';LaunchTime='2026-11-21T04:00:00Z'
+      $instance = @{InstanceId='i-0abc';InstanceType=$W.instanceType;ImageId='ami-0b8f7c7154f9e8f8b';LaunchTime='2026-11-21T04:00:00Z'
         Placement=@{AvailabilityZone='us-east-1a'};SubnetId='subnet-0f3c6534cee511e6a';RootDeviceName='/dev/xvda';
         BlockDeviceMappings=@(@{DeviceName='/dev/xvda';Ebs=@{VolumeId='vol-0abc';DeleteOnTermination=$true}})}
       if ($W.scenario -in @('missingvolume','latevolumemissing') -or ($W.scenario -eq 'pendingvolume' -and $W.instanceReads -eq 1)) { $instance.BlockDeviceMappings = @() }
       if ($W.scenario -eq 'wronginstancesubnet') { $instance.SubnetId = 'subnet-0123456789abcdef0' }
+      if ($W.scenario -eq 'g4dn-wrong-instance-type' -or
+          ($W.scenario -eq 'g4dn-wrong-ready-type' -and $W.instanceReads -ge 2)) { $instance.InstanceType = 'g6f.xlarge' }
       return (@{Reservations=@(@{Instances=@($instance)})} | ConvertTo-Json -Depth 8)
     }
     'ec2 describe-volumes' {
@@ -164,7 +175,7 @@ function global:aws {
       $res = '[{"name":"GPU","type":"STRINGSET","stringSetValue":["GPU-1"]},{"name":"CPU","type":"INTEGER","integerValue":4096}]'
       if ($W.scenario -eq 'nogpu') { $res = '[{"name":"CPU","type":"INTEGER","integerValue":4096}]' }
       return ('{"containerInstances":[{"ec2InstanceId":"i-0abc","agentConnected":true,"status":"ACTIVE","versionInfo":{"agentVersion":"1.108.3"},"registeredResources":' + $res + '}]}') }
-    'ecs describe-task-definition' { return ('{"taskDefinition":{"revision":1,"networkMode":"awsvpc","requiresCompatibilities":["EC2"],"containerDefinitions":[{"name":"gpu-preflight","image":"' + $Image + '","command":["python3","-m","aws_app.gpu_preflight","--model","/app/models/yolo11n-pose.onnx"],"resourceRequirements":[{"type":"GPU","value":"0.125"}],"mountPoints":[],"environment":[]}],"volumes":[]}}') }
+    'ecs describe-task-definition' { return ('{"taskDefinition":{"revision":1,"networkMode":"awsvpc","requiresCompatibilities":["EC2"],"containerDefinitions":[{"name":"gpu-preflight","image":"' + $Image + '","command":["python3","-m","aws_app.gpu_preflight","--model","/app/models/yolo11n-pose.onnx"],"resourceRequirements":[{"type":"GPU","value":"' + $W.gpuResource + '"}],"mountPoints":[],"environment":[]}],"volumes":[]}}') }
     'ecs run-task' {
       $W.runTaskCalls++
       $payload = (Get-Content ((Get-Arg $a '--cli-input-json') -replace '^file://','') -Raw) | ConvertFrom-Json
@@ -190,7 +201,7 @@ function global:aws {
       $result = @{ provider = 'CUDAExecutionProvider'; active_providers = @('CUDAExecutionProvider'); model_loaded = $true
         cpu_ep_fallback_disabled = $true; outputs_finite = $true; warmup_runs = 3; inference_runs = 20
         model_sha256_verified = '93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408'
-        output_shapes = @(,@(1,56,8400)); gpu_memory_total_mib = 3072; gpu_memory_used_after_inference_mib = 512
+        output_shapes = @(,@(1,56,8400)); gpu_memory_total_mib = $W.gpuMemoryMiB; gpu_memory_used_after_inference_mib = 512
         latency_ms_p50 = 2.0; latency_ms_p95 = 2.5; latency_ms_max = 3.0 }
       if ($W.scenario -eq 'badlog') { $result.outputs_finite = $false }
       return (@{events=@(@{message=('STROKESENSE_GPU_PREFLIGHT ' + ($result | ConvertTo-Json -Depth 5 -Compress))})} | ConvertTo-Json -Depth 5)
@@ -199,13 +210,15 @@ function global:aws {
   }
 }
 
-function Invoke-Case([string]$Scenario, [bool]$ExpectThrow, [scriptblock]$Check, [bool]$ExpectLaunch = $true) {
+function Invoke-Case([string]$Scenario, [bool]$ExpectThrow, [scriptblock]$Check, [bool]$ExpectLaunch = $true, [string]$ExpectedInstanceType = '') {
   New-World $Scenario
   $threw = $null
   $caseEvidence = Join-Path ([IO.Path]::GetTempPath()) ('ss-gpu-smoke-test-' + [guid]::NewGuid().ToString('N'))
   try {
+    $hardwareArgs = @{}
+    if ($ExpectedInstanceType) { $hardwareArgs.ExpectedInstanceType = $ExpectedInstanceType }
     & $script:Under -ExpectedAccountId 851226124502 -ExpectedImageUri $Image -ApproveCharge -AwsProfile fake `
-      -EvidenceDir $caseEvidence *> $null
+      -EvidenceDir $caseEvidence @hardwareArgs *> $null
   } catch { $threw = $_.Exception.Message }
   $W.failure = $threw
   if (Test-Path -LiteralPath $caseEvidence) {
@@ -321,6 +334,44 @@ foreach ($scenario in @('existingstopping','stopstatusmissing')) {
   Invoke-Case $scenario $true { $W.failure -like '*previous ECS task is still stopping*' } $false
 }
 Invoke-Case 'completedhistory' $false { $W.runTaskCalls -eq 1 -and $W.instState -eq 'terminated' }
+
+# New hardware must preserve the same launch limit and verified cleanup. The
+# terraform fake intentionally has no new hardware outputs: legacy state is
+# supported through explicit expectation plus live template/task readbacks.
+Invoke-Case 'g4dn-happy' $false {
+  $W.runTaskCalls -eq 1 -and $W.instState -eq 'terminated' -and
+  $W.evidence.expected_instance_type -ceq 'g4dn.xlarge' -and
+  $W.evidence.expected_gpu_resource -ceq '1' -and $W.evidence.minimum_gpu_memory_mib -eq 14000 -and
+  $W.evidence.launch_suspended_verified -eq $true -and $W.evidence.terminated_verified -eq $true
+} $true 'g4dn.xlarge'
+Invoke-Case 'g4dn-memory-boundary' $false {
+  $W.runTaskCalls -eq 1 -and $W.evidence.preflight.gpu_memory_total_mib -eq 14000 -and $W.instState -eq 'terminated'
+} $true 'g4dn.xlarge'
+Invoke-Case 'g4dn-low-memory' $true {
+  $W.runTaskCalls -eq 1 -and $W.instState -eq 'terminated' -and $W.failure -like '*14000 MiB for g4dn.xlarge*'
+} $true 'g4dn.xlarge'
+Invoke-Case 'g4dn-fractional-task' $true {
+  $W.failure -like '*1 GPU for g4dn.xlarge*'
+} $false 'g4dn.xlarge'
+Invoke-Case 'g6f-whole-task' $true { $W.failure -like '*0.125 GPU for g6f.xlarge*' } $false
+Invoke-Case 'g4dn-wrong-template-type' $true {
+  $W.failure -like '*Launch template does not match the reviewed g4dn.xlarge type*'
+} $false 'g4dn.xlarge'
+Invoke-Case 'g4dn-wrong-instance-type' $true {
+  $W.runTaskCalls -eq 0 -and $W.instState -eq 'terminated' -and $W.failure -like '*Actual instance type*'
+} $true 'g4dn.xlarge'
+Invoke-Case 'g4dn-wrong-ready-type' $true {
+  $W.runTaskCalls -eq 0 -and $W.instState -eq 'terminated' -and $W.failure -like '*differs from the reviewed instance*'
+} $true 'g4dn.xlarge'
+Invoke-Case 'g4dn-default-mismatch' $true {
+  $W.failure -like '*Launch template does not match the reviewed g6f.xlarge type*'
+} $false
+Invoke-Case 'unsupported-hardware' $true {
+  $W.calls.Count -eq 0 -and $W.failure -like '*Supported GPU smoke instance types*'
+} $false 'g5.xlarge'
+Invoke-Case 'noncanonical-hardware' $true {
+  $W.calls.Count -eq 0 -and $W.failure -like '*Supported GPU smoke instance types*'
+} $false 'G4DN.XLARGE'
 
 if ($failures) { Write-Host "$failures scenario(s) failed"; exit 1 }
 Write-Host 'all gpu-smoke.ps1 scenarios passed'

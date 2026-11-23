@@ -55,6 +55,8 @@ jobs:
         run: ./infra/aws/test-prepare-gpu-capacity-retry.ps1
       - name: Verify a saved GPU capacity recovery plan
         run: ./infra/aws/test-confirm-gpu-capacity-plan.ps1
+      - name: Verify the idle G4dn migration and applied configuration
+        run: ./infra/aws/test-confirm-gpu-instance-plan.ps1
       - name: Exercise direct ECR publication with fake AWS
         run: ./infra/aws/test-publish-gpu-artifact.ps1
       - name: Verify Premium owner setup with fake AWS

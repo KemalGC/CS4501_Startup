@@ -1,5 +1,11 @@
 # Recover the GPU smoke after an Availability Zone capacity failure
 
+**Alternative instance type:** after the reported G6f failures in both
+`us-east-1a` and `us-east-1b`, use [the G4dn switch guide](GPU_INSTANCE_RETRY.md)
+to try one full NVIDIA T4 GPU. A hardware change updates the launch template
+and task definitions as well as the ASG; the subnet-only validator below
+deliberately does not approve it.
+
 The first hardware attempt could not obtain a `g6f.xlarge` in `us-east-1a`.
 AWS explicitly suggested `us-east-1b`, `us-east-1c` or `us-east-1d`. The
 operator's transcript reported the ASG back at min/max/desired `0/0/0`, with

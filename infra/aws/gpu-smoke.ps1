@@ -2,12 +2,15 @@
 # After a reviewed Terraform apply:
 #   .\gpu-smoke.ps1 -ExpectedAccountId 123456789012 -AwsProfile <profile> `
 #     -ExpectedImageUri <ecr-repo>@sha256:<digest> -ApproveCharge
+# G4dn additionally requires -ExpectedInstanceType g4dn.xlarge; the legacy
+# default remains g6f.xlarge so changing deployed hardware cannot go unnoticed.
 # One invocation = at most ONE EC2 host and ONE ECS task. Never re-run after a
 # failure without a new, separate approval.
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][ValidatePattern('^\d{12}$')][string]$ExpectedAccountId,
   [Parameter(Mandatory=$true)][ValidatePattern('^\d{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$')][string]$ExpectedImageUri,
+  [string]$ExpectedInstanceType = 'g6f.xlarge',
   [switch]$ApproveCharge,
   [ValidateRange(20,45)][int]$HardStopMinutes = 45,
   [ValidateRange(3,15)][int]$BootWaitMinutes = 12,
@@ -16,6 +19,8 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'gpu-smoke-profile.ps1')
+$hardware = Get-GpuSmokeProfile -InstanceType $ExpectedInstanceType
 $region = 'us-east-1'
 $runId = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8)
 $startedBy = "ss-gpu-$runId"
@@ -35,7 +40,9 @@ $failure = $null
 $cleanupErrors = @()
 $launchRequested = $false
 $expectedModelSha256 = '93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408'
-$evidence = [ordered]@{ run_id = $runId; region = $region; timings_utc = [ordered]@{} }
+$evidence = [ordered]@{ run_id = $runId; region = $region; timings_utc = [ordered]@{}
+  expected_instance_type = $hardware.InstanceType; expected_gpu_resource = $hardware.GpuResource
+  minimum_gpu_memory_mib = $hardware.MinGpuMemoryMiB }
 $profileArgs = @()
 if ($AwsProfile) { $profileArgs = @('--profile', $AwsProfile) }
 $runStart = Get-Date
@@ -134,7 +141,9 @@ function Read-PreflightEvidence([string]$Stream) {
             throw "Invalid preflight evidence metric $metric."
           }
         }
-        if ([double]$result.gpu_memory_total_mib -lt 2800) { throw 'Preflight reported less than the expected GPU memory.' }
+        if ([double]$result.gpu_memory_total_mib -lt $hardware.MinGpuMemoryMiB) {
+          throw "Preflight reported less than the expected GPU memory ($($hardware.MinGpuMemoryMiB) MiB for $($hardware.InstanceType))."
+        }
         $evidence.log_lines = $lines
         $evidence.preflight = $result
         return $result
@@ -192,8 +201,8 @@ try {
   $quota = Invoke-AwsJson @('service-quotas','get-service-quota','--service-code','ec2','--quota-code','L-DB2E81BA')
   $liveG = Invoke-AwsJson @('ec2','describe-instances','--filters','Name=instance-type,Values=g*,vt*',
     'Name=instance-state-name,Values=pending,running,stopping','--query','Reservations[].Instances[].InstanceId')
-  if ([double]$quota.Quota.Value -lt 4 -or (Get-Count $liveG) -ne 0) {
-    throw "Applied G/VT quota ($($quota.Quota.Value)) < 4 or other G/VT instances are running; not launching."
+  if ([double]$quota.Quota.Value -lt $hardware.Vcpus -or (Get-Count $liveG) -ne 0) {
+    throw "Applied G/VT quota ($($quota.Quota.Value)) < $($hardware.Vcpus) or other G/VT instances are running; not launching."
   }
 
   $group = (Invoke-AwsJson @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName)).AutoScalingGroups
@@ -211,10 +220,10 @@ try {
   if ((Get-Count $versions) -ne 1) { throw 'Reviewed launch-template version is missing.' }
   $hostConfig = $versions[0].LaunchTemplateData
   $userData = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($hostConfig.UserData))
-  if ($hostConfig.ImageId -ne $expectedAmi -or $hostConfig.InstanceType -ne 'g6f.xlarge' -or
+  if ($hostConfig.ImageId -ne $expectedAmi -or $hostConfig.InstanceType -cne $hardware.InstanceType -or
       $hostConfig.MetadataOptions.HttpTokens -ne 'required' -or
       $userData -notmatch 'ECS_ENABLE_GPU_SUPPORT=true' -or $userData -notmatch 'ECS_AWSVPC_BLOCK_IMDS=true') {
-    throw 'Launch template does not match the reviewed G6f AMI, GPU support, and metadata isolation.'
+    throw "Launch template does not match the reviewed $($hardware.InstanceType) type, AMI, GPU support, and metadata isolation."
   }
   $suspended = @($group.SuspendedProcesses | ForEach-Object { $_.ProcessName })
   if ($group.MinSize -ne 0 -or $group.DesiredCapacity -ne 0 -or $group.MaxSize -gt 1 -or (Get-Count $group.Instances) -ne 0) {
@@ -287,11 +296,11 @@ try {
       (Get-Prop $def 'taskRoleArn') -or
       $c0.image -ne $ExpectedImageUri -or
       ($c0.command -join ' ') -ne 'python3 -m aws_app.gpu_preflight --model /app/models/yolo11n-pose.onnx' -or
-      $gpuReq.Count -ne 1 -or $gpuReq[0].value -ne '0.125' -or
+      $gpuReq.Count -ne 1 -or $gpuReq[0].value -cne $hardware.GpuResource -or
       (Get-Prop $c0 'privileged') -eq $true -or (Get-Count (Get-Prop $c0 'mountPoints')) -ne 0 -or
       (Get-Count (Get-Prop $def 'volumes')) -ne 0 -or (Get-Count (Get-Prop $c0 'secrets')) -ne 0 -or
       (Get-Count (Get-Prop $c0 'environment')) -ne 0) {
-    throw 'Preflight task definition must be EC2/awsvpc, the exact approved image digest and command, 1/8 GPU, NO customer task role, and no secrets, env, mounts or privilege.'
+    throw "Preflight task definition must be EC2/awsvpc, the exact approved image digest and command, $($hardware.GpuResource) GPU for $($hardware.InstanceType), NO customer task role, and no secrets, env, mounts or privilege."
   }
   $evidence.task_definition_revision = $def.revision
   $evidence.image = $ExpectedImageUri
@@ -340,7 +349,7 @@ try {
   $evidence.instance = [ordered]@{ id = $inst.InstanceId; type = $inst.InstanceType; ami = $inst.ImageId;
     launch_time = $inst.LaunchTime; az = $inst.Placement.AvailabilityZone; volumes = $volumeIds }
   Save-Evidence
-  if ($inst.InstanceType -ne 'g6f.xlarge' -or $inst.ImageId -ne $expectedAmi -or
+  if ($inst.InstanceType -cne $hardware.InstanceType -or $inst.ImageId -ne $expectedAmi -or
       (Get-Prop $inst 'SubnetId') -cne $subnet) { throw 'Actual instance type, AMI, or subnet differs from the reviewed smoke configuration.' }
   Write-Host "Instance $($inst.InstanceId) ($($inst.InstanceType), $($inst.ImageId)) launched $($inst.LaunchTime)."
 
@@ -354,7 +363,7 @@ try {
         $gpuRes = @($d.registeredResources | Where-Object { $_.name -eq 'GPU' })
         $evidence.container_instance = [ordered]@{ arn = $arn; agent = $d.versionInfo.agentVersion;
           gpu_registered = $gpuRes | ConvertTo-Json -Depth 5 -Compress }
-        if ($gpuRes.Count -eq 0) { throw 'ECS agent registered no GPU resource. Inspect the selected AMI, GRID driver and ECS agent startup logs; not launching the task.' }
+        if ($gpuRes.Count -eq 0) { throw 'ECS agent registered no GPU resource. Inspect the selected AMI, NVIDIA driver and ECS agent startup logs; not launching the task.' }
         $ready = $true
       }
     }
@@ -370,7 +379,7 @@ try {
   $rootVolumes = @($mappings | Where-Object { $_ -and (Get-Prop $_ 'DeviceName') -eq $rootDevice -and (Get-Prop $_ 'Ebs') })
   if (!$rootDevice -or $rootVolumes.Count -ne 1 -or !$rootVolumes[0].Ebs.VolumeId -or
       (Get-Prop $rootVolumes[0].Ebs 'DeleteOnTermination') -ne $true -or
-      $booted.InstanceType -ne 'g6f.xlarge' -or $booted.ImageId -ne $expectedAmi -or
+      $booted.InstanceType -cne $hardware.InstanceType -or $booted.ImageId -ne $expectedAmi -or
       (Get-Prop $booted 'SubnetId') -cne $subnet) {
     throw 'The ready host has no verified delete-on-termination root volume or differs from the reviewed instance.'
   }

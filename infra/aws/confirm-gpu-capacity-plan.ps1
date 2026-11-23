@@ -10,6 +10,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'gpu-smoke-profile.ps1')
 $region = 'us-east-1'
 $asgAddress = 'aws_autoscaling_group.gpu[0]'
 
@@ -219,10 +220,16 @@ try {
       ($newProcesses -join ',') -cne 'AZRebalance,ReplaceUnhealthy') {
     throw 'Only removal of the Launch suspension is permitted; replacement and rebalance stay suspended.'
   }
+  $templateChanges = @($managed | Where-Object { $_.address -ceq 'aws_launch_template.gpu[0]' })
+  if ($templateChanges.Count -ne 1 -or ($templateChanges[0].change.actions -join ',') -cne 'no-op') {
+    throw 'The reviewed launch-template dependency must be unchanged for a subnet-only plan.'
+  }
+  $instanceType = Read-CapacityField $templateChanges[0].change.after 'instance_type'
+  $profile = Get-GpuSmokeProfile -InstanceType $instanceType
   $expectedInputs = [ordered]@{
     aws_region = $region; enable_cpu_smoke_queue = $false
     enable_paid_gpu_queue_scaffold = $false; enable_gpu_image_repository = $true
-    enable_gpu = $true; gpu_smoke_mode = $true; gpu_smoke_approval = 'I_APPROVE_ONE_G6F_SMOKE_INSTANCE'
+    enable_gpu = $true; gpu_smoke_mode = $true; gpu_smoke_instance_type = $instanceType; gpu_smoke_approval = $profile.Approval
     gpu_subnet_id = $ExpectedSubnetId; gpu_s3_route_table_ids = @(); gpu_worker_image_uri = $ExpectedImageUri
   }
   foreach ($name in $expectedInputs.Keys) {
@@ -243,6 +250,8 @@ try {
   $ltVersion = Read-CapacityOutput 'gpu_smoke_launch_template_version'
   $cluster = Read-CapacityOutput 'gpu_smoke_ecs_cluster'
   $taskDefinition = Read-CapacityOutput 'gpu_smoke_task_definition'
+  $currentTypeOutput = Read-CapacityField (Read-CapacityField $outputs 'gpu_smoke_instance_type') 'value'
+  if ($null -ne $currentTypeOutput -and $currentTypeOutput -cne $instanceType) { throw 'The deployed GPU type output differs from the unchanged launch template.' }
   $accountPattern = [regex]::Escape($ExpectedAccountId)
   if ($asgName -cnotmatch '^strokesense-[a-z0-9-]+-gpu-one-instance$' -or $ltId -cnotmatch '^lt-[a-f0-9]{8,17}$' -or $ltVersion -cnotmatch '^[1-9][0-9]*$' -or
       $cluster -cnotmatch "^arn:aws:ecs:us-east-1:${accountPattern}:cluster/strokesense-[a-z0-9-]+-gpu$" -or
@@ -252,10 +261,9 @@ try {
   if ($before.id -cne $asgName -or $before.name -cne $asgName -or $before.arn -cnotmatch $asgArnPattern) { throw 'The saved ASG identity does not match the existing account and stack.' }
   $templates = @((Read-CapacityField $after 'launch_template'))
   if ($templates.Count -ne 1 -or $templates[0].id -cne $ltId -or [string]$templates[0].version -cne $ltVersion) { throw 'The saved ASG launch template must match its existing numeric version.' }
-  $templateChanges = @($managed | Where-Object { $_.address -ceq 'aws_launch_template.gpu[0]' })
-  if ($templateChanges.Count -ne 1 -or ($templateChanges[0].change.actions -join ',') -cne 'no-op' -or
-      $templateChanges[0].change.after.id -cne $ltId -or [string]$templateChanges[0].change.after.latest_version -cne $ltVersion -or
-      $templateChanges[0].change.after.instance_type -cne 'g6f.xlarge') { throw 'The existing g6f.xlarge launch-template dependency must be unchanged.' }
+  if ($templateChanges[0].change.after.id -cne $ltId -or [string]$templateChanges[0].change.after.latest_version -cne $ltVersion) {
+    throw 'The existing reviewed launch-template dependency must be unchanged.'
+  }
   $groups = @((Read-CapacityField (Read-CapacityAws @('autoscaling', 'describe-auto-scaling-groups', '--auto-scaling-group-names', $asgName)) 'AutoScalingGroups'))
   if ($groups.Count -ne 1) { throw 'Expected exactly one live smoke ASG.' }
   $group = $groups[0]
@@ -290,6 +298,11 @@ try {
   $task = Read-CapacityField (Read-CapacityAws @('ecs', 'describe-task-definition', '--task-definition', $taskDefinition)) 'taskDefinition'
   $containers = @((Read-CapacityField $task 'containerDefinitions'))
   if ((Read-CapacityField $task 'taskDefinitionArn') -cne $taskDefinition -or $containers.Count -ne 1 -or $containers[0].name -cne 'gpu-preflight' -or $containers[0].image -cne $ExpectedImageUri) { throw 'The current preflight task must use the exact expected image.' }
+  $gpuResources = @((Read-CapacityField $containers[0] 'resourceRequirements'))
+  if ($gpuResources.Count -ne 1 -or (Read-CapacityField $gpuResources[0] 'type') -cne 'GPU' -or
+      [string](Read-CapacityField $gpuResources[0] 'value') -cne $profile.GpuResource) {
+    throw 'The current preflight GPU requirement must match the unchanged instance profile.'
+  }
   $published = @((Read-CapacityField (Read-CapacityAws @('ecr', 'describe-images', '--repository-name', $imageMatch.Groups[1].Value,
     '--image-ids', ('imageDigest=' + $imageMatch.Groups[2].Value))) 'imageDetails'))
   if ($published.Count -ne 1 -or $published[0].imageDigest -cne $imageMatch.Groups[2].Value -or $published[0].registryId -cne $ExpectedAccountId) { throw 'The selected image digest is not confirmed in the expected ECR registry.' }
@@ -300,7 +313,7 @@ try {
   Write-Host 'No apply, process resume, or GPU launch ran. Keep the saved plan private.'
   [pscustomobject]@{ ReadyForApply = $true; PlanPath = $resolvedPath; PlanHash = $hashAfter; Workspace = $workspace
     OldSubnetId = $oldSubnetId; SubnetId = $ExpectedSubnetId; ImageUri = $ExpectedImageUri; AsgName = $asgName
-    LaunchTemplateId = $ltId; LaunchTemplateVersion = $ltVersion }
+    LaunchTemplateId = $ltId; LaunchTemplateVersion = $ltVersion; InstanceType = $instanceType; GpuResource = $profile.GpuResource }
 } finally {
   [Console]::OutputEncoding = $savedConsoleEncoding
   foreach ($entry in @(@{ Name = 'AWS_PROFILE'; Value = $savedProfile }, @{ Name = 'PYTHONIOENCODING'; Value = $savedPythonEncoding })) {

@@ -65,6 +65,13 @@ after applying the subnet update. Keep the already prepared
 ZIP build do not need to be repeated merely because the GPU host could not
 launch.
 
+If the hardware was switched to G4dn with [the instance retry guide](GPU_INSTANCE_RETRY.md),
+use the retained `gpu-g4dn-retry.tfvars.json` as the GPU input file for the next
+full deployment plan. The earlier G6f input files specify a different hardware
+profile. The dormant website dispatcher remains a separate runtime rollout;
+its admission contract must be updated and tested for the selected full GPU
+before enabling Premium job submission.
+
 ## 1. Update the working checkout
 
 After the active smoke process has completed cleanup, use the same checkout

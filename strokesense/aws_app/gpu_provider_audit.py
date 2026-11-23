@@ -17,6 +17,7 @@ CPU_STRUCTURAL_OPS = frozenset({
     "Shape", "Size", "Gather", "GatherElements", "GatherND", "Unsqueeze",
     "Squeeze", "Concat", "Reshape", "Slice", "Cast", "ConstantOfShape",
     "Expand", "Range", "NonZero", "Flatten", "Identity", "Transpose",
+    "MemcpyToHost", "MemcpyFromHost",
 })
 
 
@@ -42,7 +43,7 @@ def audit_cuda_profile(profile_path: str) -> dict[str, int]:
             provider, op = args.get("provider"), args.get("op_name")
             if provider == "CUDAExecutionProvider":
                 cuda_nodes += 1
-                if op == "Conv":
+                if op in {"Conv", "FusedConv", "NhwcConv", "NhwcFusedConv"}:
                     cuda_conv_nodes += 1
             elif provider == "CPUExecutionProvider":
                 cpu_nodes += 1

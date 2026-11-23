@@ -23,6 +23,8 @@ def paid_config(**changes):
 
 def pass_preflight(_model):
     return {"provider": "CUDAExecutionProvider",
+            "cuda_node_execution_verified": True,
+            "provider_audit": {"cuda_nodes": 80, "cuda_conv_nodes": 40, "cpu_structural_nodes": 2},
             "gpu_memory_total_mib": 3072, "gpu_memory_free_mib": 2600}
 
 
@@ -44,6 +46,8 @@ class GpuWorkerTests(unittest.TestCase):
         metrics = json.loads(next(o["Body"] for o in store.puts if
                                   o["Key"].endswith("runtime-metrics.json")))
         self.assertEqual(metrics["gpu_execution_provider"], "CUDAExecutionProvider")
+        self.assertTrue(metrics["cuda_node_execution_verified"])
+        self.assertGreater(metrics["cuda_provider_audit"]["cuda_conv_nodes"], 0)
         self.assertEqual(metrics["gpu_memory_total_mib"], 3072)
 
     def test_gpu_worker_rejects_unapproved_and_free_jobs(self):

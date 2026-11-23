@@ -42,7 +42,7 @@ function New-TaskFixture([string]$Name, [string]$Family) {
     task_role_arn=$(if ($Name -ceq 'gpu-preflight') { '' } else { 'arn:aws:iam::851226124502:role/strokesense-aws-dev-gpu-worker' })
     container_definitions=(ConvertTo-Json -InputObject @($container) -Depth 20 -Compress)
     volume=@(); placement_constraints=@(); tags=@{}; tags_all=@{Application='StrokeSense'}
-    skip_destroy=$false; track_latest=$false; pid_mode=''; ipc_mode=''
+    skip_destroy=$false; track_latest=$false; pid_mode=''; ipc_mode=''; enable_fault_injection=$false
   }
 }
 function Task-FixtureLive($Value, [string]$Arn) {
@@ -51,7 +51,7 @@ function Task-FixtureLive($Value, [string]$Arn) {
     taskDefinitionArn=$Arn; family=$Value.family; revision=[int](($Arn -split ':')[-1]); status='ACTIVE'
     networkMode=$Value.network_mode; requiresCompatibilities=$Value.requires_compatibilities
     cpu=$Value.cpu; memory=$Value.memory; executionRoleArn=$Value.execution_role_arn; taskRoleArn=$Value.task_role_arn
-    containerDefinitions=$wrapper.items; volumes=@(); placementConstraints=@()
+    containerDefinitions=$wrapper.items; volumes=@(); placementConstraints=@(); enableFaultInjection=$false
   }
 }
 function New-InstanceFixture {
@@ -92,6 +92,9 @@ function New-InstanceFixture {
     $wrapper.items[0].resourceRequirements[0].value='1'
     $after.container_definitions=ConvertTo-Json -InputObject $wrapper.items -Depth 20 -Compress
     $after.arn=$null; $after.arn_without_revision=$null; $after.id=$null; $after.revision=$null
+    # Provider replacement plans can omit this optional disabled setting even
+    # when a refresh returned false for the existing task definition.
+    $after.enable_fault_injection=$null
     $changes+=@{address=$pair[0];mode='managed';change=@{actions=@('delete','create');before=$pair[1];after=$after;after_unknown=@{arn=$true;arn_without_revision=$true;id=$true;revision=$true}}}
   }
   $dependency=@{id='gpu-role';name='gpu-role'}
@@ -270,11 +273,44 @@ try {
       $c.logConfiguration.PSObject.Properties.Remove('secretOptions')
     }
   }
+  foreach ($faultBefore in @('missing','null','false')) {
+    foreach ($faultAfter in @('missing','null','false')) {
+      Invoke-InstanceCase ("valid-fault-default-$faultBefore-to-$faultAfter") '' {
+        foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+          $change=Find-InstanceChange $address
+          switch ($faultBefore) {
+            'missing' { $change.before.Remove('enable_fault_injection') }
+            'null' { $change.before.enable_fault_injection=$null }
+            'false' { $change.before.enable_fault_injection=$false }
+          }
+          switch ($faultAfter) {
+            'missing' { $change.after.PSObject.Properties.Remove('enable_fault_injection') }
+            'null' { $change.after.enable_fault_injection=$null }
+            'false' { $change.after.enable_fault_injection=$false }
+          }
+        }
+      }
+    }
+  }
+  Invoke-InstanceCase 'valid-live-fault-default-missing' '' {
+    foreach ($task in $global:InstanceWorld.TaskDefinitions.Values) { $task.Remove('enableFaultInjection') }
+  }
+  Invoke-InstanceCase 'valid-live-fault-default-null' '' {
+    foreach ($task in $global:InstanceWorld.TaskDefinitions.Values) { $task.enableFaultInjection=$null }
+  }
   Invoke-InstanceCase 'valid-unset-environment-restored' '' {
     Remove-Item Env:AWS_PROFILE -ErrorAction SilentlyContinue
     Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
   }
   Invoke-InstanceCase 'applied-valid' '' { Use-AppliedInstanceFixture }
+  Invoke-InstanceCase 'applied-valid-fault-default-missing' '' {
+    Use-AppliedInstanceFixture
+    foreach ($task in $global:InstanceWorld.TaskDefinitions.Values) { $task.Remove('enableFaultInjection') }
+  }
+  Invoke-InstanceCase 'applied-valid-fault-default-null' '' {
+    Use-AppliedInstanceFixture
+    foreach ($task in $global:InstanceWorld.TaskDefinitions.Values) { $task.enableFaultInjection=$null }
+  }
   Invoke-InstanceCase 'applied-known-versions' '' {
     (Find-InstanceChange 'aws_launch_template.gpu[0]').after.latest_version=2
     (Find-InstanceChange 'aws_launch_template.gpu[0]').after_unknown=@{}
@@ -313,6 +349,20 @@ try {
   Invoke-InstanceCase 'task-not-replaced' 'exactly four' { (Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').actions=@('no-op');(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after=(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').before;(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after_unknown=@{} }
   Invoke-InstanceCase 'task-memory-change' 'Unexpected task definition field' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.memory='16384' }
   Invoke-InstanceCase 'task-role-change' 'Unexpected task definition field' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.task_role_arn='arn:aws:iam::851226124502:role/admin' }
+  Invoke-InstanceCase 'task-fault-enabled-before' 'Fault injection' {
+    $change=Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]'
+    $change.before.enable_fault_injection=$true; $change.after.enable_fault_injection=$false
+  }
+  Invoke-InstanceCase 'task-fault-enabled-after' 'Fault injection' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.enable_fault_injection=$true }
+  Invoke-InstanceCase 'task-fault-enabled-unchanged' 'Fault injection' {
+    $change=Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]'
+    $change.before.enable_fault_injection=$true; $change.after.enable_fault_injection=$true
+  }
+  Invoke-InstanceCase 'worker-fault-enabled-after' 'Fault injection' { (Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after.enable_fault_injection=$true }
+  Invoke-InstanceCase 'task-fault-string-false' 'Fault injection' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.enable_fault_injection='false' }
+  Invoke-InstanceCase 'task-fault-number-zero' 'Fault injection' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.enable_fault_injection=0 }
+  Invoke-InstanceCase 'task-fault-object' 'Fault injection' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.enable_fault_injection=@{enabled=$false} }
+  Invoke-InstanceCase 'task-fault-unknown' 'Unknown task definition safety' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after_unknown.enable_fault_injection=$true }
   Invoke-InstanceCase 'task-unknown-command' 'Unknown task definition safety' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after_unknown.container_definitions=$true }
   Invoke-InstanceCase 'task-wrong-count' 'GPU container resource requirement' { Set-TaskContainerChange 'aws_ecs_task_definition.gpu_preflight[0]' { param($c) $c.resourceRequirements[0].value='0.125' } }
   Invoke-InstanceCase 'task-wrong-image' 'GPU container name or image' { Set-TaskContainerChange 'aws_ecs_task_definition.gpu[0]' { param($c) $c.image='image:latest' } }
@@ -335,6 +385,18 @@ try {
   Invoke-InstanceCase 'live-template-string-public-ip' 'Live launch-template networking' { $global:InstanceWorld.Template.LaunchTemplateData.NetworkInterfaces[0].AssociatePublicIpAddress='true' }
   Invoke-InstanceCase 'live-template-root-encryption' 'Live root disk' { $global:InstanceWorld.Template.LaunchTemplateData.BlockDeviceMappings[0].Ebs.Encrypted=$false }
   Invoke-InstanceCase 'live-template-string-root-encryption' 'Live root disk' { $global:InstanceWorld.Template.LaunchTemplateData.BlockDeviceMappings[0].Ebs.Encrypted='true' }
+  Invoke-InstanceCase 'live-task-fault-enabled' 'Fault injection' {
+    $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+    $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection=$true
+  }
+  Invoke-InstanceCase 'live-worker-fault-enabled' 'Fault injection' {
+    $arn=(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').before.arn
+    $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection=$true
+  }
+  Invoke-InstanceCase 'live-task-fault-string-false' 'Fault injection' {
+    $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+    $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection='false'
+  }
   Invoke-InstanceCase 'live-asg-busy' 'known numeric zero' { $global:InstanceWorld.LiveAsg.DesiredCapacity=1 }
   Invoke-InstanceCase 'live-asg-member' 'Live ASG instances must be empty' { $global:InstanceWorld.LiveAsg.Instances=@(@{InstanceId='i-test'}) }
   Invoke-InstanceCase 'live-asg-version-drift' 'Live ASG identity' { $global:InstanceWorld.LiveAsg.LaunchTemplate.Version='3' }
@@ -358,6 +420,21 @@ try {
   Invoke-InstanceCase 'applied-wrong-live-type' 'Live launch-template type' { Use-AppliedInstanceFixture;$global:InstanceWorld.Template.LaunchTemplateData.InstanceType='g6f.xlarge' }
   Invoke-InstanceCase 'applied-wrong-task-count' 'GPU container resource requirement' { Use-AppliedInstanceFixture;$arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value;$global:InstanceWorld.TaskDefinitions[$arn].containerDefinitions[0].resourceRequirements[0].value='0.125' }
   Invoke-InstanceCase 'applied-wrong-worker-image' 'GPU container name or image' { Use-AppliedInstanceFixture;$arn=$global:InstanceWorld.Outputs.gpu_smoke_worker_task_definition.value;$global:InstanceWorld.TaskDefinitions[$arn].containerDefinitions[0].image='wrong' }
+  Invoke-InstanceCase 'applied-task-fault-enabled' 'Fault injection' {
+    Use-AppliedInstanceFixture
+    $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+    $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection=$true
+  }
+  Invoke-InstanceCase 'applied-worker-fault-enabled' 'Fault injection' {
+    Use-AppliedInstanceFixture
+    $arn=$global:InstanceWorld.Outputs.gpu_smoke_worker_task_definition.value
+    $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection=$true
+  }
+  Invoke-InstanceCase 'applied-task-fault-string-false' 'Fault injection' {
+    Use-AppliedInstanceFixture
+    $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+    $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection='false'
+  }
   Invoke-InstanceCase 'applied-launch-still-latched' 'process suspensions' { Use-AppliedInstanceFixture;$global:InstanceWorld.LiveAsg.SuspendedProcesses+=@{ProcessName='Launch'} }
   Invoke-InstanceCase 'workspace-changed' 'workspace changed'
   Invoke-InstanceCase 'plan-changed' 'saved plan changed'

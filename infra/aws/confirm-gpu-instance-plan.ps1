@@ -187,10 +187,23 @@ function Assert-InstanceContainer($Container, [string]$Name, [string]$GpuUnits) 
   $requirements = Read-InstanceList $Container 'resourceRequirements' 'GPU container'
   if ($requirements.Count -ne 1 -or $requirements[0].type -cne 'GPU' -or [string]$requirements[0].value -cne $GpuUnits) { throw 'GPU container resource requirement does not match the reviewed instance.' }
 }
+function Assert-InstanceFaultInjectionDisabled($Task, [string]$Field) {
+  # ECS defaults this optional boolean to false. Provider readback can expose
+  # false while a replacement plan omits the unset argument or represents it
+  # as null. Only those disabled representations are equivalent; never coerce
+  # strings/numbers or permit an enabled value. Unknowns are checked separately.
+  # https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_RegisterTaskDefinition.html
+  $value = Read-InstanceField $Task $Field
+  if ($null -ne $value -and ($value -isnot [bool] -or $value)) {
+    throw 'Fault injection must remain disabled in each reviewed GPU task definition.'
+  }
+}
 function Assert-InstanceTaskPlan($Entry, [string]$ContainerName) {
   if (($Entry.change.actions -join ',') -cnotin @('delete,create','create,delete')) { throw 'Both GPU task definitions must register replacement revisions.' }
   $before = $Entry.change.before; $after = $Entry.change.after
-  Assert-InstanceUnchanged $before $after @('arn','arn_without_revision','id','revision','container_definitions') 'task definition'
+  Assert-InstanceFaultInjectionDisabled $before 'enable_fault_injection'
+  Assert-InstanceFaultInjectionDisabled $after 'enable_fault_injection'
+  Assert-InstanceUnchanged $before $after @('arn','arn_without_revision','id','revision','container_definitions','enable_fault_injection') 'task definition'
   Assert-InstanceUnknownFields (Read-InstanceField $Entry.change 'after_unknown') @('arn','arn_without_revision','id','revision') 'task definition'
   if ($before.network_mode -cne 'awsvpc' -or !(Compare-InstanceValue $before.requires_compatibilities @('EC2')) -or
       [string]$before.cpu -cne '2048' -or [string]$before.memory -cne '8192') { throw 'Task CPU, memory or EC2 networking differs from the reviewed smoke.' }
@@ -208,6 +221,7 @@ function Assert-InstanceLiveTask([string]$Arn, $Value, [string]$ContainerName, [
   if ($Arn -cnotmatch ('^arn:aws:ecs:us-east-1:' + $ExpectedAccountId + ':task-definition/' + [regex]::Escape($Value.family) + ':[1-9][0-9]*$')) { throw 'Task definition ARN does not match the reviewed family/account.' }
   $task = Read-InstanceField (Read-InstanceAws @('ecs','describe-task-definition','--task-definition',$Arn)) 'taskDefinition'
   if ((Read-InstanceField $task 'taskDefinitionArn') -cne $Arn -or (Read-InstanceField $task 'status') -cne 'ACTIVE') { throw 'The reviewed task revision is not active or its identity differs.' }
+  Assert-InstanceFaultInjectionDisabled $task 'enableFaultInjection'
   foreach ($mapping in @(@('family','family'),@('network_mode','networkMode'),@('cpu','cpu'),@('memory','memory'),@('execution_role_arn','executionRoleArn'),@('task_role_arn','taskRoleArn'))) {
     $wanted = Read-InstanceField $Value $mapping[0]
     $actual = Read-InstanceField $task $mapping[1]

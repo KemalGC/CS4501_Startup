@@ -128,6 +128,22 @@ values, then requires verification of their concrete values after apply.
 Neither the original 15-create validator nor the subnet-only capacity
 validator is appropriate for this plan.
 
+### If validation reports `enable_fault_injection`
+
+The ECS fault-injection flag defaults to disabled. A provider replacement
+plan may represent the unset argument as `null` or omit it, while the current
+task definition reports Boolean `false`. The migration validator treats only
+these disabled representations as equivalent. It still rejects enabled,
+malformed or unknown values and checks the live ECS flag before and after
+apply.
+
+If the older validator stopped with `Unexpected task definition field change:
+enable_fault_injection`, pull the updated scripts and rerun Step 3 against the
+existing saved plan. That pre-apply validation error stopped before Terraform
+apply. The validator correction does not modify Terraform configuration or the
+saved plan, so a new plan is not required solely for this fix. If the revised
+check reports another difference, review that difference before proceeding.
+
 ## 3. Apply the reviewed migration while capacity is zero
 
 This block rechecks preparation and the saved plan, applies that exact plan,
@@ -224,6 +240,7 @@ unrelated resource rejection and applied-state mismatches. The tests do not
 call AWS or start capacity.
 
 - [AWS ECS supported GPU types and task requirements](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-gpu.html)
+- [AWS ECS task registration and the disabled fault-injection default](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_RegisterTaskDefinition.html)
 - [AWS On-Demand vCPU quotas](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-on-demand-instances.html)
 - [NVIDIA driver support by EC2 family](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html)
 - [ONNX Runtime CUDA/cuDNN requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)

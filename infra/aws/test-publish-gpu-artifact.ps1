@@ -153,7 +153,8 @@ function New-PublishFixture([string]$Scenario) {
     Calls = New-Object System.Collections.ArrayList; ExtractRoots = New-Object System.Collections.ArrayList
     Ranges = New-Object System.Collections.ArrayList; Phase = 1; AmbiguousAvailabilityFailed = $false
     Parts = @{}; PartAttempts = @{}; InitCalls = 0; PartCalls = 0; CompleteCalls = 0; PutCalls = 0
-    Published = ($Scenario -eq 'existing-match'); Complete = $false; ManifestChecked = $false
+    Published = ($Scenario -in @('existing-match','existing-inconsistent'))
+    Complete = ($Scenario -eq 'existing-match'); ManifestChecked = $false
     UploadId = '11111111-2222-3333-4444-555555555555'
   }
 }
@@ -414,9 +415,13 @@ try {
       $PublishWorld.CompleteCalls -eq 1 -and $PublishWorld.PutCalls -eq 1) 'Tiny config blob did not upload as one final part'
     Assert-Publish (('sha256:' + (Get-BytesHash $PublishWorld.Parts[[long]0])) -eq $PublishWorld.ConfigDigest) 'Config upload used the wrong bytes'
   }
-  foreach ($scenario in @('existing-conflict','wrong-archive','wrong-manifest-digest','wrong-source','wrong-platform','unsupported-cli')) {
+  foreach ($scenario in @('existing-conflict','existing-inconsistent','wrong-archive','wrong-manifest-digest','wrong-source','wrong-platform','unsupported-cli')) {
     Invoke-PublishCase $scenario $true { param($r, $e)
-      Assert-Publish ($PublishWorld.InitCalls -eq 0 -and $PublishWorld.PartCalls -eq 0 -and $PublishWorld.PutCalls -eq 0) 'Invalid input or immutable-tag conflict reached an AWS write'
+      Assert-Publish ($PublishWorld.InitCalls -eq 0 -and $PublishWorld.PartCalls -eq 0 -and
+        $PublishWorld.CompleteCalls -eq 0 -and $PublishWorld.PutCalls -eq 0) 'Invalid input or immutable-tag conflict reached an AWS write'
+      if ($PublishWorld.Scenario -eq 'existing-inconsistent') {
+        Assert-Publish ($e -like '*existing image tag references unavailable blobs*') 'Inconsistent published-image evidence was not rejected explicitly'
+      }
     }
   }
   Invoke-PublishCase 'wrong-part-ack' $true { param($r, $e)

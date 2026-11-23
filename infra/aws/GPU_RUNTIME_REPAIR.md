@@ -22,9 +22,11 @@ establish actual CUDA execution.
 The repair pins GPU runtime **1.21.1**, retains the model and existing CUDA
 12.6.3/cuDNN 9 base, and adds actual model loading/inference to the image
 build. The exact Linux Python 3.10 wheel records CUDA build version **12.2**.
-The build verifies that metadata and loads its CUDA provider libraries with
-the shared provider bridge first, resolving native symbols without starting
-a GPU. The model check uses the GPU package's CPU provider, never installs the
+The build verifies that metadata, loads NVIDIA libraries through ORT's public
+`preload_dlls` API, and checks CUDA provider relocations with the dynamic
+linker's trace mode and shared provider bridge. It does not run the provider's
+private constructors outside ORT's initialization lifecycle. The model check
+uses the GPU package's CPU provider, never installs the
 separate CPU-only package, and explicitly reports GPU inference as unverified.
 
 Preflight failures now include bounded structured diagnostics under
@@ -64,7 +66,8 @@ Extract the outer ZIP. Use the directory containing `image-manifest.json`,
 `SHA256SUMS` and `strokesense-gpu-image.tar.gz`; leave the inner `.tar.gz` intact.
 Artifacts expire after three days.
 
-The real image build must pass all of these: native CUDA library loading,
+The real image build must pass all of these: native NVIDIA library loading
+and CUDA provider relocation checks,
 pinned-model CPU inference, GPU unit tests, rejection without a NVIDIA driver,
 and the default disabled worker. These checks do not certify hardware or scan
 the new image for vulnerabilities. The downloadable metadata includes the

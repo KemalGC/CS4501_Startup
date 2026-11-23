@@ -239,7 +239,7 @@ jobs:
           - Verify the archive with `SHA256SUMS` or `image-manifest.json`, then load it with `docker load --input strokesense-gpu-image.tar.gz`.
           - Publish that loaded image using authorized local ECR credentials, then obtain the registry digest from ECR.
           - `image-manifest.json` includes the exact OCI index, amd64 registry manifest and config digests for `publish-gpu-artifact.ps1`. ECR must independently confirm publication before a Terraform image URI is accepted.
-          - Native CUDA provider library loading, actual pinned-model CPU inference and mocked unit tests passed; the CPU host correctly rejected real GPU preflight because no NVIDIA driver is available.
+          - NVIDIA dependency loading, CUDA provider relocation checks, actual pinned-model CPU inference and mocked unit tests passed; the CPU host correctly rejected real GPU preflight because no NVIDIA driver is available.
           - An AWS hardware smoke test and vulnerability review remain required. This workflow launched no GPU instances and performed no ECR push.
           """
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:

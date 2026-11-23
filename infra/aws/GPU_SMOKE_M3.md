@@ -227,6 +227,34 @@ plan/apply, and hardware smoke test remain separate steps.
    A second paid attempt needs separate authorization and an explicit review;
    rerunning the script cannot silently start another host.
 
+### Revalidate a saved GPU plan
+
+If the original plan-only block printed exactly 15 GPU creates but rejected the
+address list, keep the saved plan. The earlier expression `$changes.address`
+resolved the array's CLR `Address` method, so it incorrectly reported every
+expected resource as missing. Explicit per-resource address enumeration fixes
+that collision; do not remove the whitelist or manually set verification markers.
+
+From the same `infra/aws` terminal that holds the recovered deployed CPU inputs,
+run the checked-in validator with the exact saved plan, selected image and subnet:
+
+```powershell
+$check = .\confirm-gpu-smoke-plan.ps1 -PlanPath $savedPlan -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedSubnetId $subnetId -ExpectedImageUri $imageUri
+$check | Format-List ReadyForApply, Creates, PlanPath, PlanHash, Workspace
+```
+
+This reads the existing plan, current account, subnet and Terraform workspace.
+It runs all effective-input, 15-create, idle-capacity, VPC and task-image checks
+before recording the verified plan's path/hash/workspace. It makes no new plan,
+applies nothing and launches nothing. A failed check clears stale verification
+and applied-plan markers. Plan JSON stays in memory and is never printed.
+
+Only after this succeeds should the reviewed saved-plan apply stage run. The
+smoke stage requires a successful apply; a valid plan alone does not satisfy it.
+Keep the generated `gpu-smoke.tfvars.json` alongside the plan: future plans need
+those GPU inputs as well as the original deployment inputs. The earlier
+GPU-disabled baseline inputs can otherwise propose removing the new resources.
+
 ### Backend and verification checks
 
 Use the original working checkout's backend configuration and deployed inputs.
@@ -243,15 +271,17 @@ The offline checks use fake AWS/Terraform commands and launch nothing:
 
 ```powershell
 powershell -NoProfile -File .\test-prepare-gpu-smoke.ps1
+powershell -NoProfile -File .\test-confirm-gpu-smoke-plan.ps1
 powershell -NoProfile -File .\test-gpu-smoke.ps1
 powershell -NoProfile -File .\test-publish-gpu-artifact.ps1
 ```
 
-CI runs all three suites in Windows PowerShell 5.1 and PowerShell 7. They cover quota
+CI runs all four suites in Windows PowerShell 5.1 and PowerShell 7. They cover quota
 requests, digest failures, stale launch templates, missing/invalid/delayed
 inference logs, ambiguous task responses, failed inference, denied volume
 inspection, unsuccessful shutdown, direct ECR upload retries, immutable-tag
-conflicts, and exact manifest verification. Hardware evidence is still required.
+conflicts, exact manifest verification, and accepting only the expected saved
+GPU plan while preserving deployed CPU settings. Hardware evidence is still required.
 
 ### Important limitations
 

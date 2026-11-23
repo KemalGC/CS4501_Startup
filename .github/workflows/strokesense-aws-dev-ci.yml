@@ -49,6 +49,8 @@ jobs:
         run: ./infra/aws/test-gpu-smoke.ps1
       - name: Exercise quota and image preparation with fake AWS
         run: ./infra/aws/test-prepare-gpu-smoke.ps1
+      - name: Verify saved GPU plans with fake AWS and Terraform
+        run: ./infra/aws/test-confirm-gpu-smoke-plan.ps1
       - name: Exercise direct ECR publication with fake AWS
         run: ./infra/aws/test-publish-gpu-artifact.ps1
 

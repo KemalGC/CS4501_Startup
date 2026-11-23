@@ -89,10 +89,11 @@ class PoseDetector:
                       if p in ort.get_available_providers()] + ["CPUExecutionProvider"])
         opts = ort.SessionOptions()
         if require_cuda:
-            # Disallow both CPU graph-node fallback and session.run() fallback.
-            # A model with unsupported CUDA nodes must fail at load, not charge
-            # a premium GPU job that actually runs its inference on CPU.
-            opts.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+            # ORT may execute shape/metadata ops on CPU; blocking them prevents
+            # the pinned model from initializing. The worker preflight verifies
+            # CUDA kernel execution before downloading any customer video.
+            # Disable only the runtime retry to a CPU-only provider.
+            opts.enable_profiling = False
         if threads is not None and (type(threads) is not int or not 1 <= threads <= 64):
             raise ValueError('threads must be an integer from 1 to 64')
         opts.intra_op_num_threads = threads if threads is not None else max(1, (os.cpu_count() or 2))

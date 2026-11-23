@@ -122,9 +122,15 @@ function Read-PreflightEvidence([string]$Stream) {
       if ($lines.Count -gt 1) { throw 'Multiple preflight evidence records found in one task stream.' }
       if ($lines.Count -eq 1) {
         $result = $lines[0].Substring('STROKESENSE_GPU_PREFLIGHT '.Length) | ConvertFrom-Json
-        foreach ($flag in @('model_loaded','cpu_ep_fallback_disabled','outputs_finite')) {
+        foreach ($flag in @('model_loaded','cuda_node_execution_verified','outputs_finite')) {
           $value = Get-Prop $result $flag
           if ($value -isnot [bool] -or !$value) { throw "Preflight evidence did not confirm $flag." }
+        }
+        $audit = Get-Prop $result 'provider_audit'
+        if ($null -eq $audit -or (Get-Prop $audit 'cuda_conv_nodes') -lt 1 -or
+            (Get-Prop $audit 'cuda_nodes') -lt 1 -or
+            (Get-Prop $audit 'cpu_structural_nodes') -lt 0) {
+          throw 'Preflight did not prove CUDA convolution execution through profiling.'
         }
         $providers = @(Get-Prop $result 'active_providers')
         if ((Get-Prop $result 'provider') -ne 'CUDAExecutionProvider' -or

@@ -49,6 +49,8 @@ jobs:
         run: ./infra/aws/test-gpu-smoke.ps1
       - name: Exercise quota and image preparation with fake AWS
         run: ./infra/aws/test-prepare-gpu-smoke.ps1
+      - name: Exercise direct ECR publication with fake AWS
+        run: ./infra/aws/test-publish-gpu-artifact.ps1
 
   terraform-checks:
     runs-on: ubuntu-latest

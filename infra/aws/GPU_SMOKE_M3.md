@@ -82,15 +82,66 @@ After extracting it, verify and load it in a single script scope:
 }
 ```
 
-Publish that image to the existing ECR repository using the authenticated local
-publisher, with a new immutable tag. Re-run `prepare-gpu-smoke.ps1` with that
-tag and its independently checked ECR digest. **Neither the archive checksum
-nor the local Docker image ID is the ECR manifest digest.** The workflow does
-not have AWS credentials, publish to ECR, scan vulnerabilities, or test hardware.
+Publish that image to the existing ECR repository with a new immutable tag.
+The direct AWS CLI recovery below handles the reviewed `8cbcda3` artifact when
+Docker Desktop's upload proxy drops a connection. For another artifact, review
+its own source and digest values before publishing. Re-run
+`prepare-gpu-smoke.ps1` with the selected tag and independently checked ECR
+digest. **Archive checksums, Docker-reported image IDs, image indexes,
+platform manifests, and image configurations are not interchangeable.** In
+particular, the Docker-reported ID can be an image index; do not compare it to
+a manifest's `config.digest`. The workflow does not have AWS credentials,
+publish to ECR, scan vulnerabilities, or test hardware.
 
 The newer source checks every warm-up and measured inference result, including
 intermittent non-finite/empty output. The previously published digest cannot
 acquire that fix; use a newly published artifact to exercise the updated code.
+
+### Recover a Docker Desktop upload with the direct ECR publisher
+
+The reviewed `8cbcda3` artifact uses these distinct SHA256 digests:
+
+| Object | Digest |
+| --- | --- |
+| Docker-reported image index | `sha256:060542a493c83413a45832e6975857bbb2da6c0e5b25919fe85155f5760815f1` |
+| Linux amd64 image manifest | `sha256:cc21a77a44f767fa61ff347ba91e748b3d2acc0914f24a10de54a4a4dc74df16` |
+| Image configuration | `sha256:04759f652c8952314ed496f5c0ef464ec472b44f29d92c3b8ddab9c442ce941c` |
+
+The terminal's `broken pipe` error at Docker Desktop's `:3128` proxy can occur
+after most layers are already in ECR. Keep the original archive. The direct
+publisher verifies that archive and uses AWS CLI ECR upload APIs from Windows,
+so it does not use Docker Desktop's registry-upload proxy or credential helper.
+It checks every referenced blob and uploads only those ECR reports missing.
+It preserves the compressed blobs and manifest bytes exactly; it does not
+rebuild or recompress the image.
+
+Run from `infra/aws` in the authenticated PowerShell terminal:
+
+```powershell
+.\publish-gpu-artifact.ps1 -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin
+```
+
+Its default artifact directory is
+`$env:USERPROFILE\Downloads\strokesense-gpu-8cbcda3`, containing the original
+`strokesense-gpu-image.tar.gz` and build provenance. Use `-ArtifactDirectory`
+to select a different location for this same reviewed artifact. It requires
+Windows `tar.exe` and AWS CLI v2 with structured JSON error output. A missing
+tool or unsupported CLI option stops before any upload.
+
+The publisher validates native exit codes, blob checksums and lengths, upload
+acknowledgements, and the complete image manifest. A lost upload-part response
+is reconciled only when AWS reports the same upload identity and exact final
+byte offset. Unknown or mismatched responses stop the run. Rerunning checks
+ECR again, skips completed blobs, and verifies an existing destination tag
+before reusing it.
+
+On success, the immutable tag `gpu-8cbcda3-45085705233-1` resolves to the
+**Linux amd64 manifest** `sha256:cc21a77a44f767fa61ff347ba91e748b3d2acc0914f24a10de54a4a4dc74df16`.
+The script reads it back and runs the existing preparation helper without
+requesting another quota increase. It retains `TF_VAR_gpu_worker_image_uri`
+in the current terminal only after publication and readiness are verified.
+This is still an image-publication result; a fresh scan review, Terraform
+plan/apply, and hardware smoke test remain separate steps.
 
 ### Review before any real apply
 
@@ -158,12 +209,14 @@ The offline checks use fake AWS/Terraform commands and launch nothing:
 ```powershell
 powershell -NoProfile -File .\test-prepare-gpu-smoke.ps1
 powershell -NoProfile -File .\test-gpu-smoke.ps1
+powershell -NoProfile -File .\test-publish-gpu-artifact.ps1
 ```
 
-CI runs both suites in Windows PowerShell 5.1 and PowerShell 7. They cover quota
+CI runs all three suites in Windows PowerShell 5.1 and PowerShell 7. They cover quota
 requests, digest failures, stale launch templates, missing/invalid/delayed
 inference logs, ambiguous task responses, failed inference, denied volume
-inspection, and unsuccessful shutdown. Hardware evidence is still required.
+inspection, unsuccessful shutdown, direct ECR upload retries, immutable-tag
+conflicts, and exact manifest verification. Hardware evidence is still required.
 
 ### Important limitations
 
@@ -227,3 +280,7 @@ https://github.com/aws/amazon-ecs-ami/pull/837
 https://github.com/aws/amazon-ecs-ami/blob/main/CHANGELOG.md
 https://docs.aws.amazon.com/AmazonECS/latest/developerguide/managed-scaling-behavior.html
 https://docs.aws.amazon.com/autoscaling/ec2/userguide/scheduled-scaling-create-scheduled-action.html
+https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_BatchCheckLayerAvailability.html
+https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_UploadLayerPart.html
+https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_PutImage.html
+https://docs.aws.amazon.com/cli/latest/userguide/cli-usage-error-format.html

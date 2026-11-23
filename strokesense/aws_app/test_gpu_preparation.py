@@ -4,6 +4,8 @@ from __future__ import annotations
 from contextlib import redirect_stdout
 import io
 import json
+import os
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
@@ -134,7 +136,7 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         )
 
     @staticmethod
-    def ort(available, active, input_shape=("batch", 3, 640, 640), run=None):
+    def ort(available, active, input_shape=("batch", 3, 640, 640), run=None, profile_events=None):
         """Fake serving as both `onnxruntime` and the `numpy` zeros it needs."""
         def zeros(shape, dtype=None):
             return SimpleNamespace(shape=tuple(shape), dtype=dtype)
@@ -143,6 +145,17 @@ class GpuRuntimePreparationTests(unittest.TestCase):
             (tensor,) = feeds.values()
             assert tensor.shape[0] == 1 and tensor.dtype == "float32"
             return [SimpleNamespace(shape=(1, 56, 8400), size=56 * 8400)]
+
+        def end_profiling():
+            handle, path = tempfile.mkstemp(suffix=".json")
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                json.dump(profile_events if profile_events is not None else [
+                    {"cat": "Node", "name": "Conv_0_kernel_time",
+                     "args": {"provider": "CUDAExecutionProvider", "op_name": "Conv"}},
+                    {"cat": "Node", "name": "Shape_0_kernel_time",
+                     "args": {"provider": "CPUExecutionProvider", "op_name": "Shape"}}
+                ], stream)
+            return path
 
         return SimpleNamespace(
             __version__="1.20.2", float32="float32", zeros=zeros,
@@ -154,6 +167,7 @@ class GpuRuntimePreparationTests(unittest.TestCase):
                 disable_fallback=lambda: None,
                 get_inputs=lambda: [SimpleNamespace(name="images", shape=list(input_shape))],
                 run=run or default_run,
+                end_profiling=end_profiling,
             ),
         )
 
@@ -175,6 +189,8 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         self.assertEqual(result["nvidia_driver_version"], "570.172.08")
         self.assertEqual(result["active_providers"], ["CUDAExecutionProvider"])
         self.assertTrue(result["outputs_finite"])
+        self.assertTrue(result["cuda_node_execution_verified"])
+        self.assertEqual(result["provider_audit"]["cuda_conv_nodes"], 1)
         self.assertEqual(result["warmup_runs"], 3)
         self.assertEqual(len(calls), 23)  # 3 warm-up + 20 timed real session.run calls
         self.assertEqual(result["inference_runs"], 20)
@@ -286,7 +302,8 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         with self.assertRaises(GpuPreflightError) as caught:
             validate_gpu_runtime(self.model, run=self.nvidia_memory(), import_module=lambda _n: ort)
         self.assertEqual(str(caught.exception), "cuda_session_initialization_failed")
-        options.add_session_config_entry.assert_called_once_with("session.disable_cpu_ep_fallback", "1")
+        options.add_session_config_entry.assert_not_called()
+        self.assertTrue(options.enable_profiling)
         ort.InferenceSession.assert_called_once_with(str(self.model), options, providers=["CUDAExecutionProvider"])
         record = self.failed_main_record(caught.exception)
         self.assertEqual(record["stage"], "session_creation")

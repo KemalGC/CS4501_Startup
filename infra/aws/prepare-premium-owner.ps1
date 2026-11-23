@@ -238,9 +238,18 @@ try {
   }
   if ($null -ne $savedAdminSubs -and $savedAdminSubs -cne '') {
     if ($savedAdminSubs -notmatch '^\s*\[') { throw 'TF_VAR_admin_cognito_subs must be a JSON array of stable sub strings.' }
-    try { $ambientSubs = @($savedAdminSubs | ConvertFrom-Json -ErrorAction Stop) }
+    try {
+      # PS5.1 emits a JSON root array as one pipeline object; newer shells
+      # enumerate it. Inspect an object property instead, preserving [], a
+      # single element, and nested-array types consistently on both shells.
+      # Validate the original first so appended object properties cannot turn
+      # malformed root JSON into a valid wrapper or replace its subs field.
+      $null = ConvertFrom-Json -InputObject $savedAdminSubs -ErrorAction Stop
+      $ambientDocument = ConvertFrom-Json -InputObject ('{"subs":' + $savedAdminSubs + '}') -ErrorAction Stop
+    }
     catch { throw 'TF_VAR_admin_cognito_subs must be a valid JSON array.' }
-    foreach ($sub in $ambientSubs) {
+    if ($ambientDocument.subs -isnot [array]) { throw 'TF_VAR_admin_cognito_subs must be a JSON array of stable sub strings.' }
+    foreach ($sub in $ambientDocument.subs) {
       if ($sub -isnot [string]) { throw 'TF_VAR_admin_cognito_subs must contain only stable sub strings.' }
       Add-PremiumAdminSub $sub $adminSubs
     }
@@ -269,7 +278,7 @@ try {
 
   $status = 'ADMIN_GROUP_REQUIRED'
   if ($groupMember) {
-    $jsonAdminSubs = ConvertTo-Json -InputObject @($adminSubs) -Compress
+    $jsonAdminSubs = ConvertTo-Json -InputObject ($adminSubs.ToArray()) -Compress
     $inputsAssigned = $true
     [Environment]::SetEnvironmentVariable('TF_VAR_premium_owner_sub', $owner.Sub, 'Process')
     [Environment]::SetEnvironmentVariable('TF_VAR_admin_cognito_subs', $jsonAdminSubs, 'Process')

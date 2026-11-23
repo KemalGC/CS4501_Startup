@@ -163,6 +163,7 @@ function global:aws {
         FunctionArn = "arn:aws:lambda:us-east-1:$($PremiumWorld.Account):function:strokesense-aws-dev-api"
         AdminCognitoSubs = 'live-admin'; PremiumOwnerSub = $null; CognitoUserPoolId = $null
       }
+      if ($scenario -eq 'ready-only-owner') { $response.AdminCognitoSubs = '' }
       if ($scenario -eq 'wrong-function') { $response.FunctionArn += ':alias' }
       if ($scenario -eq 'wrong-api-pool') { $response.CognitoUserPoolId = 'us-east-1_Different' }
       if ($scenario -eq 'live-owner-conflict') { $response.PremiumOwnerSub = $PremiumWorld.OtherSub }
@@ -244,8 +245,18 @@ function Invoke-PremiumCase {
     if (!$errorMessage -and $Scenario -ne 'group-absent') {
       Assert-PremiumTest ($result.ReadyForPlan -and $result.TerraformInputsSet -and $result.Status -ceq 'READY_TO_PLAN') 'Missing truthful ready result.'
       Assert-PremiumTest ($env:TF_VAR_premium_owner_sub -ceq $script:OwnerSub) 'Owner sub input was not set correctly.'
-      $merged = @($env:TF_VAR_admin_cognito_subs | ConvertFrom-Json)
-      Assert-PremiumTest ($merged -ccontains 'live-admin' -and $merged -ccontains $script:OwnerSub) 'Live administrators were not preserved.'
+      # Root-array pipeline enumeration differs between PS5.1 and PS7. The
+      # property keeps the actual array type, including a one-item result.
+      $null = ConvertFrom-Json -InputObject $env:TF_VAR_admin_cognito_subs -ErrorAction Stop
+      $mergedDocument = ConvertFrom-Json -InputObject ('{"subs":' + $env:TF_VAR_admin_cognito_subs + '}') -ErrorAction Stop
+      $merged = $mergedDocument.subs
+      Assert-PremiumTest ($merged -is [array]) 'Prepared allowlist must remain a JSON array, including a single owner.'
+      foreach ($sub in $merged) { Assert-PremiumTest ($sub -is [string]) 'Prepared allowlist contains a nested array or nonstring.' }
+      Assert-PremiumTest ($merged -ccontains $script:OwnerSub) 'Owner was not included in the prepared allowlist.'
+      if ($Scenario -ne 'ready-only-owner') {
+        Assert-PremiumTest ($merged -ccontains 'live-admin') 'Live administrators were not preserved.'
+      }
+      Assert-PremiumTest ($merged.Count -eq $result.AdminAllowlistCount) 'Result count does not match the actual JSON array length.'
       if ($before.TF_VAR_admin_cognito_subs -eq '["ambient-admin","live-admin"]') {
         Assert-PremiumTest ($merged.Count -eq 3 -and $merged -ccontains 'ambient-admin') 'Ambient admin merge lost a user or duplicated one.'
       }
@@ -277,6 +288,21 @@ try {
   Invoke-PremiumCase 'ready-empty-inputs' -Setup {
     Remove-Item Env:TF_VAR_premium_owner_sub, Env:TF_VAR_admin_cognito_subs, Env:PREMIUM_OWNER_SUB -ErrorAction SilentlyContinue
   }
+  Invoke-PremiumCase 'ready-empty-admin-array' -Setup {
+    $env:TF_VAR_admin_cognito_subs = '[]'
+  } -Check { param($r, $e) Assert-PremiumTest ($r.AdminAllowlistCount -eq 2) 'An empty JSON array was not merged correctly.' }
+  Invoke-PremiumCase 'ready-single-admin-array' -Setup {
+    $env:TF_VAR_admin_cognito_subs = '["ambient-admin"]'
+  } -Check { param($r, $e) Assert-PremiumTest ($r.AdminAllowlistCount -eq 3) 'A one-element JSON array was not merged correctly.' }
+  Invoke-PremiumCase 'ready-multiple-admin-array' -Setup {
+    $env:TF_VAR_admin_cognito_subs = '["ambient-admin","another-admin"]'
+  } -Check { param($r, $e) Assert-PremiumTest ($r.AdminAllowlistCount -eq 4) 'A multiple-element JSON array was not merged correctly.' }
+  Invoke-PremiumCase 'ready-duplicate-admin-array' -Setup {
+    $env:TF_VAR_admin_cognito_subs = '["live-admin","live-admin","' + $script:OwnerSub.ToUpperInvariant() + '"]'
+  } -Check { param($r, $e) Assert-PremiumTest ($r.AdminAllowlistCount -eq 2) 'Duplicate/canonical owner entries were not deduplicated.' }
+  Invoke-PremiumCase 'ready-only-owner' -Setup {
+    $env:TF_VAR_admin_cognito_subs = '[]'
+  } -Check { param($r, $e) Assert-PremiumTest ($r.AdminAllowlistCount -eq 1) 'A sole owner was not kept as a one-element JSON array.' }
   Invoke-PremiumCase 'second-page' -Check { param($r, $e)
     Assert-PremiumTest ($PremiumWorld.UserReads -eq 2) 'Did not follow the user page after an empty first page.' }
   Invoke-PremiumCase 'group-second-page' -Check { param($r, $e)
@@ -306,7 +332,9 @@ try {
   Invoke-PremiumCase 'process-owner-conflict' -Ensure $true -ExpectThrow $true -Setup {
     $env:PREMIUM_OWNER_SUB = $script:OtherSub
   }
-  foreach ($invalid in @('not-json', '{"sub":"someone"}', '["someone@example.com"]', '[123]', '[null]')) {
+  foreach ($invalid in @('not-json', '{"sub":"someone"}', '["someone@example.com"]', '[123]', '[null]',
+      '[["nested-admin"]]', '["valid-admin",["nested-admin"]]', '[[]]', '[true]', '[{}]',
+      '[],"subs":["injected-admin"]')) {
     Invoke-PremiumCase 'invalid-ambient-admins' -Ensure $true -ExpectThrow $true -Setup {
       $env:TF_VAR_admin_cognito_subs = $invalid
     } -Check { param($r, $e) Assert-PremiumTest ($PremiumWorld.AddCalls -eq 0) 'Invalid ambient allowlist changed access.' }

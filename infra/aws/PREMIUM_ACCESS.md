@@ -89,6 +89,16 @@ Cognito identity.
     $owner = .\prepare-premium-owner.ps1 -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -EnsureAdminGroup
     if (!$owner.ReadyForPlan) { throw "Owner setup is incomplete; no deployment plan should be created." }
     $owner | Format-List Status, ReadyForPlan, OwnerSub, AdminGroupMember, AdminGroupAdded
+
+    $admins = ConvertFrom-Json -InputObject ('{"values":' + $env:TF_VAR_admin_cognito_subs + '}')
+    $privateInputs = [ordered]@{
+        premium_owner_sub = $env:TF_VAR_premium_owner_sub
+        admin_cognito_subs = $admins.values
+    }
+    $privatePath = Join-Path (Get-Location).Path "premium-owner.auto.tfvars.json"
+    $json = ConvertTo-Json -InputObject $privateInputs -Depth 4
+    [IO.File]::WriteAllText($privatePath, $json, (New-Object Text.UTF8Encoding($false)))
+    Write-Host "Verified owner inputs saved for subsequent Terraform plans."
 }
 ```
 
@@ -108,9 +118,11 @@ The helper neither deploys Lambda nor changes GPU/CPU settings. Without
 `-EnsureAdminGroup`, it performs identity and membership checks without adding
 group membership. An unsuccessful check does not publish partial new inputs.
 
-These values must remain part of the deployment configuration after the
-terminal closes. Store them alongside the existing private deployment inputs;
-do not add them to the public example or hardcode the owner's email in browser
+The command block saves these verified values in the local
+`premium-owner.auto.tfvars.json`, so subsequent Terraform plans retain them
+after the terminal closes. It contains the verified owner sub and merged admin
+allowlist only. Keep it alongside the other private deployment inputs; do not
+add the values to the public example or hardcode the owner's email in browser
 authorization logic. The local `*.tfvars.json` patterns are ignored by Git.
 
 ## 3. Build and review the backend deployment
@@ -126,7 +138,10 @@ authorization logic. The local `*.tfvars.json` patterns are ignored by Git.
     if (!(Test-Path -LiteralPath ".\gpu-smoke.tfvars.json")) {
         throw "Locate the GPU input file used for the completed smoke apply before planning."
     }
-    terraform plan "-var-file=gpu-smoke.tfvars.json" "-out=premium-access.tfplan"
+    if (!(Test-Path -LiteralPath ".\premium-owner.auto.tfvars.json")) {
+        throw "Complete verified owner setup before creating the deployment plan."
+    }
+    terraform plan "-var-file=gpu-smoke.tfvars.json" "-var-file=premium-owner.auto.tfvars.json" "-out=premium-access.tfplan"
     if ($LASTEXITCODE -ne 0) { throw "Premium deployment plan failed." }
 }
 ```

@@ -12,6 +12,8 @@ import json
 import logging
 import re
 import time
+import tempfile
+import uuid
 from pathlib import Path
 import subprocess
 from typing import Any, Callable
@@ -205,6 +207,10 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
         # every CPU graph node prevents this pinned model from initializing.
         # Profiling below must instead prove real CUDA kernels executed.
         options.enable_profiling = True
+        # The container runs as uid 10001 and /app may be read-only.
+        # ORT writes profiling JSON on end_profiling; use private temp storage.
+        options.profile_file_prefix = str(Path(tempfile.gettempdir()) /
+                                          ("strokesense-gpu-audit-" + uuid.uuid4().hex))
         stage = "session_creation"
         session = ort.InferenceSession(str(model), options, providers=[GPU_PROVIDER])
         stage = "provider_activation"

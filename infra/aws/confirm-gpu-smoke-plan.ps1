@@ -68,6 +68,66 @@ function Read-PlannedResource([string]$Address) {
   if ($selected.Count -ne 1) { throw "Missing or ambiguous planned resource: $Address" }
   return $selected[0].values
 }
+function Read-CallerIdentityAccount {
+  $identityAddress = 'data.aws_caller_identity.current'
+  $accounts = @()
+  $identityChanges = @($plan.resource_changes | Where-Object {
+    (Read-Field $_ 'address') -ceq $identityAddress
+  })
+  if ($identityChanges.Count -gt 1) {
+    throw 'Ambiguous Terraform caller identity: duplicate entries in resource changes.'
+  }
+  if ($identityChanges.Count -eq 1) {
+    $identityChange = $identityChanges[0].change
+    if ((Read-Field $identityChanges[0] 'mode') -cne 'data' -or
+        ((Read-Field $identityChange 'actions') -join ',') -cne 'no-op') {
+      throw 'Terraform caller identity is deferred or changes during apply.'
+    }
+    $unknown = Read-Field $identityChange 'after_unknown'
+    if (($unknown -is [bool] -and $unknown) -or
+        (Read-Field $unknown 'account_id') -eq $true) {
+      throw 'Terraform caller identity account is unknown until apply.'
+    }
+    $account = Read-Field (Read-Field $identityChange 'after') 'account_id'
+    if ($account -isnot [string] -or $account -cnotmatch '^[0-9]{12}$') {
+      throw 'Terraform caller identity account is missing or unknown in resource changes.'
+    }
+    $accounts += $account
+  }
+
+  # A data source already read during planning is normally omitted from
+  # planned_values/resource_changes. Terraform stores its refreshed result in
+  # the saved plan's prior_state, including on a first-ever plan. A deferred
+  # read above must never fall back to a previously known account.
+  $priorRoot = Read-Field (Read-Field (Read-Field $plan 'prior_state') 'values') 'root_module'
+  $plannedRoot = Read-Field (Read-Field $plan 'planned_values') 'root_module'
+  foreach ($source in @(
+    @{ Name = 'refreshed prior state'; Root = $priorRoot },
+    @{ Name = 'planned values'; Root = $plannedRoot }
+  )) {
+    $identityResources = @((Read-Field $source.Root 'resources') | Where-Object {
+      (Read-Field $_ 'address') -ceq $identityAddress
+    })
+    if ($identityResources.Count -gt 1) {
+      throw "Ambiguous Terraform caller identity: duplicate entries in $($source.Name)."
+    }
+    if ($identityResources.Count -eq 1) {
+      if ((Read-Field $identityResources[0] 'mode') -cne 'data') {
+        throw "Invalid Terraform caller identity resource mode in $($source.Name)."
+      }
+      $account = Read-Field (Read-Field $identityResources[0] 'values') 'account_id'
+      if ($account -isnot [string] -or $account -cnotmatch '^[0-9]{12}$') {
+        throw "Terraform caller identity account is missing or unknown in $($source.Name)."
+      }
+      $accounts += $account
+    }
+  }
+  if ($accounts.Count -eq 0) { throw 'Missing Terraform caller identity in the saved plan.' }
+  if (@($accounts | Select-Object -Unique).Count -ne 1) {
+    throw 'Conflicting Terraform caller identity accounts in the saved plan.'
+  }
+  return $accounts[0]
+}
 
 $savedProfile = [Environment]::GetEnvironmentVariable('AWS_PROFILE', 'Process')
 $savedPythonEncoding = [Environment]::GetEnvironmentVariable('PYTHONIOENCODING', 'Process')
@@ -186,8 +246,8 @@ try {
     $expectedJson = ConvertTo-Json -InputObject $expectedInputs[$key] -Depth 5 -Compress
     if ($actualJson -cne $expectedJson) { throw "Unexpected effective Terraform input: $key" }
   }
-  $plannedIdentity = Read-PlannedResource 'data.aws_caller_identity.current'
-  if ($plannedIdentity.account_id -cne $ExpectedAccountId) { throw 'Terraform is using a different AWS account.' }
+  $plannedAccount = Read-CallerIdentityAccount
+  if ($plannedAccount -cne $ExpectedAccountId) { throw 'Terraform is using a different AWS account.' }
   foreach ($address in @('aws_security_group.batch_jobs', 'aws_security_group.gpu_instance[0]', 'aws_security_group.gpu_task[0]')) {
     $group = Read-PlannedResource $address
     if ($group.vpc_id -cne $vpcId) { throw "Subnet VPC does not match $address." }

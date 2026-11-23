@@ -53,7 +53,9 @@ function New-PlanFixture {
           vpc_zone_identifier = @($script:SubnetId); suspended_processes = @('AZRebalance', 'ReplaceUnhealthy') }
       }
       'aws_launch_template.gpu[0]' {
-        $values = @{ instance_type = 'g6f.xlarge'; network_interfaces = @(@{ associate_public_ip_address = $true }) }
+        # AWS provider 6.73 serializes this optional flag as a string in the
+        # operator's actual plan. Casting the string "false" to bool is unsafe.
+        $values = @{ instance_type = 'g6f.xlarge'; network_interfaces = @(@{ associate_public_ip_address = 'true' }) }
       }
       'aws_ecs_capacity_provider.gpu[0]' {
         $values = @{ auto_scaling_group_provider = @(@{
@@ -73,7 +75,11 @@ function New-PlanFixture {
       change = @{ actions = @('create'); before = $null; after = $values; after_unknown = @{} } })
   }
   $cpuValues = @{ container_properties = '{"image":"cpu-worker:media-20261119122801"}' }
-  [void]$resources.Add(@{ address = 'data.aws_caller_identity.current'; mode = 'data'; values = @{ account_id = '851226124502' } })
+  # Terraform 1.10.5 omits already-read data sources from planned_values and
+  # resource_changes. Their refreshed values live in prior_state, even on a
+  # first plan. Match that real emitted shape instead of inventing a planned
+  # caller-identity resource that made the earlier fixture falsely reassuring.
+  $identityResource = @{ address = 'data.aws_caller_identity.current'; mode = 'data'; values = @{ account_id = '851226124502' } }
   [void]$resources.Add(@{ address = 'aws_security_group.batch_jobs'; mode = 'managed'; values = @{ vpc_id = $script:VpcId } })
   [void]$resources.Add(@{ address = 'aws_batch_job_definition.cpu'; mode = 'managed'; values = $cpuValues })
   [void]$changes.Add(@{ address = 'aws_batch_job_definition.cpu'; mode = 'managed'
@@ -89,9 +95,11 @@ function New-PlanFixture {
   $variables = @{}
   foreach ($key in $inputs.Keys) { $variables[$key] = @{ value = $inputs[$key] } }
   return @{
-    format_version = '1.2'; terraform_version = '1.14.0'; applyable = $true; complete = $true; errored = $false
+    format_version = '1.2'; terraform_version = '1.10.5'; applyable = $true; complete = $true; errored = $false
     variables = $variables; resource_changes = @($changes.ToArray())
     planned_values = @{ root_module = @{ resources = @($resources.ToArray()) } }
+    prior_state = @{ format_version = '1.0'; terraform_version = '1.10.5'
+      values = @{ root_module = @{ resources = @($identityResource) } } }
   }
 }
 
@@ -100,6 +108,9 @@ function Find-PlanResource([string]$Address) {
 }
 function Find-PlanChange([string]$Address) {
   return ($global:PlanCheckWorld.Plan.resource_changes | Where-Object { $_.address -ceq $Address })
+}
+function Find-PriorResource([string]$Address) {
+  return ($global:PlanCheckWorld.Plan.prior_state.values.root_module.resources | Where-Object { $_.address -ceq $Address })
 }
 function global:aws {
   $a = @($args | ForEach-Object { [string]$_ })
@@ -188,7 +199,7 @@ function Invoke-PlanCase([string]$Scenario, [bool]$ExpectFailure, [scriptblock]$
   # Assert the scenario reached its intended gate, not an unrelated early error.
   $expectedCalls = 4
   $expectedWorkspaceReads = 1
-  if ($Scenario -eq 'valid-15-resource-plan' -or $Scenario -eq 'changed-plan-file') {
+  if (!$ExpectFailure -or $Scenario -eq 'changed-plan-file') {
     $expectedCalls = 5; $expectedWorkspaceReads = 2
   }
   if ($Scenario -eq 'wrong-ambient-account') { $expectedCalls = 1; $expectedWorkspaceReads = 0 }
@@ -215,6 +226,15 @@ function Invoke-PlanCase([string]$Scenario, [bool]$ExpectFailure, [scriptblock]$
     'disabled-cpu-analysis-input' = 'Unexpected effective Terraform input: enable_cpu_analysis'
     'wrong-ambient-account' = 'Ambient AWS credentials point to the wrong account'
     'wrong-planned-account' = 'Terraform is using a different AWS account'
+    'wrong-prior-account' = 'Terraform is using a different AWS account'
+    'missing-identity' = 'Missing Terraform caller identity in the saved plan'
+    'duplicate-prior-identity' = 'Ambiguous Terraform caller identity: duplicate entries in refreshed prior state'
+    'duplicate-planned-identity' = 'Ambiguous Terraform caller identity: duplicate entries in planned values'
+    'conflicting-identity' = 'Conflicting Terraform caller identity accounts in the saved plan'
+    'deferred-identity-read' = 'Terraform caller identity is deferred or changes during apply'
+    'unknown-identity-account' = 'Terraform caller identity account is unknown until apply'
+    'false-public-ip-string' = 'The GPU host needs the reviewed public-IP interface'
+    'null-public-ip-flag' = 'The GPU host needs the reviewed public-IP interface'
     'wrong-existing-vpc' = 'Subnet VPC does not match aws_security_group.batch_jobs'
     'wrong-gpu-vpc' = 'Subnet VPC does not match aws_security_group.gpu_task[0]'
     'changed-plan-file' = 'The saved plan changed during verification'
@@ -245,6 +265,16 @@ try {
   Write-Host 'PASS Array.Address collision reproduced'
 
   Invoke-PlanCase 'valid-15-resource-plan' $false
+  Invoke-PlanCase 'valid-planned-identity' $false {
+    $identity = Find-PriorResource 'data.aws_caller_identity.current'
+    $global:PlanCheckWorld.Plan.planned_values.root_module.resources += $identity
+    $global:PlanCheckWorld.Plan.Remove('prior_state')
+  }
+  Invoke-PlanCase 'valid-agreeing-identity' $false {
+    $global:PlanCheckWorld.Plan.planned_values.root_module.resources += @{
+      address = 'data.aws_caller_identity.current'; mode = 'data'; values = @{ account_id = '851226124502' }
+    }
+  }
   Invoke-PlanCase 'unexpected-cpu-update' $true {
     (Find-PlanChange 'aws_batch_job_definition.cpu').change.actions = @('update')
   }
@@ -293,7 +323,46 @@ try {
   }
   Invoke-PlanCase 'wrong-ambient-account' $true
   Invoke-PlanCase 'wrong-planned-account' $true {
-    (Find-PlanResource 'data.aws_caller_identity.current').values.account_id = '111111111111'
+    $identity = Find-PriorResource 'data.aws_caller_identity.current'
+    $identity.values.account_id = '111111111111'
+    $global:PlanCheckWorld.Plan.planned_values.root_module.resources += $identity
+    $global:PlanCheckWorld.Plan.Remove('prior_state')
+  }
+  Invoke-PlanCase 'wrong-prior-account' $true {
+    (Find-PriorResource 'data.aws_caller_identity.current').values.account_id = '111111111111'
+  }
+  Invoke-PlanCase 'missing-identity' $true {
+    $global:PlanCheckWorld.Plan.Remove('prior_state')
+  }
+  Invoke-PlanCase 'duplicate-prior-identity' $true {
+    $global:PlanCheckWorld.Plan.prior_state.values.root_module.resources += (Find-PriorResource 'data.aws_caller_identity.current')
+  }
+  Invoke-PlanCase 'duplicate-planned-identity' $true {
+    $identity = Find-PriorResource 'data.aws_caller_identity.current'
+    $global:PlanCheckWorld.Plan.planned_values.root_module.resources += @($identity, $identity)
+  }
+  Invoke-PlanCase 'conflicting-identity' $true {
+    $global:PlanCheckWorld.Plan.planned_values.root_module.resources += @{
+      address = 'data.aws_caller_identity.current'; mode = 'data'; values = @{ account_id = '111111111111' }
+    }
+  }
+  Invoke-PlanCase 'deferred-identity-read' $true {
+    $global:PlanCheckWorld.Plan.resource_changes += @{
+      address = 'data.aws_caller_identity.current'; mode = 'data'
+      change = @{ actions = @('read'); before = @{ account_id = '851226124502' }; after = @{}; after_unknown = @{ account_id = $true } }
+    }
+  }
+  Invoke-PlanCase 'unknown-identity-account' $true {
+    $global:PlanCheckWorld.Plan.resource_changes += @{
+      address = 'data.aws_caller_identity.current'; mode = 'data'
+      change = @{ actions = @('no-op'); before = @{ account_id = '851226124502' }; after = @{}; after_unknown = @{ account_id = $true } }
+    }
+  }
+  Invoke-PlanCase 'false-public-ip-string' $true {
+    (Find-PlanResource 'aws_launch_template.gpu[0]').values.network_interfaces[0].associate_public_ip_address = 'false'
+  }
+  Invoke-PlanCase 'null-public-ip-flag' $true {
+    (Find-PlanResource 'aws_launch_template.gpu[0]').values.network_interfaces[0].associate_public_ip_address = $null
   }
   Invoke-PlanCase 'wrong-existing-vpc' $true {
     (Find-PlanResource 'aws_security_group.batch_jobs').values.vpc_id = 'vpc-00000000000000000'

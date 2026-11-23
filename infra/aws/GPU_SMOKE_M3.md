@@ -235,6 +235,13 @@ resolved the array's CLR `Address` method, so it incorrectly reported every
 expected resource as missing. Explicit per-resource address enumeration fixes
 that collision; do not remove the whitelist or manually set verification markers.
 
+The validator also reads plan-time caller identity from the saved plan's
+refreshed `prior_state` when Terraform omits that data source from
+`planned_values`. Data read during planning can legitimately appear only there;
+the prior assumption that every data source appears in `planned_values` caused
+another false rejection. Missing, conflicting or pending/unknown identity
+evidence still fails validation, and the current AWS identity is checked too.
+
 From the same `infra/aws` terminal that holds the recovered deployed CPU inputs,
 run the checked-in validator with the exact saved plan, selected image and subnet:
 

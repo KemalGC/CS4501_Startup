@@ -188,3 +188,6 @@ try {
 }
 if ($failures) { throw "$failures of $checks log-reader cases failed." }
 Write-Host "All $checks log-reader cases passed."
+# Expected failed AWS reads leave the fake native exit code nonzero. Report
+# the assertion result explicitly instead of leaking that code to CI's shell.
+exit 0

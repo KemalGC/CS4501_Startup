@@ -85,7 +85,9 @@ def run_job(
     # digest rather than downloading or trusting arbitrary user-supplied paths.
     from .gpu_model_integrity import verify_gpu_model
     verify_gpu_model(model)
-    preflight(model)  # Missing CUDA, driver, VRAM or unsupported nodes fail.
+    initial_gpu = preflight(model)  # Verify CUDA kernels before any customer data access.
+    if not isinstance(initial_gpu, dict) or initial_gpu.get("cuda_node_execution_verified") is not True:
+        raise worker.WorkerError("gpu_cuda_execution_unverified")
     if s3 is None:
         import boto3
         s3 = boto3.client("s3")
@@ -113,6 +115,8 @@ def run_job(
         # Media manifest + frames/MP4, then metrics; report.json is the commit.
         worker._publish_media(s3, bucket, report_key, output)
         preflight_data = preflight(model)
+        if not isinstance(preflight_data, dict) or preflight_data.get("cuda_node_execution_verified") is not True:
+            raise worker.WorkerError("gpu_cuda_execution_unverified")
         timings: dict[str, Any] = {
             "schema_version": 1,
             "job_id": config["STROKESENSE_JOB_ID"],
@@ -120,6 +124,8 @@ def run_job(
             "cpu_time_ms": int(max(0, (worker._child_cpu_seconds() - cpu_begin) * 1000)),
             "worker_wall_ms": int((time.perf_counter() - started) * 1000),
             "gpu_execution_provider": "CUDAExecutionProvider",
+            "cuda_node_execution_verified": True,
+            "cuda_provider_audit": preflight_data.get("provider_audit", {}),
             "gpu_memory_total_mib": preflight_data["gpu_memory_total_mib"],
             "gpu_memory_free_mib": preflight_data["gpu_memory_free_mib"],
         }

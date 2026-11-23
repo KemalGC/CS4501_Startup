@@ -2,8 +2,13 @@
 
 The operator's two G6f attempts failed on EC2 capacity in `us-east-1a` and
 `us-east-1b`. The second transcript confirmed ASG min/max/desired `0/0/0`,
-`Launch` suspended, and no active tagged instance. CUDA inference has not yet
-been reached.
+`Launch` suspended, and no active tagged instance. The subsequent G4dn attempt
+on 2026-11-23 launched instance `i-0dc5562bfd9372cf4` and reached the preflight
+container, which exited with `cuda_session_initialization_failed`. The final
+operator transcript confirmed ASG `0/0/0`, `Launch` suspended and that instance
+terminated. CUDA inference remains unverified. The recorded evidence is
+`gpu-smoke-20261123T150641Z-8226a32d.json`; use the diagnostics below before
+considering another attempt.
 
 The selected alternative is **one `g4dn.xlarge`**: four vCPUs, 16 GiB system
 memory and one NVIDIA T4 GPU with 16 GiB GPU memory. It fits the same regional
@@ -223,6 +228,57 @@ Keep the terminal open until cleanup completes and retain the printed evidence
 path. A launch failure is still possible for G4dn; successful preparation proves
 configuration and offering support, not current spare EC2 capacity. The runner
 does not automatically move to another AZ or instance family.
+
+## Diagnose a failed CUDA session without another GPU launch
+
+The fixed category `cuda_session_initialization_failed` does not identify the
+underlying library, driver, or graph error. The Python preflight chains the
+underlying exception but the published image logs only the category. Earlier
+smoke runners also discarded native ONNX Runtime lines beginning with
+timestamps or ANSI color sequences. Those messages may still be in CloudWatch.
+
+Let the active runner finish its cleanup and return the evidence path first.
+The updated runner retains the unfiltered first CloudWatch page in its evidence
+and prints at most the last 80 entries so logging does not delay cleanup with
+a pagination loop. That snapshot is explicitly labeled `FIRST_CLOUDWATCH_PAGE`.
+For the full stream, use the read-only helper after cleanup:
+
+```powershell
+& {
+    $ErrorActionPreference = "Stop"
+    Set-Location "C:\Users\kemal\IdeaProjects\CS4501_StartupAws"
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw "Git update failed." }
+    Set-Location ".\infra\aws"
+
+    $evidencePath = "C:\Users\kemal\AppData\Local\Temp\strokesense-gpu-smoke\gpu-smoke-20261123T150641Z-8226a32d.json"
+    .\read-gpu-smoke-logs.ps1 -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -EvidencePath $evidencePath -ExpectedInstanceId i-0dc5562bfd9372cf4
+}
+```
+
+The helper matches the instance in the local smoke evidence, checks the AWS
+account and task/log stream identity, reads every page through a fixed snapshot
+time, and saves an unfiltered UTF-8 log plus event JSON beside the evidence
+file, using unique names to preserve earlier snapshots. Empty pages
+are not treated as the end of the stream. It makes only AWS read calls; it does
+not apply Terraform, change capacity, rerun inference, or certify live cleanup.
+If the evidence was written to a custom directory, supply `-EvidencePath` with
+the JSON path printed by the runner. Repeating the helper refreshes diagnostics
+without creating a GPU host.
+
+Interpret the native error before editing the image. For example, a message
+about graph nodes assigned to CPU points to the strict
+`session.disable_cpu_ep_fallback=1` contract; it does not prove CUDA was missing.
+A missing shared library or CUDA driver/context failure calls for a different
+fix. Retain the existing CUDA and finite-output checks while gathering this
+evidence. The generic category alone does not justify changing hardware or
+declaring a successful inference run.
+
+References:
+
+- [CloudWatch GetLogEvents pagination](https://docs.aws.amazon.com/cli/latest/reference/logs/get-log-events.html)
+- [ONNX Runtime session configuration](https://github.com/microsoft/onnxruntime/blob/main/include/onnxruntime/core/session/onnxruntime_session_options_config_keys.h)
+- [ONNX Runtime CUDA requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
 
 ## After this attempt
 

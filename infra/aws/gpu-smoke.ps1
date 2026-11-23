@@ -445,14 +445,20 @@ try {
       $evidence.log_stream = $stream
       try {
         $events = Invoke-AwsJson @('logs','get-log-events','--log-group-name',$logGroup,'--log-stream-name',$stream,'--start-from-head')
-        $evidence.log_lines = @(@($events.events) | ForEach-Object { $_.message } | Where-Object { $_ -match '^(STROKESENSE_GPU_PREFLIGHT |INFO:|ERROR:|WARNING:|Traceback|\S+Error)' } | Select-Object -First 40)
-        foreach ($line in $evidence.log_lines) { Write-Host "log: $line" }
+        # Preserve native ONNX Runtime timestamps/ANSI output and traceback
+        # continuations. Filtering by Python log prefixes hid CUDA failures.
+        # Keep this pre-cleanup read bounded to one API page; the read-only
+        # postmortem helper can paginate the full stream after shutdown.
+        $evidence.log_lines = @(@($events.events) | ForEach-Object { $_.message })
+        $evidence.log_snapshot_scope = 'FIRST_CLOUDWATCH_PAGE'
+        foreach ($line in @($evidence.log_lines | Select-Object -Last 80)) { Write-Host "log: $line" }
       } catch { Write-Warning "Could not read preflight log stream: $($_.Exception.Message)" }
       Save-Evidence
       if (!$evidence.task.image_digest -or $ExpectedImageUri -notlike "*@$($evidence.task.image_digest)") {
         throw "Task ran image $($evidence.task.image_digest), not the approved digest."
       }
       if ($exit -ne 0) {
+        Write-Host 'After cleanup, read-gpu-smoke-logs.ps1 can retrieve the complete native error log without another GPU launch.'
         throw "CUDA preflight failed (exit=$exit, stopCode=$($evidence.task.stop_code), reason=$($evidence.task.stopped_reason) / $($evidence.task.container_reason))."
       }
       [void](Read-PreflightEvidence $stream)

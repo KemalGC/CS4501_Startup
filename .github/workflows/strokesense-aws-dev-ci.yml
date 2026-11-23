@@ -47,6 +47,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Exercise GPU launch and cleanup with fake AWS
         run: ./infra/aws/test-gpu-smoke.ps1
+      - name: Read complete failed GPU logs with fake AWS
+        run: ./infra/aws/test-read-gpu-smoke-logs.ps1
       - name: Exercise quota and image preparation with fake AWS
         run: ./infra/aws/test-prepare-gpu-smoke.ps1
       - name: Verify saved GPU plans with fake AWS and Terraform

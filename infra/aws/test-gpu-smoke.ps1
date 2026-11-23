@@ -191,12 +191,21 @@ function global:aws {
         if ($W.scenario -eq 'stopstatusmissing') { return '{"tasks":[],"failures":[{"arn":"task-prior","reason":"MISSING"}]}' }
         return '{"tasks":[{"taskArn":"task-prior","lastStatus":"STOPPED"}],"failures":[]}'
       }
-      $code = 0; if ($W.scenario -eq 'exit2') { $code = 2 }
+      $code = 0; if ($W.scenario -in @('exit2','native-error-log')) { $code = 2 }
       $digest = 'sha256:' + ('a' * 64); if ($W.scenario -eq 'digestmissing') { $digest = '' }
       return ('{"tasks":[{"lastStatus":"STOPPED","startedAt":"s","stoppedAt":"e","stopCode":"EssentialContainerExited","stoppedReason":"Essential container in task exited","taskDefinitionArn":"td:1","containers":[{"name":"gpu-preflight","exitCode":' + $code + ',"imageDigest":"' + $digest + '"}]}]}') }
     'ecs stop-task' { return '{}' }
     'logs get-log-events' {
       $W.logReads++
+      if ($W.scenario -eq 'native-error-log') {
+        $messages = @(1..85 | ForEach-Object { @{ message = "startup detail $_" } })
+        $messages += @(
+          @{ message = ([string][char]27 + '[1;31m2026-11-23 15:10:00 [E:onnxruntime:] Native CUDA error' + [char]27 + '[0m') },
+          @{ message = '  traceback continuation with the actual library or graph error' },
+          @{ message = 'ERROR:__main__:GPU preflight rejected: cuda_session_initialization_failed' }
+        )
+        return (@{ events = $messages } | ConvertTo-Json -Depth 5)
+      }
       if ($W.scenario -eq 'nologs' -or ($W.scenario -eq 'delayedlogs' -and $W.logReads -lt 3)) { return '{"events":[]}' }
       $result = @{ provider = 'CUDAExecutionProvider'; active_providers = @('CUDAExecutionProvider'); model_loaded = $true
         cpu_ep_fallback_disabled = $true; outputs_finite = $true; warmup_runs = 3; inference_runs = 20
@@ -247,6 +256,15 @@ Invoke-Case 'happy' $false { param($c, $idx)
 Invoke-Case 'nogpu' $true { param($c, $idx) $W.runTaskCalls -eq 0 }
 Invoke-Case 'lostresponse' $false { param($c, $idx) $W.runTaskCalls -eq 1 }
 Invoke-Case 'exit2' $true { param($c, $idx) $W.runTaskCalls -eq 1 }
+Invoke-Case 'native-error-log' $true {
+  $W.runTaskCalls -eq 1 -and $W.logReads -eq 1 -and $W.instState -eq 'terminated' -and
+  $W.evidence.terminated_verified -eq $true -and @($W.evidence.cleanup_errors).Count -eq 0 -and
+  $W.evidence.log_snapshot_scope -ceq 'FIRST_CLOUDWATCH_PAGE' -and
+  @($W.evidence.log_lines).Count -eq 88 -and
+  $W.evidence.log_lines[85].Contains('[E:onnxruntime:] Native CUDA error') -and
+  $W.evidence.log_lines[86] -ceq '  traceback continuation with the actual library or graph error' -and
+  $W.failure -like '*CUDA preflight failed (exit=2*'
+}
 Invoke-Case 'missingimage' $true { $true } $false
 Invoke-Case 'wrongtemplate' $true { $true } $false
 Invoke-Case 'wrongami' $true { $true } $false

@@ -73,6 +73,16 @@ class GpuWorkerTests(unittest.TestCase):
         self.assertEqual(store.gets, [])
         self.assertEqual(store.puts, [])
 
+    def test_unverified_cuda_profile_blocks_video_download_and_report(self):
+        store = FakeS3()
+        with patch("aws_app.gpu_model_integrity.verify_gpu_model"):
+            with self.assertRaisesRegex(worker.WorkerError, "gpu_cuda_execution_unverified"):
+                gpu_worker.run_job(env=paid_config(), s3=store,
+                                   pipeline=media_pipeline,
+                                   preflight=lambda _model: {"provider": "CUDAExecutionProvider"})
+        self.assertEqual(store.gets, [])
+        self.assertEqual(store.puts, [])
+
     def test_gpu_subprocess_enforces_cuda_in_child_environment(self):
         with TemporaryDirectory() as directory:
             video = Path(directory) / "input.mp4"

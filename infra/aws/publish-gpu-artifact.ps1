@@ -11,7 +11,14 @@ param(
   [long]$ExpectedArchiveSizeBytes = 2708980929,
   [ValidatePattern('^sha256:[a-f0-9]{64}$')][string]$ExpectedIndexDigest = 'sha256:060542a493c83413a45832e6975857bbb2da6c0e5b25919fe85155f5760815f1',
   [ValidatePattern('^sha256:[a-f0-9]{64}$')][string]$ExpectedManifestDigest = 'sha256:cc21a77a44f767fa61ff347ba91e748b3d2acc0914f24a10de54a4a4dc74df16',
-  [ValidatePattern('^sha256:[a-f0-9]{64}$')][string]$ExpectedConfigDigest = 'sha256:04759f652c8952314ed496f5c0ef464ec472b44f29d92c3b8ddab9c442ce941c'
+  [ValidatePattern('^sha256:[a-f0-9]{64}$')][string]$ExpectedConfigDigest = 'sha256:04759f652c8952314ed496f5c0ef464ec472b44f29d92c3b8ddab9c442ce941c',
+  [string]$CheckpointDirectory = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'StrokeSense\ecr-upload-checkpoints'),
+  [ValidatePattern('^sha256:[a-f0-9]{64}$')][string]$ResumeLayerDigest,
+  [ValidatePattern('^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$')][string]$ResumeUploadId,
+  [long]$ResumeOffset = -1,
+  [long]$ResumePartSize = 0,
+  [ValidateRange(1,10)][int]$UploadPartAttempts = 6,
+  [ValidateRange(30,600)][int]$AwsReadTimeoutSeconds = 120
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,6 +26,8 @@ Remove-Item Env:TF_VAR_gpu_worker_image_uri -ErrorAction SilentlyContinue
 $region = 'us-east-1'
 $repository = 'strokesense-aws-dev-gpu-worker'
 $temporaryDirectory = $null
+$checkpointScopeDirectory = $null
+$checkpointLock = $null
 $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
 
 function Get-Field($Object, [string]$Name) {
@@ -32,14 +41,19 @@ function Invoke-PublishNative([string]$Command, [string[]]$Arguments) {
     $raw = & $Command @Arguments 2>&1
     $code = $LASTEXITCODE
   } finally { $ErrorActionPreference = $savedPreference }
-  # Out-String formats PS5.1 NativeCommandError records and corrupts stderr JSON.
-  $text = (@($raw | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+  # PS5.1 wraps stderr lines, including empty lines, in RemoteException records.
+  # Their ToString() can invent RemoteException text for an empty message.
+  $text = (@($raw | ForEach-Object {
+    if ($_ -is [System.Management.Automation.ErrorRecord] -and $_.FullyQualifiedErrorId -match '^NativeCommandError(?:Message)?(?:,|$)') {
+      [string]$_.Exception.Message
+    } else { $_.ToString() }
+  }) -join "`n").Trim()
   [pscustomobject]@{ ExitCode = $code; Text = $text }
 }
 function Invoke-PublishAws([string[]]$Arguments) {
   $native = Invoke-PublishNative 'aws' ($Arguments + @('--profile',$AwsProfile,'--region',$region,
     '--output','json','--no-cli-pager','--no-cli-auto-prompt','--cli-error-format','json',
-    '--cli-connect-timeout','10','--cli-read-timeout','60'))
+    '--cli-connect-timeout','10','--cli-read-timeout',"$AwsReadTimeoutSeconds"))
   $value = $null
   try { $value = $native.Text | ConvertFrom-Json -ErrorAction Stop }
   catch { if ($native.ExitCode -eq 0) { throw 'AWS returned invalid JSON; no successful result accepted.' } }
@@ -159,19 +173,78 @@ function Test-TransientFailure($Response) {
   # AWS CLI generic/transport exceptions remain plain text even with JSON errors.
   return $Response.Diagnostic -match '(?i)(connection (was )?(closed|reset|aborted)|read timed? ?out|connect timed? ?out|could not connect to the endpoint|remote end closed|broken pipe|EOF occurred in violation of protocol)'
 }
+function Get-CheckpointPath([string]$Digest) {
+  return Join-Path $checkpointScopeDirectory ($Digest.Substring(7) + '.json')
+}
+function Assert-Checkpoint($Checkpoint, $Descriptor) {
+  if (!(Test-ByteOffset (Get-Field $Checkpoint 'schema_version') 1) -or
+      (Get-Field $Checkpoint 'account_id') -cne $ExpectedAccountId -or
+      (Get-Field $Checkpoint 'region') -cne $region -or (Get-Field $Checkpoint 'repository') -cne $repository -or
+      (Get-Field $Checkpoint 'manifest_digest') -cne $ExpectedManifestDigest -or
+      (Get-Field $Checkpoint 'layer_digest') -cne $Descriptor.digest -or
+      !(Test-ByteOffset (Get-Field $Checkpoint 'layer_size') ([long]$Descriptor.size)) -or
+      (Get-Field $Checkpoint 'upload_id') -cnotmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') {
+    throw 'Upload checkpoint identity/binding is invalid; it was retained and no replacement upload was started.'
+  }
+  $partSize = Get-Field $Checkpoint 'part_size'; $offset = Get-Field $Checkpoint 'next_byte'
+  if (($partSize -isnot [int] -and $partSize -isnot [long]) -or $partSize -lt 5MB -or $partSize -gt 10MB -or
+      ($offset -isnot [int] -and $offset -isnot [long]) -or $offset -lt 0 -or $offset -gt $Descriptor.size) {
+    throw 'Upload checkpoint part size/offset is invalid; checkpoint retained.'
+  }
+  if ($offset -ne $Descriptor.size -and ($offset % $partSize) -ne 0) { throw 'Upload checkpoint offset is not an acknowledged part boundary; checkpoint retained.' }
+}
+function New-Checkpoint($Descriptor, [string]$UploadId, [long]$PartSize, [long]$Offset) {
+  $checkpoint = [pscustomobject][ordered]@{
+    schema_version = 1; account_id = $ExpectedAccountId; region = $region; repository = $repository
+    manifest_digest = $ExpectedManifestDigest; layer_digest = $Descriptor.digest; layer_size = [long]$Descriptor.size
+    upload_id = $UploadId; part_size = $PartSize; next_byte = $Offset
+  }
+  Assert-Checkpoint $checkpoint $Descriptor
+  return $checkpoint
+}
+function Read-Checkpoint($Descriptor) {
+  $path = Get-CheckpointPath $Descriptor.digest
+  if (!(Test-Path -LiteralPath $path)) { return $null }
+  $item = Get-Item -LiteralPath $path
+  if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Upload checkpoint must be an ordinary JSON file.' }
+  $checkpoint = Read-JsonFile $path
+  Assert-Checkpoint $checkpoint $Descriptor
+  return $checkpoint
+}
+function Save-Checkpoint($Checkpoint) {
+  $path = Get-CheckpointPath $Checkpoint.layer_digest
+  $nextPath = Join-Path $checkpointScopeDirectory ([guid]::NewGuid().ToString('N') + '.tmp')
+  try {
+    $bytes = $utf8.GetBytes(($Checkpoint | ConvertTo-Json -Depth 5))
+    $file = [IO.File]::Open($nextPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $file.Write($bytes, 0, $bytes.Length); $file.Flush($true) } finally { $file.Dispose() }
+    # Both files are in the same directory: readers see the old or new complete JSON.
+    if ([IO.File]::Exists($path)) { [IO.File]::Replace($nextPath, $path, [System.Management.Automation.Language.NullString]::Value) }
+    else { [IO.File]::Move($nextPath, $path) }
+  } finally { if ([IO.File]::Exists($nextPath)) { [IO.File]::Delete($nextPath) } }
+}
+function Remove-CompletedCheckpoint($Descriptor) {
+  # Caller must have independently confirmed this exact blob AVAILABLE in ECR.
+  $checkpoint = Read-Checkpoint $Descriptor
+  if ($null -ne $checkpoint) { [IO.File]::Delete((Get-CheckpointPath $Descriptor.digest)) }
+}
 function Send-Blob($Descriptor) {
   $digest = $Descriptor.digest; $length = [long]$Descriptor.size
   Assert-Blob $digest $length
-  Write-Host "Uploading $digest ($length bytes) through the AWS CLI..."
-  $started = Read-PublishAws @('ecr','initiate-layer-upload','--registry-id',$ExpectedAccountId,'--repository-name',$repository)
-  $uploadId = Get-Field $started 'uploadId'; $partSize = Get-Field $started 'partSize'
-  Assert-PositiveInteger $partSize 'ECR upload part size'
-  # The API schema says 20 MiB; ECR's direct-upload quota says 10 MiB. Stay within both.
-  if ($uploadId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$' -or $partSize -lt 5MB -or $partSize -gt 10MB) { throw 'Unsupported ECR upload ID or part size; no layer parts sent.' }
+  $checkpoint = Read-Checkpoint $Descriptor
+  if ($null -eq $checkpoint) {
+    $started = Read-PublishAws @('ecr','initiate-layer-upload','--registry-id',$ExpectedAccountId,'--repository-name',$repository)
+    $partSize = Get-Field $started 'partSize'; Assert-PositiveInteger $partSize 'ECR upload part size'
+    $checkpoint = New-Checkpoint $Descriptor (Get-Field $started 'uploadId') ([long]$partSize) 0
+    Save-Checkpoint $checkpoint # Persist the upload ID BEFORE sending its first byte.
+  }
+  $uploadId = $checkpoint.upload_id; [long]$partSize = $checkpoint.part_size
+  [long]$offset = $checkpoint.next_byte
+  Write-Host "Uploading $digest from byte $offset of $length with saved upload $uploadId..."
   $stream = [System.IO.File]::OpenRead((Get-BlobPath $digest))
   $partPath = Join-Path $temporaryDirectory 'upload-part.bin'
   try {
-    [long]$offset = 0
+    [void]$stream.Seek($offset, [IO.SeekOrigin]::Begin)
     while ($offset -lt $length) {
       $count = [int][Math]::Min([long]$partSize, $length - $offset)
       $buffer = New-Object byte[] $count
@@ -185,7 +258,7 @@ function Send-Blob($Descriptor) {
       $last = $offset + $count - 1
       $partArgs = @('ecr','upload-layer-part','--registry-id',$ExpectedAccountId,'--repository-name',$repository,
         '--upload-id',$uploadId,'--part-first-byte',"$offset",'--part-last-byte',"$last",'--layer-part-blob',"fileb://$partPath")
-      for ($attempt = 1; $attempt -le 3; $attempt++) {
+      for ($attempt = 1; $attempt -le $UploadPartAttempts; $attempt++) {
         $reply = Invoke-PublishAws $partArgs
         if ($reply.ExitCode -eq 0) {
           if (!(Test-UploadIdentity $reply.Data $uploadId) -or !(Test-ByteOffset (Get-Field $reply.Data 'lastByteReceived') $last)) {
@@ -195,10 +268,18 @@ function Send-Blob($Descriptor) {
         }
         if ((Get-Field $reply.Data 'Code') -eq 'InvalidLayerPartException' -and (Test-UploadIdentity $reply.Data $uploadId) -and
             (Test-ByteOffset (Get-Field $reply.Data 'lastValidByteReceived') $last)) { break }
-        if ($attempt -eq 3 -or !(Test-TransientFailure $reply)) { Assert-AwsSuccess $reply "upload-layer-part ($uploadId, bytes $offset-$last)" }
-        Start-Sleep -Seconds (2 * $attempt)
+        if ((Get-Field $reply.Data 'Code') -eq 'UploadNotFoundException') {
+          if (@(Get-MissingBlobs @($Descriptor)).Count -eq 0) { Remove-CompletedCheckpoint $Descriptor; return }
+          throw "Saved ECR upload $uploadId returned UploadNotFoundException. Its checkpoint is retained; no replacement upload was started."
+        }
+        if ($attempt -eq $UploadPartAttempts -or !(Test-TransientFailure $reply)) { Assert-AwsSuccess $reply "upload-layer-part ($uploadId, bytes $offset-$last)" }
+        $delay = [int][Math]::Min(30, [Math]::Pow(2, $attempt))
+        Write-Host "Retrying the same bytes $offset-$last in $delay seconds (attempt $($attempt + 1)/$UploadPartAttempts)..."
+        Start-Sleep -Seconds $delay
       }
       $offset += $count
+      $checkpoint.next_byte = $offset
+      Save-Checkpoint $checkpoint # A crash before this write safely replays only this exact part.
       Write-Host ("Uploaded {0}/{1} bytes of {2}" -f $offset, $length, $digest)
     }
   } finally { $stream.Dispose(); Remove-Item -LiteralPath $partPath -Force -ErrorAction SilentlyContinue }
@@ -211,6 +292,7 @@ function Send-Blob($Descriptor) {
     Assert-AwsSuccess $completed 'complete-layer-upload'
     throw "Completed blob is not available in ECR: $digest"
   }
+  Remove-CompletedCheckpoint $Descriptor
 }
 
 $savedEnvironment = @{}
@@ -220,8 +302,16 @@ try {
   $env:PYTHONIOENCODING = 'utf-8'; $env:AWS_CLI_FILE_ENCODING = 'UTF-8'; $env:AWS_MAX_ATTEMPTS = '1'
   [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
   foreach ($command in @('aws','tar.exe')) { if (!(Get-Command $command -ErrorAction SilentlyContinue)) { throw "$command is required." } }
+  $resumeParameterCount = @(@('ResumeLayerDigest','ResumeUploadId','ResumeOffset','ResumePartSize') | Where-Object { $PSBoundParameters.ContainsKey($_) }).Count
+  if ($resumeParameterCount -notin @(0,4)) { throw 'Adoption requires all four ResumeLayerDigest, ResumeUploadId, ResumeOffset and ResumePartSize parameters.' }
+  $adopting = $resumeParameterCount -eq 4
   $identity = Read-PublishAws @('sts','get-caller-identity')
   if ((Get-Field $identity 'Account') -ne $ExpectedAccountId) { throw 'Wrong AWS account; no upload attempted.' }
+  $scopeDigest = (Get-Utf8Digest "$ExpectedAccountId|$region|$repository|$ExpectedManifestDigest").Substring(7)
+  $checkpointScopeDirectory = Join-Path ([IO.Path]::GetFullPath($CheckpointDirectory)) $scopeDigest
+  [void][IO.Directory]::CreateDirectory($checkpointScopeDirectory)
+  try { $checkpointLock = [IO.File]::Open((Join-Path $checkpointScopeDirectory 'publish.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+  catch { throw "Another publisher owns this upload scope, or its lock is inaccessible: $checkpointScopeDirectory. No uploads attempted." }
   $archive = Join-Path $ArtifactDirectory 'strokesense-gpu-image.tar.gz'
   $metadata = Read-JsonFile (Join-Path $ArtifactDirectory 'image-manifest.json')
   if ($ExpectedArchiveSizeBytes -le 0 -or $metadata.source_commit -cne $ExpectedSourceCommit -or
@@ -268,10 +358,41 @@ try {
     $unique[$descriptor.digest] = $descriptor
   }
   Assert-Blob $ExpectedConfigDigest ([long]$manifest.config.size)
+  $adoption = $null
+  if ($adopting) {
+    if (!$unique.ContainsKey($ResumeLayerDigest)) { throw 'ResumeLayerDigest is not referenced by the verified manifest.' }
+    $adoption = New-Checkpoint $unique[$ResumeLayerDigest] $ResumeUploadId $ResumePartSize $ResumeOffset
+  }
+  # Check every saved binding before any cloud write, including checkpoints for
+  # blobs which may have completed while a prior response was lost.
+  foreach ($descriptor in $unique.Values) { $null = Read-Checkpoint $descriptor }
   $existing = Read-RemoteImage "imageTag=$ImageTag" -AllowMissing
   $put = $null
+  $missing = @(Get-MissingBlobs @($unique.Values))
+  if ($null -ne $existing -and $missing.Count -gt 0) {
+    throw 'The existing image tag references unavailable blobs. ECR returned inconsistent publication evidence; no upload was changed.'
+  }
+  $missingDigests = @($missing | ForEach-Object { $_.digest })
+  foreach ($descriptor in $unique.Values) {
+    if ($missingDigests -notcontains $descriptor.digest) { Remove-CompletedCheckpoint $descriptor }
+  }
+  if ($adopting -and $missingDigests -contains $ResumeLayerDigest) {
+    # Validate and adopt the known partial upload before spending work on other blobs.
+    Expand-Blobs @($ResumeLayerDigest)
+    Assert-Blob $ResumeLayerDigest ([long]$unique[$ResumeLayerDigest].size)
+    $saved = Read-Checkpoint $unique[$ResumeLayerDigest]
+    if ($null -eq $saved) { Save-Checkpoint $adoption }
+    elseif ($saved.upload_id -cne $ResumeUploadId -or $saved.part_size -ne $ResumePartSize -or $saved.next_byte -lt $ResumeOffset) {
+      throw 'Explicit resume information conflicts with the saved checkpoint; neither upload was changed.'
+    }
+    Write-Host "Adopted upload $ResumeUploadId; its acknowledged progress will be retained across reruns."
+  }
   if ($null -eq $existing) {
-    $missing = @(Get-MissingBlobs @($unique.Values))
+    $missing = @($missing | Sort-Object @{ Expression = {
+      if ($adopting -and $_.digest -ceq $ResumeLayerDigest) { 0 }
+      elseif (Test-Path -LiteralPath (Get-CheckpointPath $_.digest)) { 1 }
+      else { 2 }
+    } }, @{ Expression = { $_.digest } })
     Write-Host "$($missing.Count) referenced blobs need upload; existing ECR blobs will be reused."
     Expand-Blobs @($missing | ForEach-Object { $_.digest })
     foreach ($descriptor in $missing) {
@@ -306,12 +427,17 @@ try {
   $ready
 } catch {
   Remove-Item Env:TF_VAR_gpu_worker_image_uri -ErrorAction SilentlyContinue
+  if ($checkpointScopeDirectory -and @(Get-ChildItem -LiteralPath $checkpointScopeDirectory -Filter '*.json' -ErrorAction SilentlyContinue).Count -gt 0) {
+    Write-Warning "Upload checkpoints retained in $checkpointScopeDirectory. Rerunning the publisher resumes them; do not start a duplicate uploader."
+  }
   throw
 } finally {
-  foreach ($name in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process') }
-  [Console]::OutputEncoding = $savedConsoleEncoding
-  if ($temporaryDirectory -and (Test-Path -LiteralPath $temporaryDirectory)) {
-    try { Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force }
-    catch { Remove-Item Env:TF_VAR_gpu_worker_image_uri -ErrorAction SilentlyContinue; throw }
-  }
+  try {
+    foreach ($name in $savedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process') }
+    [Console]::OutputEncoding = $savedConsoleEncoding
+    if ($temporaryDirectory -and (Test-Path -LiteralPath $temporaryDirectory)) {
+      try { Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force }
+      catch { Remove-Item Env:TF_VAR_gpu_worker_image_uri -ErrorAction SilentlyContinue; throw }
+    }
+  } finally { if ($null -ne $checkpointLock) { $checkpointLock.Dispose() } }
 }

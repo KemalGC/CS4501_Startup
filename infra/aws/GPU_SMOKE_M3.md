@@ -135,6 +135,41 @@ byte offset. Unknown or mismatched responses stop the run. Rerunning checks
 ECR again, skips completed blobs, and verifies an existing destination tag
 before reusing it.
 
+Upload checkpoints are kept under
+`$env:LOCALAPPDATA\StrokeSense\ecr-upload-checkpoints`, separately from the
+temporary extracted blobs. Each checkpoint binds the account, repository,
+manifest, layer digest/length, upload ID, part size, and acknowledged byte
+offset. An exclusive local lock prevents two publishers from using the same
+checkpoint scope concurrently. An ordinary rerun resumes saved progress;
+it does not intentionally restart an unfinished layer. The default is six
+bounded part attempts with backoff, with a 120-second AWS read timeout.
+Checkpoint files contain upload metadata, not AWS credentials.
+
+For the operator's interrupted **pre-checkpoint** upload of the reviewed
+artifact, the last acknowledged byte count was `262144000` of `555851574`.
+Adopt that existing upload once with the exact values from its error:
+
+```powershell
+$resume = @{
+  ExpectedAccountId = '851226124502'
+  AwsProfile = 'strokesense-admin'
+  ResumeLayerDigest = 'sha256:a140edea3a7b5d90f851038ba1d94d0506c93913cfe8cd6584ec2d4441bf2cb3'
+  ResumeUploadId = '83e9bdf9-7507-41d3-ad84-c33774bb121e'
+  ResumeOffset = 262144000
+  ResumePartSize = 10485760
+}
+.\publish-gpu-artifact.ps1 @resume
+```
+
+This retries bytes `262144000-272629759` using the same 10 MiB part size.
+If AWS had already accepted that part before its response was lost, the
+publisher advances only after the exact upload identity and ending offset
+are confirmed. The archive and extracted layer are reverified before resuming.
+Repeating this command uses a matching checkpoint's newer offset instead of
+rewinding it; the plain command also resumes automatically once the checkpoint
+exists. An expired upload ID or an inconsistent checkpoint is an explicit
+failure, not permission to guess an offset or silently start another upload.
+
 On success, the immutable tag `gpu-8cbcda3-45085705233-1` resolves to the
 **Linux amd64 manifest** `sha256:cc21a77a44f767fa61ff347ba91e748b3d2acc0914f24a10de54a4a4dc74df16`.
 The script reads it back and runs the existing preparation helper without

@@ -88,7 +88,7 @@ the existing subnet, rather than combining hardware and network changes.
     }
     $retry | Format-List CurrentInstanceType, InstanceType, GpuResource, SubnetId, AvailabilityZone, InputsPath
 
-    $planPath = Join-Path (Get-Location).Path "gpu-g4dn-retry.tfplan"
+    $planPath = Join-Path (Get-Location).Path "gpu-g4dn-migration.tfplan"
     if (Test-Path -LiteralPath $planPath) { throw "This plan filename already exists. Review it or select a fresh filename instead of overwriting it." }
     if ((Get-FileHash -LiteralPath $retry.InputsPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $retry.InputsHash) { throw "Prepared input file changed." }
 
@@ -128,21 +128,30 @@ values, then requires verification of their concrete values after apply.
 Neither the original 15-create validator nor the subnet-only capacity
 validator is appropriate for this plan.
 
-### If validation reports `enable_fault_injection`
+### Recover from optional task-field validation errors
 
-The ECS fault-injection flag defaults to disabled. A provider replacement
-plan may represent the unset argument as `null` or omit it, while the current
-task definition reports Boolean `false`. The migration validator treats only
-these disabled representations as equivalent. It still rejects enabled,
-malformed or unknown values and checks the live ECS flag before and after
-apply.
+The AWS provider can represent unset IPC/PID modes and the preflight's absent
+task role as empty strings in refreshed state and `null` in a replacement
+plan. The validator compares only missing/null/exact-empty-string forms as
+equivalent for these optional strings. Explicit namespace values remain
+distinct: omitted IPC uses the Docker daemon default and is not treated as
+explicit `none`, `task` or `host`. Live namespace settings are checked too.
 
-If the older validator stopped with `Unexpected task definition field change:
-enable_fault_injection`, pull the updated scripts and rerun Step 3 against the
-existing saved plan. That pre-apply validation error stopped before Terraform
-apply. The validator correction does not modify Terraform configuration or the
-saved plan, so a new plan is not required solely for this fix. If the revised
-check reports another difference, review that difference before proceeding.
+The same scoped treatment applies to typed empty optional blocks and the
+empty `tags` map. Nonempty values, wrong types, `tags_all`, and unrelated
+settings remain subject to the existing checks. When several other fields
+differ, their names are reported together without exposing their values.
+
+The exact v6.73.0 provider also marks `enable_fault_injection` as computed.
+Both Terraform task resources now explicitly set it to `false`, so a fresh
+replacement plan has a known disabled value. Enabled, malformed and unknown
+fault-injection values remain rejected, including live readback.
+
+If the older validator stopped on `enable_fault_injection` or `ipc_mode`,
+that failure happened before apply. Pull the update and rerun Step 2 to create
+the new `gpu-g4dn-migration.tfplan`, then use Steps 3 and 4. Keep the old
+`gpu-g4dn-retry.tfplan` separate: it contains the earlier configuration and
+does not gain the explicit disabled setting when the source files change.
 
 ## 3. Apply the reviewed migration while capacity is zero
 
@@ -160,7 +169,7 @@ revisions. It does not start an instance.
     $retry = .\prepare-gpu-capacity-retry.ps1 -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedImageUri $imageUri -AvailabilityZone us-east-1b -InstanceType g4dn.xlarge -OutputPath ".\gpu-g4dn-retry.tfvars.json"
     if (!$retry.ReadyForPlan -or !$retry.IsInstanceTypeChange) { throw "Expected the prepared instance-type migration before apply." }
 
-    $check = .\confirm-gpu-instance-plan.ps1 -PlanPath ".\gpu-g4dn-retry.tfplan" -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedSubnetId $retry.SubnetId -ExpectedImageUri $imageUri -ExpectedInstanceType g4dn.xlarge
+    $check = .\confirm-gpu-instance-plan.ps1 -PlanPath ".\gpu-g4dn-migration.tfplan" -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedSubnetId $retry.SubnetId -ExpectedImageUri $imageUri -ExpectedInstanceType g4dn.xlarge
     if (!$check.ReadyForApply) { throw "The saved migration plan was not verified." }
     if ((Get-FileHash -LiteralPath $check.PlanPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $check.PlanHash) { throw "Saved plan changed after verification." }
     $workspace = terraform workspace show
@@ -197,7 +206,7 @@ different host.
 
     $subnet = terraform output -raw gpu_smoke_subnet_id
     if ($LASTEXITCODE -ne 0 -or ($subnet -join "").Trim() -notmatch '^subnet-[a-f0-9]{8,17}$') { throw "Cannot read the deployed GPU subnet." }
-    $applied = .\confirm-gpu-instance-plan.ps1 -PlanPath ".\gpu-g4dn-retry.tfplan" -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedSubnetId ($subnet -join "").Trim() -ExpectedImageUri $imageUri -ExpectedInstanceType g4dn.xlarge -VerifyApplied
+    $applied = .\confirm-gpu-instance-plan.ps1 -PlanPath ".\gpu-g4dn-migration.tfplan" -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedSubnetId ($subnet -join "").Trim() -ExpectedImageUri $imageUri -ExpectedInstanceType g4dn.xlarge -VerifyApplied
     if (!$applied.ReadyForSmoke) { throw "The actual G4dn deployment has not been verified." }
 
     .\gpu-smoke.ps1 -ExpectedAccountId 851226124502 -AwsProfile strokesense-admin -ExpectedImageUri $imageUri -ExpectedInstanceType g4dn.xlarge -ApproveCharge -HardStopMinutes 45
@@ -241,6 +250,7 @@ call AWS or start capacity.
 
 - [AWS ECS supported GPU types and task requirements](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-gpu.html)
 - [AWS ECS task registration and the disabled fault-injection default](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_RegisterTaskDefinition.html)
+- [AWS provider v6.73.0 task-definition schema, registration and readback](https://github.com/hashicorp/terraform-provider-aws/blob/v6.73.0/internal/service/ecs/task_definition.go)
 - [AWS On-Demand vCPU quotas](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-on-demand-instances.html)
 - [NVIDIA driver support by EC2 family](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html)
 - [ONNX Runtime CUDA/cuDNN requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)

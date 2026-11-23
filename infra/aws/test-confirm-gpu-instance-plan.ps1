@@ -41,18 +41,26 @@ function New-TaskFixture([string]$Name, [string]$Family) {
     execution_role_arn='arn:aws:iam::851226124502:role/strokesense-aws-dev-batch-execution'
     task_role_arn=$(if ($Name -ceq 'gpu-preflight') { '' } else { 'arn:aws:iam::851226124502:role/strokesense-aws-dev-gpu-worker' })
     container_definitions=(ConvertTo-Json -InputObject @($container) -Depth 20 -Compress)
-    volume=@(); placement_constraints=@(); tags=@{}; tags_all=@{Application='StrokeSense'}
+    volume=@(); placement_constraints=@(); ephemeral_storage=@(); proxy_configuration=@(); runtime_platform=@()
+    tags=@{}; tags_all=@{Application='StrokeSense'}
     skip_destroy=$false; track_latest=$false; pid_mode=''; ipc_mode=''; enable_fault_injection=$false
   }
 }
 function Task-FixtureLive($Value, [string]$Arn) {
   $wrapper = ConvertFrom-Json -InputObject ('{"items":' + $Value.container_definitions + '}')
-  return @{
+  $live = @{
     taskDefinitionArn=$Arn; family=$Value.family; revision=[int](($Arn -split ':')[-1]); status='ACTIVE'
     networkMode=$Value.network_mode; requiresCompatibilities=$Value.requires_compatibilities
-    cpu=$Value.cpu; memory=$Value.memory; executionRoleArn=$Value.execution_role_arn; taskRoleArn=$Value.task_role_arn
+    cpu=$Value.cpu; memory=$Value.memory; executionRoleArn=$Value.execution_role_arn
     containerDefinitions=$wrapper.items; volumes=@(); placementConstraints=@(); enableFaultInjection=$false
   }
+  foreach ($mapping in @(@('ipc_mode','ipcMode'),@('pid_mode','pidMode'),@('task_role_arn','taskRoleArn'))) {
+    $valuePart=$null
+    if ($Value -is [System.Collections.IDictionary]) { $valuePart=$Value[$mapping[0]] }
+    elseif ($Value.PSObject.Properties[$mapping[0]]) { $valuePart=$Value.($mapping[0]) }
+    if ($null -ne $valuePart -and ($valuePart -isnot [string] -or $valuePart -cne '')) { $live[$mapping[1]]=$valuePart }
+  }
+  return $live
 }
 function New-InstanceFixture {
   $bootstrap=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('ECS_ENABLE_GPU_SUPPORT=true'))
@@ -92,9 +100,13 @@ function New-InstanceFixture {
     $wrapper.items[0].resourceRequirements[0].value='1'
     $after.container_definitions=ConvertTo-Json -InputObject $wrapper.items -Depth 20 -Compress
     $after.arn=$null; $after.arn_without_revision=$null; $after.id=$null; $after.revision=$null
-    # Provider replacement plans can omit this optional disabled setting even
-    # when a refresh returned false for the existing task definition.
-    $after.enable_fault_injection=$null
+    # The corrected HCL pins fault injection false. Optional enum/role readback
+    # can still expose empty strings while a replacement plan uses null.
+    $after.enable_fault_injection=$false
+    $after.ipc_mode=$null; $after.pid_mode=$null
+    if ($pair[0] -ceq 'aws_ecs_task_definition.gpu_preflight[0]') { $after.task_role_arn=$null }
+    foreach ($field in @('ephemeral_storage','placement_constraints','proxy_configuration','runtime_platform','volume')) { $after.$field=$null }
+    $after.tags=$null
     $changes+=@{address=$pair[0];mode='managed';change=@{actions=@('delete','create');before=$pair[1];after=$after;after_unknown=@{arn=$true;arn_without_revision=$true;id=$true;revision=$true}}}
   }
   $dependency=@{id='gpu-role';name='gpu-role'}
@@ -144,6 +156,24 @@ function New-InstanceFixture {
 }
 function Find-InstanceChange([string]$Address='aws_autoscaling_group.gpu[0]') {
   return ($global:InstanceWorld.Plan.resource_changes | Where-Object { $_.address -ceq $Address }).change
+}
+function Set-OptionalFixtureValue($Object,[string]$Field,[string]$Representation,[string]$Kind='string') {
+  if ($Representation -ceq 'missing') {
+    if ($Object -is [System.Collections.IDictionary]) { $Object.Remove($Field) }
+    else { $Object.PSObject.Properties.Remove($Field) }
+    return
+  }
+  $value=$null
+  if ($Representation -ceq 'empty') {
+    switch ($Kind) {
+      'string' { $value='' }
+      'array' { $value=@() }
+      'object' { $value=@{} }
+      default { throw 'Unsupported fixture kind.' }
+    }
+  }
+  if ($Object -is [System.Collections.IDictionary]) { $Object[$Field]=$value }
+  else { $Object | Add-Member -NotePropertyName $Field -NotePropertyValue $value -Force }
 }
 function Use-AppliedInstanceFixture {
   $world=$global:InstanceWorld
@@ -273,6 +303,48 @@ try {
       $c.logConfiguration.PSObject.Properties.Remove('secretOptions')
     }
   }
+  foreach ($optionalBefore in @('missing','null','empty')) {
+    foreach ($optionalAfter in @('missing','null','empty')) {
+      Invoke-InstanceCase ("valid-string-default-$optionalBefore-to-$optionalAfter") '' {
+        foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+          $change=Find-InstanceChange $address
+          foreach ($field in @('ipc_mode','pid_mode')) {
+            Set-OptionalFixtureValue $change.before $field $optionalBefore
+            Set-OptionalFixtureValue $change.after $field $optionalAfter
+          }
+          if ($address -ceq 'aws_ecs_task_definition.gpu_preflight[0]') {
+            Set-OptionalFixtureValue $change.before 'task_role_arn' $optionalBefore
+            Set-OptionalFixtureValue $change.after 'task_role_arn' $optionalAfter
+          }
+        }
+      }
+      Invoke-InstanceCase ("valid-collection-default-$optionalBefore-to-$optionalAfter") '' {
+        foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+          $change=Find-InstanceChange $address
+          foreach ($field in @('ephemeral_storage','placement_constraints','proxy_configuration','runtime_platform','volume')) {
+            Set-OptionalFixtureValue $change.before $field $optionalBefore 'array'
+            Set-OptionalFixtureValue $change.after $field $optionalAfter 'array'
+          }
+        }
+      }
+      Invoke-InstanceCase ("valid-tag-default-$optionalBefore-to-$optionalAfter") '' {
+        foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+          $change=Find-InstanceChange $address
+          Set-OptionalFixtureValue $change.before 'tags' $optionalBefore 'object'
+          Set-OptionalFixtureValue $change.after 'tags' $optionalAfter 'object'
+        }
+      }
+    }
+  }
+  foreach ($modeCase in @(@('ipc_mode','ipcMode','none'),@('ipc_mode','ipcMode','task'),@('ipc_mode','ipcMode','host'),@('pid_mode','pidMode','task'),@('pid_mode','pidMode','host'))) {
+    Invoke-InstanceCase ("valid-explicit-$($modeCase[0])-$($modeCase[2])-preserved") '' {
+      foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+        $change=Find-InstanceChange $address
+        $change.before.($modeCase[0])=$modeCase[2]; $change.after.($modeCase[0])=$modeCase[2]
+        $global:InstanceWorld.TaskDefinitions[$change.before.arn][$modeCase[1]]=$modeCase[2]
+      }
+    }
+  }
   foreach ($faultBefore in @('missing','null','false')) {
     foreach ($faultAfter in @('missing','null','false')) {
       Invoke-InstanceCase ("valid-fault-default-$faultBefore-to-$faultAfter") '' {
@@ -303,6 +375,22 @@ try {
     Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
   }
   Invoke-InstanceCase 'applied-valid' '' { Use-AppliedInstanceFixture }
+  Invoke-InstanceCase 'applied-valid-missing-string-defaults' '' {
+    foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+      $change=Find-InstanceChange $address
+      foreach ($field in @('ipc_mode','pid_mode')) { Set-OptionalFixtureValue $change.after $field 'missing' }
+      if ($address -ceq 'aws_ecs_task_definition.gpu_preflight[0]') { Set-OptionalFixtureValue $change.after 'task_role_arn' 'missing' }
+    }
+    Use-AppliedInstanceFixture
+  }
+  Invoke-InstanceCase 'applied-valid-explicit-modes-preserved' '' {
+    foreach ($address in @('aws_ecs_task_definition.gpu_preflight[0]','aws_ecs_task_definition.gpu[0]')) {
+      $change=Find-InstanceChange $address
+      $change.before.ipc_mode='none'; $change.after.ipc_mode='none'
+      $change.before.pid_mode='task'; $change.after.pid_mode='task'
+    }
+    Use-AppliedInstanceFixture
+  }
   Invoke-InstanceCase 'applied-valid-fault-default-missing' '' {
     Use-AppliedInstanceFixture
     foreach ($task in $global:InstanceWorld.TaskDefinitions.Values) { $task.Remove('enableFaultInjection') }
@@ -349,6 +437,44 @@ try {
   Invoke-InstanceCase 'task-not-replaced' 'exactly four' { (Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').actions=@('no-op');(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after=(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').before;(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after_unknown=@{} }
   Invoke-InstanceCase 'task-memory-change' 'Unexpected task definition field' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.memory='16384' }
   Invoke-InstanceCase 'task-role-change' 'Unexpected task definition field' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.task_role_arn='arn:aws:iam::851226124502:role/admin' }
+  Invoke-InstanceCase 'task-ipc-unset-to-host' 'Unexpected task definition field change: ipc_mode' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.ipc_mode='host' }
+  Invoke-InstanceCase 'task-ipc-none-to-unset' 'Unexpected task definition field change: ipc_mode' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').before.ipc_mode='none' }
+  Invoke-InstanceCase 'task-pid-unset-to-task' 'Unexpected task definition field change: pid_mode' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.pid_mode='task' }
+  Invoke-InstanceCase 'worker-role-removed' 'Unexpected task definition field change: task_role_arn' { (Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after.task_role_arn=$null }
+  Invoke-InstanceCase 'preflight-role-present-unchanged' 'Preflight must not carry' {
+    $change=Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]'
+    $change.before.task_role_arn='arn:aws:iam::851226124502:role/admin'; $change.after.task_role_arn=$change.before.task_role_arn
+  }
+  foreach ($modeField in @('ipc_mode','pid_mode')) {
+    Invoke-InstanceCase ("task-invalid-$modeField-unchanged") $modeField {
+      $change=Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]'
+      $change.before.$modeField='invalid'; $change.after.$modeField='invalid'
+    }
+    Invoke-InstanceCase ("task-unknown-$modeField") 'Unknown task definition safety' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after_unknown[$modeField]=$true }
+  }
+  Invoke-InstanceCase 'task-ipc-boolean-false' 'Task definition ipc_mode must be a string or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.ipc_mode=$false }
+  Invoke-InstanceCase 'task-ipc-number-zero' 'Task definition ipc_mode must be a string or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.ipc_mode=0 }
+  Invoke-InstanceCase 'task-pid-empty-array' 'Task definition pid_mode must be a string or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.pid_mode=@() }
+  Invoke-InstanceCase 'task-pid-empty-object' 'Task definition pid_mode must be a string or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.pid_mode=@{} }
+  Invoke-InstanceCase 'task-role-boolean-false' 'Task definition task_role_arn must be a string or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.task_role_arn=$false }
+  Invoke-InstanceCase 'task-role-empty-array' 'Task definition task_role_arn must be a string or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.task_role_arn=@() }
+  foreach ($blockField in @('ephemeral_storage','placement_constraints','proxy_configuration','runtime_platform','volume')) {
+    Invoke-InstanceCase ("task-$blockField-added") ("Unexpected task definition field change: $blockField") {
+      (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.$blockField=@(@{name='unexpected'})
+    }
+  }
+  Invoke-InstanceCase 'task-block-object-instead-of-array' 'Task definition runtime_platform must be an array or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.runtime_platform=@{} }
+  Invoke-InstanceCase 'task-block-empty-string' 'Task definition ephemeral_storage must be an array or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.ephemeral_storage='' }
+  Invoke-InstanceCase 'task-block-false' 'Task definition proxy_configuration must be an array or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.proxy_configuration=$false }
+  Invoke-InstanceCase 'task-block-null-item' 'Task definition volume contains a malformed block.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.volume=@($null) }
+  Invoke-InstanceCase 'task-block-string-item' 'Task definition placement_constraints contains a malformed block.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.placement_constraints=@('') }
+  Invoke-InstanceCase 'task-tag-added' 'Unexpected task definition field change: tags' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.tags=@{Unexpected='changed'} }
+  Invoke-InstanceCase 'task-tag-array' 'Task definition tags must be an object or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.tags=@() }
+  Invoke-InstanceCase 'task-tag-string' 'Task definition tags must be an object or unset.' { (Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]').after.tags='' }
+  Invoke-InstanceCase 'task-multiple-unrelated-fields-reported' 'Unexpected task definition field change: memory, network_mode' {
+    $change=Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]'
+    $change.after.memory='16384'; $change.after.network_mode='host'
+  }
   Invoke-InstanceCase 'task-fault-enabled-before' 'Fault injection' {
     $change=Find-InstanceChange 'aws_ecs_task_definition.gpu_preflight[0]'
     $change.before.enable_fault_injection=$true; $change.after.enable_fault_injection=$false
@@ -385,6 +511,43 @@ try {
   Invoke-InstanceCase 'live-template-string-public-ip' 'Live launch-template networking' { $global:InstanceWorld.Template.LaunchTemplateData.NetworkInterfaces[0].AssociatePublicIpAddress='true' }
   Invoke-InstanceCase 'live-template-root-encryption' 'Live root disk' { $global:InstanceWorld.Template.LaunchTemplateData.BlockDeviceMappings[0].Ebs.Encrypted=$false }
   Invoke-InstanceCase 'live-template-string-root-encryption' 'Live root disk' { $global:InstanceWorld.Template.LaunchTemplateData.BlockDeviceMappings[0].Ebs.Encrypted='true' }
+  foreach ($liveStage in @('before','applied')) {
+    foreach ($liveDefault in @('null','empty')) {
+      Invoke-InstanceCase ("$liveStage-live-string-default-$liveDefault") '' {
+        if ($liveStage -ceq 'applied') { Use-AppliedInstanceFixture }
+        foreach ($task in $global:InstanceWorld.TaskDefinitions.Values) {
+          foreach ($field in @('ipcMode','pidMode')) { Set-OptionalFixtureValue $task $field $liveDefault }
+        }
+        $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+        Set-OptionalFixtureValue $global:InstanceWorld.TaskDefinitions[$arn] 'taskRoleArn' $liveDefault
+      }
+    }
+    Invoke-InstanceCase ("$liveStage-live-ipc-host") 'Live task differs from the saved plan: ipcMode' {
+      if ($liveStage -ceq 'applied') { Use-AppliedInstanceFixture }
+      $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+      $global:InstanceWorld.TaskDefinitions[$arn].ipcMode='host'
+    }
+    Invoke-InstanceCase ("$liveStage-live-pid-task") 'Live task differs from the saved plan: pidMode' {
+      if ($liveStage -ceq 'applied') { Use-AppliedInstanceFixture }
+      $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+      $global:InstanceWorld.TaskDefinitions[$arn].pidMode='task'
+    }
+    Invoke-InstanceCase ("$liveStage-live-ipc-malformed") 'must be a string or unset.' {
+      if ($liveStage -ceq 'applied') { Use-AppliedInstanceFixture }
+      $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+      $global:InstanceWorld.TaskDefinitions[$arn].ipcMode=$false
+    }
+    Invoke-InstanceCase ("$liveStage-live-preflight-role-added") 'Live task differs from the saved plan: taskRoleArn' {
+      if ($liveStage -ceq 'applied') { Use-AppliedInstanceFixture }
+      $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
+      $global:InstanceWorld.TaskDefinitions[$arn].taskRoleArn='arn:aws:iam::851226124502:role/admin'
+    }
+    Invoke-InstanceCase ("$liveStage-live-worker-role-removed") 'Live task differs from the saved plan: taskRoleArn' {
+      if ($liveStage -ceq 'applied') { Use-AppliedInstanceFixture }
+      $arn=if ($liveStage -ceq 'applied') { $global:InstanceWorld.Outputs.gpu_smoke_worker_task_definition.value } else { (Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').before.arn }
+      $global:InstanceWorld.TaskDefinitions[$arn].Remove('taskRoleArn')
+    }
+  }
   Invoke-InstanceCase 'live-task-fault-enabled' 'Fault injection' {
     $arn=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value
     $global:InstanceWorld.TaskDefinitions[$arn].enableFaultInjection=$true

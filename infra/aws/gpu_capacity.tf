@@ -323,6 +323,8 @@ resource "aws_ecs_task_definition" "gpu" {
   memory                   = "8192"
   execution_role_arn       = aws_iam_role.batch_execution.arn
   task_role_arn            = aws_iam_role.gpu_worker[0].arn
+  # Pin the optional/computed flag so replacement plans retain a known value.
+  enable_fault_injection = false
 
   container_definitions = jsonencode([
     {
@@ -409,6 +411,7 @@ resource "aws_ecs_task_definition" "gpu_preflight" {
   cpu                      = "2048"
   memory                   = "8192"
   execution_role_arn       = aws_iam_role.batch_execution.arn
+  enable_fault_injection   = false
 
   container_definitions = jsonencode([
     {

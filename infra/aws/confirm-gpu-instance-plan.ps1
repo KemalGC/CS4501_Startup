@@ -108,10 +108,12 @@ function Test-InstanceUnknown($Value) {
 function Assert-InstanceUnchanged($Before, $After, [string[]]$Allowed, [string]$Label) {
   if ($Before -isnot [pscustomobject] -or $After -isnot [pscustomobject]) { throw "$Label requires existing before/after objects." }
   $names = @(@($Before.PSObject.Properties | ForEach-Object { $_.Name }) + @($After.PSObject.Properties | ForEach-Object { $_.Name }) | Sort-Object -Unique)
+  $differences = New-Object System.Collections.ArrayList
   foreach ($name in $names) {
     if ($name -cin $Allowed) { continue }
-    if (!(Compare-InstanceValue (Read-InstanceField $Before $name) (Read-InstanceField $After $name))) { throw "Unexpected $Label field change: $name" }
+    if (!(Compare-InstanceValue (Read-InstanceField $Before $name) (Read-InstanceField $After $name))) { [void]$differences.Add($name) }
   }
+  if ($differences.Count -ne 0) { throw "Unexpected $Label field change: $($differences -join ', ')" }
 }
 function Assert-InstanceZero($Value, [string[]]$Fields) {
   foreach ($name in $Fields) {
@@ -198,12 +200,50 @@ function Assert-InstanceFaultInjectionDisabled($Task, [string]$Field) {
     throw 'Fault injection must remain disabled in each reviewed GPU task definition.'
   }
 }
+function Read-InstanceOptionalTaskString($Task, [string]$Field, [string]$SchemaField) {
+  $value = Read-InstanceField $Task $Field
+  if ($null -eq $value) { return '' }
+  if ($value -isnot [string]) { throw "Task definition $SchemaField must be a string or unset." }
+  if ($value -cne '') {
+    if (($SchemaField -ceq 'ipc_mode' -and $value -cnotin @('host','task','none')) -or
+        ($SchemaField -ceq 'pid_mode' -and $value -cnotin @('host','task'))) {
+      throw "Task definition $SchemaField has an unsupported value."
+    }
+  }
+  return $value
+}
+function Convert-InstanceTaskDefaults($Task) {
+  if ($Task -isnot [pscustomobject]) { throw 'Task definition requires an existing object.' }
+  $result = Convert-InstanceCanonical $Task
+  # These optional strings are sent only when nonempty by the AWS provider.
+  # Namespace enum readback can be empty while an unset replacement is null.
+  # Explicit IPC "none" is NOT the same as omission (Docker daemon default).
+  # https://github.com/hashicorp/terraform-provider-aws/blob/v6.73.0/internal/service/ecs/task_definition.go
+  foreach ($name in @('ipc_mode','pid_mode','task_role_arn')) {
+    $value = Read-InstanceOptionalTaskString $Task $name $name
+    if ($value -ceq '') { $result.Remove($name) }
+  }
+  foreach ($name in @('ephemeral_storage','placement_constraints','proxy_configuration','runtime_platform','volume')) {
+    $value = Read-InstanceField $Task $name
+    if ($null -eq $value) { $result.Remove($name); continue }
+    if ($value -isnot [array]) { throw "Task definition $name must be an array or unset." }
+    if ($value.Count -eq 0) { $result.Remove($name); continue }
+    foreach ($block in $value) {
+      if ($block -isnot [pscustomobject]) { throw "Task definition $name contains a malformed block." }
+    }
+  }
+  $tags = Read-InstanceField $Task 'tags'
+  if ($null -eq $tags) { $result.Remove('tags') }
+  elseif ($tags -isnot [pscustomobject]) { throw 'Task definition tags must be an object or unset.' }
+  elseif (@($tags.PSObject.Properties).Count -eq 0) { $result.Remove('tags') }
+  return [pscustomobject]$result
+}
 function Assert-InstanceTaskPlan($Entry, [string]$ContainerName) {
   if (($Entry.change.actions -join ',') -cnotin @('delete,create','create,delete')) { throw 'Both GPU task definitions must register replacement revisions.' }
   $before = $Entry.change.before; $after = $Entry.change.after
   Assert-InstanceFaultInjectionDisabled $before 'enable_fault_injection'
   Assert-InstanceFaultInjectionDisabled $after 'enable_fault_injection'
-  Assert-InstanceUnchanged $before $after @('arn','arn_without_revision','id','revision','container_definitions','enable_fault_injection') 'task definition'
+  Assert-InstanceUnchanged (Convert-InstanceTaskDefaults $before) (Convert-InstanceTaskDefaults $after) @('arn','arn_without_revision','id','revision','container_definitions','enable_fault_injection') 'task definition'
   Assert-InstanceUnknownFields (Read-InstanceField $Entry.change 'after_unknown') @('arn','arn_without_revision','id','revision') 'task definition'
   if ($before.network_mode -cne 'awsvpc' -or !(Compare-InstanceValue $before.requires_compatibilities @('EC2')) -or
       [string]$before.cpu -cne '2048' -or [string]$before.memory -cne '8192') { throw 'Task CPU, memory or EC2 networking differs from the reviewed smoke.' }
@@ -222,10 +262,15 @@ function Assert-InstanceLiveTask([string]$Arn, $Value, [string]$ContainerName, [
   $task = Read-InstanceField (Read-InstanceAws @('ecs','describe-task-definition','--task-definition',$Arn)) 'taskDefinition'
   if ((Read-InstanceField $task 'taskDefinitionArn') -cne $Arn -or (Read-InstanceField $task 'status') -cne 'ACTIVE') { throw 'The reviewed task revision is not active or its identity differs.' }
   Assert-InstanceFaultInjectionDisabled $task 'enableFaultInjection'
-  foreach ($mapping in @(@('family','family'),@('network_mode','networkMode'),@('cpu','cpu'),@('memory','memory'),@('execution_role_arn','executionRoleArn'),@('task_role_arn','taskRoleArn'))) {
+  foreach ($mapping in @(@('family','family'),@('network_mode','networkMode'),@('cpu','cpu'),@('memory','memory'),@('execution_role_arn','executionRoleArn'))) {
     $wanted = Read-InstanceField $Value $mapping[0]
     $actual = Read-InstanceField $task $mapping[1]
     if ([string]$wanted -cne [string]$actual) { throw "Live task differs from the saved plan: $($mapping[1])" }
+  }
+  foreach ($mapping in @(@('ipc_mode','ipcMode'),@('pid_mode','pidMode'),@('task_role_arn','taskRoleArn'))) {
+    $wanted = Read-InstanceOptionalTaskString $Value $mapping[0] $mapping[0]
+    $actual = Read-InstanceOptionalTaskString $task $mapping[1] $mapping[0]
+    if ($wanted -cne $actual) { throw "Live task differs from the saved plan: $($mapping[1])" }
   }
   if (!(Compare-InstanceValue (Read-InstanceField $task 'requiresCompatibilities') @('EC2'))) { throw 'Live task must require EC2.' }
   $actualContainers = Read-InstanceList $task 'containerDefinitions' 'Live task'

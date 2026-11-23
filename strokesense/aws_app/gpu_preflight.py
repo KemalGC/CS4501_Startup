@@ -93,6 +93,8 @@ def _failure_record(error: GpuPreflightError, default_stage: str,
             record[key] = context[key]
     if isinstance(context.get("available_providers"), (list, tuple)):
         record["available_providers"] = [_diagnostic_text(v, 80) for v in context["available_providers"][:8]]
+    if isinstance(context.get("cpu_ops"), list):
+        record["cpu_ops"] = [_diagnostic_text(op, 80) for op in context["cpu_ops"][:10]]
     if verified_model_sha256 and re.fullmatch(r"[a-f0-9]{64}", verified_model_sha256):
         record["model_sha256_verified"] = verified_model_sha256
     return record
@@ -223,7 +225,8 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
             session.disable_fallback()
     except GpuPreflightError as exc:
         exc.stage = stage
-        exc.diagnostics = _runtime_failure_context(ort, available, total, free, run)
+        exc.diagnostics = {**_runtime_failure_context(ort, available, total, free, run),
+                           **exc.diagnostics}
         raise
     except Exception as exc:
         raise GpuPreflightError("cuda_session_initialization_failed", stage=stage,

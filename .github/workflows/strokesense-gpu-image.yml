@@ -28,6 +28,8 @@ jobs:
     env:
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+      # Retain the reviewed 12.6.3/cuDNN 9 base. The exact ORT 1.21.1 Linux
+      # wheel reports CUDA 12.2; native-library linkage is checked in the build.
       CUDA_BASE_IMAGE: nvidia/cuda@sha256:5f0d2d827f6436b3cb7468fd8acbdc8c1d41261614e579ae49afe6141da51133
     defaults:
       run:
@@ -63,6 +65,7 @@ jobs:
           from pathlib import Path
           import onnxruntime as ort
           from aws_app.gpu_model_integrity import verify_gpu_model
+          from aws_app.gpu_model_compatibility import validate_model_compatibility
           from aws_app.gpu_preflight import GpuPreflightError, validate_gpu_runtime
 
           assert os.geteuid() == 10001, "worker must run as the non-root UID"
@@ -77,6 +80,10 @@ jobs:
           assert "CUDAExecutionProvider" in ort.get_available_providers()
           model = Path("/app/models/yolo11n-pose.onnx")
           verify_gpu_model(model)
+          compatibility = validate_model_compatibility(model, check_cuda_libraries=True)
+          assert compatibility["provider"] == "CPUExecutionProvider"
+          assert compatibility["gpu_inference_verified"] is False
+          print("Pinned model loads and produces finite outputs on CPU; CUDA remains unverified.")
           try:
               validate_gpu_runtime(model)
           except GpuPreflightError as exc:
@@ -115,9 +122,11 @@ jobs:
           import hashlib
           import json
           import os
+          import re
           from datetime import datetime, timezone
           from pathlib import Path
           import subprocess
+          import tarfile
 
           folder = Path(os.environ["RUNNER_TEMP"]) / "strokesense-gpu-artifact"
           archive = folder / "strokesense-gpu-image.tar.gz"
@@ -131,6 +140,40 @@ jobs:
           assert image_platform == "linux/amd64", image_platform
           assert image["Config"]["User"] == "10001:10001"
           assert image["Config"]["Labels"]["org.opencontainers.image.revision"] == os.environ["SOURCE_SHA"]
+          # Capture exact OCI descriptors for the existing resumable ECR API
+          # publisher. Archive hashes, image indexes, configs and the amd64
+          # registry manifest have distinct meanings; never substitute one.
+          small_blobs = {}
+          with tarfile.open(archive, mode="r|gz") as image_tar:
+              for entry in image_tar:
+                  match = re.fullmatch(r"(?:\./)?blobs/sha256/([a-f0-9]{64})", entry.name)
+                  if not match or not entry.isfile() or entry.size > 2 * 1024 * 1024:
+                      continue
+                  blob = image_tar.extractfile(entry).read()
+                  blob_digest = "sha256:" + hashlib.sha256(blob).hexdigest()
+                  assert blob_digest == "sha256:" + match[1], "OCI descriptor checksum mismatch"
+                  assert blob_digest not in small_blobs, "Duplicate OCI descriptor"
+                  small_blobs[blob_digest] = blob
+          image_index = json.loads(small_blobs[image["Id"]])
+          assert image_index["schemaVersion"] == 2
+          assert image_index["mediaType"] == "application/vnd.oci.image.index.v1+json"
+          platform_descriptors = [entry for entry in image_index["manifests"]
+                                  if entry.get("platform", {}).get("os") == "linux"
+                                  and entry.get("platform", {}).get("architecture") == "amd64"]
+          assert len(platform_descriptors) == 1, "Expected exactly one linux/amd64 manifest"
+          registry_digest = platform_descriptors[0]["digest"]
+          registry_bytes = small_blobs[registry_digest]
+          assert len(registry_bytes) == platform_descriptors[0]["size"]
+          registry_manifest = json.loads(registry_bytes)
+          assert registry_manifest["schemaVersion"] == 2
+          assert registry_manifest["mediaType"] == "application/vnd.oci.image.manifest.v1+json"
+          config_digest = registry_manifest["config"]["digest"]
+          config_bytes = small_blobs[config_digest]
+          assert len(config_bytes) == registry_manifest["config"]["size"]
+          config = json.loads(config_bytes)
+          assert config["os"] == "linux" and config["architecture"] == "amd64"
+          assert config["config"]["User"] == "10001:10001"
+          assert config["config"]["Labels"]["org.opencontainers.image.revision"] == os.environ["SOURCE_SHA"]
           manifest = {
               "schema_version": 1,
               "source_repository": os.environ["SOURCE_URL"],
@@ -138,6 +181,10 @@ jobs:
               "base_image": os.environ["CUDA_BASE_IMAGE"],
               "image_tag": os.environ["GPU_IMAGE"],
               "image_id": image["Id"],
+              "oci_index_digest": image["Id"],
+              "registry_manifest_digest": registry_digest,
+              "registry_config_digest": config_digest,
+              "ecr_image_tag": "gpu-" + os.environ["SOURCE_SHA"][:7] + "-" + os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"],
               "platform": image_platform,
               "archive_file": archive.name,
               "archive_sha256": digest.hexdigest(),
@@ -147,6 +194,10 @@ jobs:
               "validation": {
                   "gpu_unit_tests": "passed_with_mocked_hardware",
                   "runtime_package_and_model_checks": "passed",
+                  "cpu_model_compatibility": "pinned_model_loaded_and_finite_outputs",
+                  "cuda_provider_library_linkage": "passed_without_initializing_hardware",
+                  "onnxruntime_gpu_version": "1.21.1",
+                  "onnxruntime_cuda_build": "12.2",
                   "cpu_host_preflight": "nvidia_driver_unavailable_as_expected",
                   "default_worker": "gpu_worker_disabled_as_expected",
                   "real_gpu_inference_verified": False,
@@ -154,9 +205,12 @@ jobs:
                   "published_to_ecr": False,
               },
           }
-          (folder / "image-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-          (folder / "SHA256SUMS").write_text(digest.hexdigest() + "  " + archive.name + "\n", encoding="ascii")
+          metadata_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+          (folder / "image-manifest.json").write_bytes(metadata_bytes)
+          metadata_sha256 = hashlib.sha256(metadata_bytes).hexdigest()
+          (folder / "SHA256SUMS").write_text(digest.hexdigest() + "  " + archive.name + "\n" + metadata_sha256 + "  image-manifest.json\n", encoding="ascii")
           print(json.dumps(manifest, indent=2))
+          print("IMAGE_MANIFEST_SHA256=" + metadata_sha256)
           PY
 
       - name: Upload the tested image for local publication
@@ -184,8 +238,8 @@ jobs:
           - [Download the tested image]({os.environ['IMAGE_ARTIFACT_URL']}); expires after three days.
           - Verify the archive with `SHA256SUMS` or `image-manifest.json`, then load it with `docker load --input strokesense-gpu-image.tar.gz`.
           - Publish that loaded image using authorized local ECR credentials, then obtain the registry digest from ECR.
-          - The archive hash and Docker image ID are **not** the ECR manifest digest. This workflow cannot supply a new Terraform image URI.
-          - CUDA provider availability and mocked unit tests passed; the CPU host correctly rejected real preflight because no NVIDIA driver is available.
+          - `image-manifest.json` includes the exact OCI index, amd64 registry manifest and config digests for `publish-gpu-artifact.ps1`. ECR must independently confirm publication before a Terraform image URI is accepted.
+          - Native CUDA provider library loading, actual pinned-model CPU inference and mocked unit tests passed; the CPU host correctly rejected real GPU preflight because no NVIDIA driver is available.
           - An AWS hardware smoke test and vulnerability review remain required. This workflow launched no GPU instances and performed no ECR push.
           """
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:

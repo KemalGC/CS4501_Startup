@@ -1,14 +1,17 @@
 """Paid membership and GPU preflight preparation, no hardware or AWS calls."""
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from aws_app.core import ApiError, AwsBackend, Settings, _item
-from aws_app.gpu_preflight import GpuPreflightError, WARMUP_RUNS, validate_gpu_runtime
+from aws_app.gpu_preflight import GpuPreflightError, WARMUP_RUNS, _failure_record, main, validate_gpu_runtime
 from aws_app.paid_access import evaluate_paid_membership, require_paid_membership
 from aws_app.test_backend import FakeS3, FakeBatch, MemoryDynamo
 
@@ -255,6 +258,122 @@ class GpuRuntimePreparationTests(unittest.TestCase):
         with self.assertRaises(GpuPreflightError) as err:
             validate_gpu_runtime(Path(self.temp.name) / "missing.onnx", run=self.nvidia_memory())
         self.assertEqual(str(err.exception), "model_not_found")
+
+    def failed_main_record(self, failure):
+        output = io.StringIO()
+        with patch("sys.argv", ["gpu_preflight", "--model", str(self.model)]), \
+             patch("aws_app.gpu_model_integrity.verify_gpu_model"), \
+             patch("aws_app.gpu_preflight.validate_gpu_runtime", side_effect=failure), \
+             redirect_stdout(output), self.assertLogs("aws_app.gpu_preflight", level="ERROR"):
+            self.assertEqual(main(), 2)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("STROKESENSE_GPU_PREFLIGHT_FAILURE "))
+        self.assertFalse(lines[0].startswith("STROKESENSE_GPU_PREFLIGHT "))
+        return json.loads(lines[0].split(" ", 1)[1])
+
+    def test_unsupported_opset_cause_is_reported_without_allowing_cpu_fallback(self):
+        class UnsupportedOpset(RuntimeError):
+            pass
+
+        ort = self.ort(["CUDAExecutionProvider", "CPUExecutionProvider"], ["CUDAExecutionProvider"])
+        options = SimpleNamespace(add_session_config_entry=Mock())
+        ort.SessionOptions = lambda: options
+        ort.InferenceSession = Mock(side_effect=UnsupportedOpset(
+            f"Load model from {self.model} failed: Opset 22 is under development; "
+            "current official support is till opset 21."
+        ))
+        with self.assertRaises(GpuPreflightError) as caught:
+            validate_gpu_runtime(self.model, run=self.nvidia_memory(), import_module=lambda _n: ort)
+        self.assertEqual(str(caught.exception), "cuda_session_initialization_failed")
+        options.add_session_config_entry.assert_called_once_with("session.disable_cpu_ep_fallback", "1")
+        ort.InferenceSession.assert_called_once_with(str(self.model), options, providers=["CUDAExecutionProvider"])
+        record = self.failed_main_record(caught.exception)
+        self.assertEqual(record["stage"], "session_creation")
+        self.assertEqual(record["causes"][0]["exception_type"], "UnsupportedOpset")
+        self.assertIn("Opset 22", record["causes"][0]["message"])
+        self.assertIn("opset 21", record["causes"][0]["message"])
+        self.assertNotIn(str(self.model), json.dumps(record))
+        self.assertEqual(record["onnxruntime_version"], "1.20.2")
+        self.assertEqual(record["available_providers"], ["CUDAExecutionProvider", "CPUExecutionProvider"])
+        self.assertEqual(record["gpu_memory_total_mib"], 3072)
+        self.assertEqual(record["model_sha256_verified"], "93e2866b0ce678f99b4dd88af0c12e9ea2edf079a361dc2ecbc6226b77ff6408")
+
+    def test_import_and_inference_failures_keep_their_distinct_stage_and_cause(self):
+        def missing_package(_name):
+            raise ImportError("libcudnn.so.9: cannot open shared object file")
+
+        with self.assertRaises(GpuPreflightError) as imported:
+            validate_gpu_runtime(self.model, run=self.nvidia_memory(), import_module=missing_package)
+        record = self.failed_main_record(imported.exception)
+        self.assertEqual(record["stage"], "onnxruntime_import")
+        self.assertEqual(record["causes"][0]["exception_type"], "ImportError")
+        self.assertIn("libcudnn.so.9", record["causes"][0]["message"])
+
+        ort = self.ort(["CUDAExecutionProvider"], ["CUDAExecutionProvider"],
+                       run=Mock(side_effect=RuntimeError("CUDNN_STATUS_EXECUTION_FAILED")))
+        with self.assertRaises(GpuPreflightError) as inference:
+            validate_gpu_runtime(self.model, run=self.nvidia_memory(), import_module=lambda _n: ort)
+        record = self.failed_main_record(inference.exception)
+        self.assertEqual(record["error"], "cuda_inference_failed")
+        self.assertEqual(record["stage"], "synthetic_inference")
+        self.assertIn("CUDNN_STATUS_EXECUTION_FAILED", record["causes"][0]["message"])
+
+    def test_failure_details_are_bounded_and_redact_paths_credentials_and_controls(self):
+        sensitive = (
+            "token=sampleSecret password='two word secret' AKIA1234567890ABCDEF "
+            "Bearer sampleBearer https://user:password@example.org/video?token=private "
+            "'GOOGLE_OAUTH_CLIENT_SECRET': 'oauthSecret' Basic sampleBasic "
+            "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.signature "
+            r"C:\Users\kemal\private.mp4 /uploads/private/video.mp4 /usr/lib/libcudnn.so.9 "
+            "\x1b[31mCUDA 12.6 cuDNN 9\x00\n" + "z" * 5000
+        )
+        error = GpuPreflightError("cuda_session_initialization_failed", stage="session_creation")
+        error.__cause__ = RuntimeError(sensitive)
+        record = self.failed_main_record(error)
+        detail = record["causes"][0]["message"]
+        self.assertLessEqual(len(detail), 1024)
+        for removed in ("sampleSecret", "two word secret", "AKIA1234567890ABCDEF", "sampleBearer",
+                        "example.org", "oauthSecret", "sampleBasic", "eyJhbGci", "kemal", "private.mp4", "video.mp4", "\x1b", "\x00", "\n"):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, detail)
+        self.assertIn("libcudnn.so.9", detail)
+        self.assertIn("CUDA 12.6 cuDNN 9", detail)
+
+    def test_diagnostic_chains_are_cycle_safe_and_unprintable_causes_do_not_mask_failure(self):
+        class BadDetail(RuntimeError):
+            def __str__(self):
+                raise ValueError("broken exception formatter")
+
+        error = GpuPreflightError("cuda_session_initialization_failed", stage="session_creation")
+        first, second = BadDetail(), RuntimeError("CUDA error 35")
+        first.__cause__ = second
+        second.__cause__ = first
+        error.__cause__ = first
+        record = self.failed_main_record(error)
+        self.assertEqual(len(record["causes"]), 2)
+        self.assertEqual(record["causes"][0]["message"], "<exception detail unavailable>")
+        self.assertIn("CUDA error 35", record["causes"][1]["message"])
+        for _ in range(10):
+            cause = RuntimeError("extra cause")
+            cause.__cause__ = error.__cause__
+            error.__cause__ = cause
+        self.assertEqual(len(_failure_record(error, "gpu_runtime")["causes"]), 3)
+
+    def test_unexpected_runtime_exception_is_reported_and_still_exits_two(self):
+        record = self.failed_main_record(RuntimeError("unexpected runtime error token=privateValue"))
+        self.assertEqual(record["error"], "preflight_unexpected_failure")
+        self.assertEqual(record["stage"], "gpu_runtime")
+        self.assertNotIn("privateValue", json.dumps(record))
+
+    def test_closed_diagnostic_output_does_not_change_the_failure_result(self):
+        failure = GpuPreflightError("cuda_session_initialization_failed", stage="session_creation")
+        with patch("sys.argv", ["gpu_preflight", "--model", str(self.model)]), \
+             patch("aws_app.gpu_model_integrity.verify_gpu_model"), \
+             patch("aws_app.gpu_preflight.validate_gpu_runtime", side_effect=failure), \
+             patch("builtins.print", side_effect=BrokenPipeError("closed log pipe")), \
+             self.assertLogs("aws_app.gpu_preflight", level="ERROR"):
+            self.assertEqual(main(), 2)
 
 
 if __name__ == "__main__":

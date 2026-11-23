@@ -3,6 +3,12 @@
 This supersedes the 2C permanent-disable note for an isolated manual NVIDIA
 preflight. Paid Deep Analysis remains disabled, and PR #163 remains a DRAFT.
 
+**Latest G4dn failure:** the verified model declares ONNX opset 22, while the
+published runtime 1.20.2 supports 21. Follow [GPU runtime repair](GPU_RUNTIME_REPAIR.md)
+for the 1.21.1 image build and a fresh image-only update on the existing idle
+G4dn deployment. Earlier publication/bootstrap examples below select historical
+images and are not the repair procedure for that failure.
+
 **Existing deployment: insufficient instance capacity.** If the one-instance
 test reports no `g6f.xlarge` capacity in `us-east-1a`, use
 [GPU capacity recovery](GPU_CAPACITY_RETRY.md). The initial 15-resource apply

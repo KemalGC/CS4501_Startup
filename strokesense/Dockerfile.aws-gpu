@@ -1,5 +1,5 @@
 # GPU prototype, does not launch AWS compute or enable paid billing.
-# Supply an operator-reviewed CUDA 12.x / cuDNN 9 image PINNED BY SHA256 digest, e.g.
+# Supply the reviewed CUDA 12.6.3 / cuDNN 9 image PINNED BY SHA256 digest, e.g.
 #   docker build --platform linux/amd64 -f Dockerfile.aws-gpu \
 #     --build-arg CUDA_BASE_IMAGE=nvidia/cuda@sha256:<digest> -t strokesense-aws-gpu:gpu-smoke-<ts> .
 # from the strokesense/ directory.
@@ -33,7 +33,9 @@ RUN python3 -c "from strokesense.pose import ensure_model; from aws_app.gpu_mode
 RUN if command -v ffmpeg >/dev/null; then echo "distro ffmpeg must not be installed" >&2; exit 1; fi \
     && python3 -c "import subprocess, tempfile, os; from strokesense.render import _ffmpeg; exe = _ffmpeg(); assert exe and 'imageio_ffmpeg' in exe, exe; out = os.path.join(tempfile.mkdtemp(), 'h264.mp4'); subprocess.run([exe, '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out], check=True); assert os.path.getsize(out) > 0; print('render encoder OK', exe)"
 USER 10001:10001
-# Confirm the non-root worker can read and re-verify the pinned weights.
-RUN python3 -c "from strokesense.pose import ensure_model; from aws_app.gpu_model_integrity import verify_gpu_model; verify_gpu_model(ensure_model()); print('GPU model verified for worker user')"
+# Load and run the real pinned model with the GPU wheel's explicit CPU provider.
+# This catches unsupported ONNX opsets during the build, including on hosts
+# without NVIDIA hardware. It does not satisfy the separate CUDA smoke gate.
+RUN python3 -m aws_app.gpu_model_compatibility --model /app/models/yolo11n-pose.onnx --check-cuda-libraries
 # Worker fails closed until ECS injects STROKESENSE_PAID_GPU_WORKER_ENABLED=true
 CMD ["python3", "-m", "aws_app.gpu_worker"]

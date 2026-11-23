@@ -1,4 +1,5 @@
-# Read-only gate for the existing G6f -> G4dn migration. Verify the saved plan
+# Read-only gate for the existing G6f -> G4dn migration or an explicit image
+# update on the already migrated, idle G4dn deployment. Verify the saved plan
 # before apply, then use -VerifyApplied to check concrete AWS revisions before
 # the separately invoked, charged smoke. This script never changes AWS/state.
 [CmdletBinding()]
@@ -7,6 +8,8 @@ param(
   [Parameter(Mandatory=$true)][string]$ExpectedAccountId,
   [Parameter(Mandatory=$true)][string]$ExpectedSubnetId,
   [Parameter(Mandatory=$true)][string]$ExpectedImageUri,
+  [ValidateSet('InstanceType','Image')][string]$ChangeKind = 'InstanceType',
+  [string]$ExpectedPreviousImageUri,
   [ValidateSet('g4dn.xlarge')][string]$ExpectedInstanceType = 'g4dn.xlarge',
   [string]$AwsProfile = 'strokesense-admin',
   [switch]$VerifyApplied
@@ -14,6 +17,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $region = 'us-east-1'
+$imageOnly = $ChangeKind -ceq 'Image'
+$beforeImageUri = $ExpectedImageUri
+$beforeGpuUnits = '0.125'
+$beforeInstanceType = 'g6f.xlarge'
 $asgAddress = 'aws_autoscaling_group.gpu[0]'
 $templateAddress = 'aws_launch_template.gpu[0]'
 $preflightAddress = 'aws_ecs_task_definition.gpu_preflight[0]'
@@ -184,8 +191,8 @@ function Convert-InstanceContainer($Container) {
   }
   return $result
 }
-function Assert-InstanceContainer($Container, [string]$Name, [string]$GpuUnits) {
-  if ((Read-InstanceField $Container 'name') -cne $Name -or (Read-InstanceField $Container 'image') -cne $ExpectedImageUri) { throw 'GPU container name or image differs from the reviewed image.' }
+function Assert-InstanceContainer($Container, [string]$Name, [string]$GpuUnits, [string]$ImageUri = $ExpectedImageUri) {
+  if ((Read-InstanceField $Container 'name') -cne $Name -or (Read-InstanceField $Container 'image') -cne $ImageUri) { throw 'GPU container name or image differs from the reviewed image.' }
   $requirements = Read-InstanceList $Container 'resourceRequirements' 'GPU container'
   if ($requirements.Count -ne 1 -or $requirements[0].type -cne 'GPU' -or [string]$requirements[0].value -cne $GpuUnits) { throw 'GPU container resource requirement does not match the reviewed instance.' }
 }
@@ -250,14 +257,19 @@ function Assert-InstanceTaskPlan($Entry, [string]$ContainerName) {
   if ($ContainerName -ceq 'gpu-preflight' -and (Read-InstanceField $before 'task_role_arn')) { throw 'Preflight must not carry a customer task role.' }
   $oldContainers = Read-InstanceContainers $before.container_definitions
   $newContainers = Read-InstanceContainers $after.container_definitions
-  Assert-InstanceContainer $oldContainers[0] $ContainerName '0.125'
+  Assert-InstanceContainer $oldContainers[0] $ContainerName $beforeGpuUnits $beforeImageUri
   Assert-InstanceContainer $newContainers[0] $ContainerName $profile.GpuResource
   $left = Convert-InstanceContainer $oldContainers[0]
   $right = Convert-InstanceContainer $newContainers[0]
-  $left.Remove('resourceRequirements'); $right.Remove('resourceRequirements')
-  if (!(Compare-InstanceValue $left $right)) { throw 'Only the GPU allocation may change inside task container definitions.' }
+  if ($imageOnly) {
+    $left.Remove('image'); $right.Remove('image')
+    if (!(Compare-InstanceValue $left $right)) { throw 'Only the image may change inside task container definitions.' }
+  } else {
+    $left.Remove('resourceRequirements'); $right.Remove('resourceRequirements')
+    if (!(Compare-InstanceValue $left $right)) { throw 'Only the GPU allocation may change inside task container definitions.' }
+  }
 }
-function Assert-InstanceLiveTask([string]$Arn, $Value, [string]$ContainerName, [string]$GpuUnits) {
+function Assert-InstanceLiveTask([string]$Arn, $Value, [string]$ContainerName, [string]$GpuUnits, [string]$ImageUri = $ExpectedImageUri) {
   if ($Arn -cnotmatch ('^arn:aws:ecs:us-east-1:' + $ExpectedAccountId + ':task-definition/' + [regex]::Escape($Value.family) + ':[1-9][0-9]*$')) { throw 'Task definition ARN does not match the reviewed family/account.' }
   $task = Read-InstanceField (Read-InstanceAws @('ecs','describe-task-definition','--task-definition',$Arn)) 'taskDefinition'
   if ((Read-InstanceField $task 'taskDefinitionArn') -cne $Arn -or (Read-InstanceField $task 'status') -cne 'ACTIVE') { throw 'The reviewed task revision is not active or its identity differs.' }
@@ -276,7 +288,7 @@ function Assert-InstanceLiveTask([string]$Arn, $Value, [string]$ContainerName, [
   $actualContainers = Read-InstanceList $task 'containerDefinitions' 'Live task'
   $wantedContainers = Read-InstanceContainers $Value.container_definitions
   if ($actualContainers.Count -ne 1) { throw 'Live task must contain exactly one GPU container.' }
-  Assert-InstanceContainer $actualContainers[0] $ContainerName $GpuUnits
+  Assert-InstanceContainer $actualContainers[0] $ContainerName $GpuUnits $ImageUri
   if (!(Compare-InstanceValue (Convert-InstanceContainer $actualContainers[0]) (Convert-InstanceContainer $wantedContainers[0]))) { throw 'Live task container does not match the reviewed revision.' }
   foreach ($name in @('volumes','placementConstraints')) {
     $items = Read-InstanceField $task $name
@@ -316,6 +328,15 @@ try {
   $imagePattern = '^' + $ExpectedAccountId + '\.dkr\.ecr\.us-east-1\.amazonaws\.com/([a-z0-9][a-z0-9._/-]*)@(sha256:[a-f0-9]{64})$'
   $imageMatch = [regex]::Match($ExpectedImageUri, $imagePattern)
   if (!$imageMatch.Success) { throw 'ExpectedImageUri must be digest-pinned in the expected account and region.' }
+  if ($imageOnly) {
+    $previousImageMatch = [regex]::Match($ExpectedPreviousImageUri, $imagePattern)
+    if (!$previousImageMatch.Success -or $previousImageMatch.Groups[1].Value -cne $imageMatch.Groups[1].Value -or $ExpectedPreviousImageUri -ceq $ExpectedImageUri) {
+      throw 'An image update requires distinct previous/new digests in the same expected ECR repository.'
+    }
+    $beforeImageUri = $ExpectedPreviousImageUri
+    $beforeGpuUnits = '1'
+    $beforeInstanceType = 'g4dn.xlarge'
+  } elseif ($ExpectedPreviousImageUri) { throw 'ExpectedPreviousImageUri is permitted only for an explicit image update.' }
   if ((Get-Location).Provider.Name -ne 'FileSystem' -or (Get-Location).ProviderPath -ne $PSScriptRoot) { throw 'Run this validator from its existing infra/aws directory.' }
   foreach ($name in @('TF_CLI_ARGS','TF_CLI_ARGS_show','TF_CLI_ARGS_output','TF_CLI_ARGS_workspace')) {
     if ([Environment]::GetEnvironmentVariable($name, 'Process')) { throw "Review $name before validating the saved plan." }
@@ -340,25 +361,42 @@ try {
   $entries = Read-InstanceList $plan 'resource_changes' 'Saved plan'
   $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
   $changed = @{}
+  $managed = @{}
   foreach ($entry in $entries) {
     if (!$seen.Add([string]$entry.address)) { throw 'Duplicate saved resource address.' }
     if ((Read-InstanceField $entry 'previous_address') -or $null -ne (Read-InstanceField $entry.change 'importing')) { throw 'Resource moves and imports are not permitted.' }
     $action = $entry.change.actions -join ','
+    if ($entry.mode -ceq 'managed') { $managed[[string]$entry.address] = $entry }
     if ($entry.mode -ceq 'data' -and $action -cne 'no-op') { throw 'Deferred data-source reads are not permitted.' }
     if ($action -ceq 'no-op') {
       if ((Test-InstanceUnknown (Read-InstanceField $entry.change 'after_unknown')) -or !(Compare-InstanceValue $entry.change.before $entry.change.after)) { throw 'A no-op dependency is unknown or inconsistent.' }
     } elseif ($entry.mode -ceq 'managed') { $changed[[string]$entry.address] = $entry }
     else { throw 'Unexpected resource action or mode.' }
   }
-  $addresses = @($asgAddress,$templateAddress,$preflightAddress,$workerAddress)
-  if ($changed.Count -ne 4 -or @($changed.Keys | Where-Object { $_ -cnotin $addresses }).Count -ne 0) { throw 'Require exactly four GPU migration changes: template, ASG and two task revisions.' }
-  $template = $changed[$templateAddress].change
-  $asg = $changed[$asgAddress].change
-  if (($template.actions -join ',') -cne 'update' -or ($asg.actions -join ',') -cne 'update') { throw 'The existing launch template and ASG must update in place.' }
-  Assert-InstanceUnchanged $template.before $template.after @('instance_type','latest_version','default_version') 'launch template'
-  Assert-InstanceUnknownFields (Read-InstanceField $template 'after_unknown') @('latest_version','default_version') 'launch template'
-  if ($template.before.instance_type -cne 'g6f.xlarge' -or $template.after.instance_type -cne $profile.InstanceType -or
-      [string]$template.before.latest_version -cnotmatch '^[1-9][0-9]*$') { throw 'Require the existing G6f template to change only to the reviewed G4dn type.' }
+  if ($imageOnly) {
+    $addresses = @($asgAddress,$preflightAddress,$workerAddress)
+    if (!$changed.ContainsKey($preflightAddress) -or !$changed.ContainsKey($workerAddress) -or
+        $changed.Count -notin @(2,3) -or @($changed.Keys | Where-Object { $_ -cnotin $addresses }).Count -ne 0 -or
+        !$managed.ContainsKey($templateAddress) -or !$managed.ContainsKey($asgAddress)) {
+      throw 'An image update permits only two GPU task replacements and optional idle-ASG Launch latch removal; include the unchanged template and ASG in the plan.'
+    }
+    $template = $managed[$templateAddress].change
+    $asg = $managed[$asgAddress].change
+    if (($template.actions -join ',') -cne 'no-op' -or ($asg.actions -join ',') -cnotin @('no-op','update')) { throw 'An image update must retain the launch template and existing ASG.' }
+    Assert-InstanceUnchanged $template.before $template.after @() 'launch template'
+    Assert-InstanceUnknownFields (Read-InstanceField $template 'after_unknown') @() 'launch template'
+    if ($template.before.instance_type -cne $profile.InstanceType -or [string]$template.before.latest_version -cnotmatch '^[1-9][0-9]*$') { throw 'An image update requires the existing G4dn template and known numeric version.' }
+  } else {
+    $addresses = @($asgAddress,$templateAddress,$preflightAddress,$workerAddress)
+    if ($changed.Count -ne 4 -or @($changed.Keys | Where-Object { $_ -cnotin $addresses }).Count -ne 0) { throw 'Require exactly four GPU migration changes: template, ASG and two task revisions.' }
+    $template = $changed[$templateAddress].change
+    $asg = $changed[$asgAddress].change
+    if (($template.actions -join ',') -cne 'update' -or ($asg.actions -join ',') -cne 'update') { throw 'The existing launch template and ASG must update in place.' }
+    Assert-InstanceUnchanged $template.before $template.after @('instance_type','latest_version','default_version') 'launch template'
+    Assert-InstanceUnknownFields (Read-InstanceField $template 'after_unknown') @('latest_version','default_version') 'launch template'
+    if ($template.before.instance_type -cne 'g6f.xlarge' -or $template.after.instance_type -cne $profile.InstanceType -or
+        [string]$template.before.latest_version -cnotmatch '^[1-9][0-9]*$') { throw 'Require the existing G6f template to change only to the reviewed G4dn type.' }
+  }
   $templateId = [string]$template.before.id
   $oldVersion = [string]$template.before.latest_version
   if ($templateId -cnotmatch '^lt-[a-f0-9]{8,17}$') { throw 'The existing launch-template identity is invalid.' }
@@ -387,7 +425,9 @@ try {
   }
   $latestUnknown = (Read-InstanceField (Read-InstanceField $template 'after_unknown') 'latest_version') -eq $true
   if ($versionUnknown -ne $latestUnknown) { throw 'ASG and launch-template computed versions must be correlated.' }
-  if (!$versionUnknown -and ([string]$newLt[0].version -cnotmatch '^[1-9][0-9]*$' -or [string]$newLt[0].version -cne [string]$template.after.latest_version -or [long]$newLt[0].version -le [long]$oldVersion)) { throw 'The ASG must select the new concrete template version.' }
+  if ($imageOnly) {
+    if ($versionUnknown -or $latestUnknown -or [string]$newLt[0].version -cne $oldVersion) { throw 'An image update must retain the same concrete launch-template version.' }
+  } elseif (!$versionUnknown -and ([string]$newLt[0].version -cnotmatch '^[1-9][0-9]*$' -or [string]$newLt[0].version -cne [string]$template.after.latest_version -or [long]$newLt[0].version -le [long]$oldVersion)) { throw 'The ASG must select the new concrete template version.' }
   $oldProcesses = @($asg.before.suspended_processes | Sort-Object)
   $newProcesses = @($asg.after.suspended_processes | Sort-Object)
   if (($oldProcesses -join ',') -cnotin @('AZRebalance,ReplaceUnhealthy','AZRebalance,Launch,ReplaceUnhealthy') -or ($newProcesses -join ',') -cne 'AZRebalance,ReplaceUnhealthy') { throw 'Only the Launch cleanup latch may be removed at zero capacity.' }
@@ -419,7 +459,8 @@ try {
       $currentVersion -cnotmatch '^[1-9][0-9]*$' -or $ami -cne $template.before.image_id) { throw 'Current Terraform outputs differ from the reviewed stack.' }
   if ($asg.before.name -cne $asgName -or $asg.before.id -cne $asgName -or $asg.before.arn -cnotmatch ('^arn:aws:autoscaling:us-east-1:' + $ExpectedAccountId + ':autoScalingGroup:[a-f0-9-]{36}:autoScalingGroupName/' + [regex]::Escape($asgName) + '$')) { throw 'Saved ASG identity does not match the expected account/stack.' }
   if ($VerifyApplied) {
-    if ((Read-InstanceOutput 'gpu_smoke_instance_type') -cne $profile.InstanceType -or (Read-InstanceOutput 'gpu_smoke_gpu_resource') -cne $profile.GpuResource -or [long]$currentVersion -le [long]$oldVersion -or
+    $versionMatches = if ($imageOnly) { $currentVersion -ceq $oldVersion } else { [long]$currentVersion -gt [long]$oldVersion }
+    if ((Read-InstanceOutput 'gpu_smoke_instance_type') -cne $profile.InstanceType -or (Read-InstanceOutput 'gpu_smoke_gpu_resource') -cne $profile.GpuResource -or !$versionMatches -or
         (!$versionUnknown -and $currentVersion -cne [string]$newLt[0].version)) { throw 'Applied instance type, GPU allocation or template version does not match the migration.' }
     $workerArn = Read-InstanceOutput 'gpu_smoke_worker_task_definition'
     foreach ($pair in @(@($preflightArn,$changed[$preflightAddress].change),@($workerArn,$changed[$workerAddress].change))) {
@@ -434,9 +475,11 @@ try {
   } else {
     if ($currentVersion -cne $oldVersion -or $preflightArn -cne $changed[$preflightAddress].change.before.arn) { throw 'Current template or preflight revision differs from the saved before-state.' }
     $workerArn = [string]$changed[$workerAddress].change.before.arn
-    Assert-InstanceLiveTemplate $template.before $oldVersion 'g6f.xlarge'
-    Assert-InstanceLiveTask $preflightArn $changed[$preflightAddress].change.before 'gpu-preflight' '0.125'
-    Assert-InstanceLiveTask $workerArn $changed[$workerAddress].change.before 'paid-gpu-worker' '0.125'
+    if ($imageOnly -and ((Read-InstanceOutput 'gpu_smoke_worker_task_definition') -cne $workerArn -or
+        (Read-InstanceOutput 'gpu_smoke_instance_type') -cne $profile.InstanceType -or (Read-InstanceOutput 'gpu_smoke_gpu_resource') -cne $profile.GpuResource)) { throw 'Current G4dn outputs differ from the image update before-state.' }
+    Assert-InstanceLiveTemplate $template.before $oldVersion $beforeInstanceType
+    Assert-InstanceLiveTask $preflightArn $changed[$preflightAddress].change.before 'gpu-preflight' $beforeGpuUnits $beforeImageUri
+    Assert-InstanceLiveTask $workerArn $changed[$workerAddress].change.before 'paid-gpu-worker' $beforeGpuUnits $beforeImageUri
     $expectedProcesses = $oldProcesses
   }
   $groups = Read-InstanceList (Read-InstanceAws @('autoscaling','describe-auto-scaling-groups','--auto-scaling-group-names',$asgName)) 'AutoScalingGroups' 'Live ASG'
@@ -476,10 +519,13 @@ try {
   if ($published.Count -ne 1 -or $published[0].registryId -cne $ExpectedAccountId -or $published[0].imageDigest -cne $imageMatch.Groups[2].Value) { throw 'The selected ECR digest is not verified.' }
   if ((Read-InstanceWorkspace) -cne $workspace) { throw 'Terraform workspace changed during validation.' }
   if ((Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $hash) { throw 'The saved plan changed during validation.' }
-  if ($VerifyApplied) { Write-Host 'INSTANCE MIGRATION VERIFIED: G4dn template and full-GPU task revisions applied; ASG remains 0/0/0.' }
+  if ($imageOnly -and $VerifyApplied) { Write-Host 'GPU IMAGE UPDATE VERIFIED: both task revisions use the new digest; G4dn template is unchanged and ASG remains 0/0/0.' }
+  elseif ($imageOnly) { Write-Host 'GPU IMAGE PLAN VERIFIED: only the two task images and optional idle-ASG Launch latch removal change.' }
+  elseif ($VerifyApplied) { Write-Host 'INSTANCE MIGRATION VERIFIED: G4dn template and full-GPU task revisions applied; ASG remains 0/0/0.' }
   else { Write-Host 'INSTANCE PLAN VERIFIED: only G6f-to-G4dn template, idle ASG binding and two GPU task revisions change.' }
   [pscustomobject]@{
     ReadyForApply = !$VerifyApplied; ReadyForSmoke = [bool]$VerifyApplied
+    ChangeKind = $ChangeKind; PreviousImageUri = $beforeImageUri
     PlanPath = $resolvedPath; PlanHash = $hash; Workspace = $workspace
     SubnetId = $ExpectedSubnetId; ImageUri = $ExpectedImageUri; InstanceType = $profile.InstanceType
     AsgName = $asgName; LaunchTemplateId = $templateId; LaunchTemplateVersion = $currentVersion

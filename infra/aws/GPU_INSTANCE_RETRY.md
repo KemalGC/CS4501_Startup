@@ -1,5 +1,11 @@
 # Switch the idle GPU smoke from G6f to G4dn
 
+**Current next step:** the G4dn migration already succeeded. The pinned model
+uses ONNX opset 22, which the published 1.20.2 runtime rejects. Follow
+[GPU runtime repair](GPU_RUNTIME_REPAIR.md) to publish the corrected 1.21.1
+image and review a fresh image-only plan. The migration commands below are
+historical setup instructions; do not repeat an already applied migration.
+
 The operator's two G6f attempts failed on EC2 capacity in `us-east-1a` and
 `us-east-1b`. The second transcript confirmed ASG min/max/desired `0/0/0`,
 `Launch` suspended, and no active tagged instance. The subsequent G4dn attempt
@@ -34,14 +40,15 @@ preserved; a full-GPU hardware run explicitly supplies
 
 ## Image and cost
 
-Use the already published image:
+The original hardware migration used this published image:
 
 ```text
 851226124502.dkr.ecr.us-east-1.amazonaws.com/strokesense-aws-dev-gpu-worker@sha256:cc21a77a44f767fa61ff347ba91e748b3d2acc0914f24a10de54a4a4dc74df16
 ```
 
-Its CUDA 12.6/cuDNN 9/ONNX Runtime 1.20.x combination supports the T4's Turing
-architecture. The pinned image's preflight checks one visible GPU, runs the
+Its runtime is now known to reject the pinned model's opset before CUDA
+initialization. Use the runtime repair above before another test. The
+preflight checks one visible GPU, runs the
 actual model using CUDA, and checks finite outputs. The updated operator also
 requires at least 14,000 MiB of reported GPU memory for G4dn; this tolerates
 reserved memory while rejecting the old small fractional allocation. Actual

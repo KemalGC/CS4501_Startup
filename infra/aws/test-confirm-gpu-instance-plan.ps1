@@ -142,6 +142,7 @@ function New-InstanceFixture {
   }
   return @{
     Plan=$plan;Outputs=$outputs;PlanPath=$script:PlanPath;Canary=$script:Canary;Scenario='';VerifyApplied=$false;WorkspaceCalls=0;Calls=(New-Object System.Collections.ArrayList)
+    ChangeKind='InstanceType';PreviousImageUri='';ExpectedImageUri=$script:Image;UseImageWrapper=$false
     Account=$script:Account;Template=$liveTemplate
     TaskDefinitions=@{($preflight.arn)=(Task-FixtureLive $preflight $preflight.arn);($worker.arn)=(Task-FixtureLive $worker $worker.arn)}
     LiveAsg=@{AutoScalingGroupName=$script:Asg;AutoScalingGroupARN=$script:AsgArn;MinSize=0;MaxSize=0;DesiredCapacity=0;Instances=@()
@@ -188,6 +189,55 @@ function Use-AppliedInstanceFixture {
   foreach ($pair in @(@('aws_ecs_task_definition.gpu_preflight[0]','gpu_smoke_task_definition'),@('aws_ecs_task_definition.gpu[0]','gpu_smoke_worker_task_definition'))) {
     $change=Find-InstanceChange $pair[0]
     $arn=$change.before.arn -replace ':1$',':2'
+    $world.Outputs[$pair[1]]=@{value=$arn}
+    $world.TaskDefinitions[$arn]=Task-FixtureLive $change.after $arn
+  }
+}
+function Use-ImageFixture {
+  # Begin from the already applied G4dn profile, preserving its template/AMI,
+  # subnet, roles and full GPU allocation. Only the task image may change.
+  $world=$global:InstanceWorld
+  Use-AppliedInstanceFixture
+  $world.VerifyApplied=$false
+  $world.ChangeKind='Image'
+  $world.PreviousImageUri=$script:Image
+  $world.ExpectedImageUri=($script:Image -replace ('sha256:' + ('a' * 64)), ('sha256:' + ('b' * 64)))
+  $lt=Find-InstanceChange 'aws_launch_template.gpu[0]'
+  $lt.before.instance_type='g4dn.xlarge';$lt.before.latest_version=2
+  $lt.after=Copy-InstanceFixture $lt.before;$lt.actions=@('no-op');$lt.after_unknown=@{}
+  $asg=Find-InstanceChange
+  $asg.before.launch_template[0].version='2'
+  $asg.after=Copy-InstanceFixture $asg.before
+  $asg.after.suspended_processes=@('AZRebalance','ReplaceUnhealthy')
+  $asg.after_unknown=@{}
+  $world.LiveAsg.SuspendedProcesses=@(@{ProcessName='Launch'},@{ProcessName='AZRebalance'},@{ProcessName='ReplaceUnhealthy'})
+  $world.TaskDefinitions=@{}
+  foreach ($pair in @(@('aws_ecs_task_definition.gpu_preflight[0]','gpu_smoke_task_definition'),@('aws_ecs_task_definition.gpu[0]','gpu_smoke_worker_task_definition'))) {
+    $change=Find-InstanceChange $pair[0]
+    $old=Copy-InstanceFixture $change.before
+    $old.arn=$old.arn -replace ':1$',':2';$old.revision=2
+    $container=ConvertFrom-Json -InputObject ('{"items":' + $old.container_definitions + '}')
+    $container.items[0].resourceRequirements[0].value='1'
+    $old.container_definitions=ConvertTo-Json -InputObject $container.items -Depth 30 -Compress
+    $change.before=$old
+    $change.after=Copy-InstanceFixture $old
+    $container.items[0].image=$world.ExpectedImageUri
+    $change.after.container_definitions=ConvertTo-Json -InputObject $container.items -Depth 30 -Compress
+    foreach ($name in @('arn','arn_without_revision','id','revision')) { $change.after.$name=$null }
+    $world.Outputs[$pair[1]]=@{value=$old.arn}
+    $world.TaskDefinitions[$old.arn]=Task-FixtureLive $old $old.arn
+  }
+  $world.Plan.variables.gpu_worker_image_uri.value=$world.ExpectedImageUri
+  $world.Published=@(@{registryId=$script:Account;imageDigest=('sha256:' + ('b' * 64))})
+}
+function Use-AppliedImageFixture {
+  $world=$global:InstanceWorld
+  $world.VerifyApplied=$true
+  $world.LiveAsg.SuspendedProcesses=@(@{ProcessName='AZRebalance'},@{ProcessName='ReplaceUnhealthy'})
+  $world.TaskDefinitions=@{}
+  foreach ($pair in @(@('aws_ecs_task_definition.gpu_preflight[0]','gpu_smoke_task_definition'),@('aws_ecs_task_definition.gpu[0]','gpu_smoke_worker_task_definition'))) {
+    $change=Find-InstanceChange $pair[0]
+    $arn=$change.before.arn -replace ':2$',':3'
     $world.Outputs[$pair[1]]=@{value=$arn}
     $world.TaskDefinitions[$arn]=Task-FixtureLive $change.after $arn
   }
@@ -267,13 +317,24 @@ function Invoke-InstanceCase([string]$CaseName,[string]$FailureText='',[scriptbl
   $messages=New-Object System.Collections.ArrayList
   $failure=''
   try {
-    & $script:Under -PlanPath $script:PlanPath -ExpectedAccountId $script:Account -ExpectedSubnetId $script:Subnet -ExpectedImageUri $script:Image -AwsProfile migration-test-profile -VerifyApplied:$global:InstanceWorld.VerifyApplied *>&1 | ForEach-Object { [void]$messages.Add($_) }
+    $entrypoint=$script:Under
+    $extra=@{}
+    if ($global:InstanceWorld.ChangeKind -cne 'InstanceType') {
+      $extra.ChangeKind=$global:InstanceWorld.ChangeKind
+      $extra.ExpectedPreviousImageUri=$global:InstanceWorld.PreviousImageUri
+    }
+    if ($global:InstanceWorld.UseImageWrapper) {
+      $entrypoint=Join-Path $PSScriptRoot 'confirm-gpu-image-plan.ps1'
+      $extra.Remove('ChangeKind')
+    }
+    & $entrypoint -PlanPath $script:PlanPath -ExpectedAccountId $script:Account -ExpectedSubnetId $script:Subnet -ExpectedImageUri $global:InstanceWorld.ExpectedImageUri -AwsProfile migration-test-profile -VerifyApplied:$global:InstanceWorld.VerifyApplied @extra *>&1 | ForEach-Object { [void]$messages.Add($_) }
   } catch { $failure=$_.Exception.Message }
   $results=@($messages | Where-Object { $null -ne $_ -and $_.PSObject.Properties['ReadyForApply'] })
   $ok=if ($FailureText) { $failure.Contains($FailureText) -and $results.Count -eq 0 } else {
     !$failure -and $results.Count -eq 1 -and $results[0].ReadyForApply -eq (!$global:InstanceWorld.VerifyApplied) -and
       $results[0].ReadyForSmoke -eq $global:InstanceWorld.VerifyApplied -and $results[0].InstanceType -ceq 'g4dn.xlarge' -and
-      $results[0].SubnetId -ceq $script:Subnet -and $results[0].PlanHash -cmatch '^[a-f0-9]{64}$'
+      $results[0].SubnetId -ceq $script:Subnet -and $results[0].PlanHash -cmatch '^[a-f0-9]{64}$' -and
+      $results[0].ImageUri -ceq $global:InstanceWorld.ExpectedImageUri -and $results[0].ChangeKind -ceq $global:InstanceWorld.ChangeKind
   }
   if (($messages | Out-String).Contains($script:Canary) -or $failure.Contains($script:Canary) -or
       [Environment]::GetEnvironmentVariable('AWS_PROFILE','Process') -cne $profileBefore -or
@@ -604,6 +665,80 @@ try {
   Invoke-InstanceCase 'private-show-error' 'Saved migration plan inspection failed'
   Invoke-InstanceCase 'private-json-error' 'Saved migration plan inspection returned invalid JSON'
   Invoke-InstanceCase 'root-array-plan' 'must return a JSON object'
+
+  # The explicit image route reuses every plan/live-state gate. Its allowed
+  # changes differ from migration: no template update or GPU-unit change.
+  Invoke-InstanceCase 'image-valid-release-latch' '' { Use-ImageFixture }
+  Invoke-InstanceCase 'image-valid-no-asg-change' '' {
+    Use-ImageFixture
+    $asg=Find-InstanceChange
+    $asg.before=Copy-InstanceFixture $asg.after;$asg.actions=@('no-op')
+    $global:InstanceWorld.LiveAsg.SuspendedProcesses=@(@{ProcessName='AZRebalance'},@{ProcessName='ReplaceUnhealthy'})
+  }
+  Invoke-InstanceCase 'image-valid-wrapper' '' { Use-ImageFixture;$global:InstanceWorld.UseImageWrapper=$true }
+  Invoke-InstanceCase 'image-applied-valid' '' { Use-ImageFixture;Use-AppliedImageFixture }
+  Invoke-InstanceCase 'image-applied-valid-wrapper' '' { Use-ImageFixture;Use-AppliedImageFixture;$global:InstanceWorld.UseImageWrapper=$true }
+  Invoke-InstanceCase 'image-default-migration-stays-strict' 'exactly four GPU migration changes' {
+    Use-ImageFixture;$global:InstanceWorld.ChangeKind='InstanceType'
+  }
+  Invoke-InstanceCase 'image-previous-digest-required' 'distinct previous/new digests' { Use-ImageFixture;$global:InstanceWorld.PreviousImageUri='' }
+  Invoke-InstanceCase 'image-same-digest-rejected' 'distinct previous/new digests' { Use-ImageFixture;$global:InstanceWorld.PreviousImageUri=$global:InstanceWorld.ExpectedImageUri }
+  Invoke-InstanceCase 'image-repository-change-rejected' 'same expected ECR repository' {
+    Use-ImageFixture;$global:InstanceWorld.PreviousImageUri=$script:Image.Replace('/strokesense-aws-dev-gpu-worker','/another-worker')
+  }
+  Invoke-InstanceCase 'image-wrong-previous-digest' 'GPU container name or image' {
+    Use-ImageFixture;$global:InstanceWorld.PreviousImageUri=$script:Image.Replace(('a'*64),('c'*64))
+  }
+  Invoke-InstanceCase 'image-template-change-rejected' 'only two GPU task replacements' {
+    Use-ImageFixture;(Find-InstanceChange 'aws_launch_template.gpu[0]').actions=@('update')
+  }
+  Invoke-InstanceCase 'image-existing-type-must-be-g4dn' 'existing G4dn template' {
+    Use-ImageFixture;$lt=Find-InstanceChange 'aws_launch_template.gpu[0]';$lt.before.instance_type='g6f.xlarge';$lt.after.instance_type='g6f.xlarge'
+  }
+  Invoke-InstanceCase 'image-template-version-retained' 'same concrete launch-template version' {
+    Use-ImageFixture;(Find-InstanceChange).after.launch_template[0].version='3'
+  }
+  Invoke-InstanceCase 'image-extra-resource-rejected' 'only two GPU task replacements' {
+    Use-ImageFixture
+    $global:InstanceWorld.Plan.resource_changes+=@{address='aws_lambda_function.api';mode='managed';change=@{actions=@('update');before=@{};after=@{};after_unknown=@{}}}
+  }
+  Invoke-InstanceCase 'image-missing-worker-rejected' 'only two GPU task replacements' {
+    Use-ImageFixture;$global:InstanceWorld.Plan.resource_changes=@($global:InstanceWorld.Plan.resource_changes | Where-Object { $_.address -cne 'aws_ecs_task_definition.gpu[0]' })
+  }
+  Invoke-InstanceCase 'image-gpu-units-retained' 'GPU container resource requirement' {
+    Use-ImageFixture;Set-TaskContainerChange 'aws_ecs_task_definition.gpu_preflight[0]' { param($c) $c.resourceRequirements[0].value='0.125' }
+  }
+  Invoke-InstanceCase 'image-model-command-retained' 'Only the image may change' {
+    Use-ImageFixture;Set-TaskContainerChange 'aws_ecs_task_definition.gpu_preflight[0]' { param($c) $c.command[-1]='/app/models/different.onnx' }
+  }
+  Invoke-InstanceCase 'image-worker-role-retained' 'Unexpected task definition field change' {
+    Use-ImageFixture;(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after.task_role_arn='arn:aws:iam::851226124502:role/another-role'
+  }
+  Invoke-InstanceCase 'image-wrong-new-digest' 'GPU container name or image' {
+    Use-ImageFixture;Set-TaskContainerChange 'aws_ecs_task_definition.gpu[0]' { param($c) $c.image=$script:Image }
+  }
+  Invoke-InstanceCase 'image-unknown-containers-rejected' 'Unknown task definition safety field' {
+    Use-ImageFixture;(Find-InstanceChange 'aws_ecs_task_definition.gpu[0]').after_unknown=@{container_definitions=$true}
+  }
+  Invoke-InstanceCase 'image-capacity-remains-zero' 'Unexpected ASG field change: desired_capacity' { Use-ImageFixture;(Find-InstanceChange).after.desired_capacity=1 }
+  Invoke-InstanceCase 'image-live-old-digest-required' 'GPU container name or image' {
+    Use-ImageFixture;$w=$global:InstanceWorld;$w.TaskDefinitions[$w.Outputs.gpu_smoke_task_definition.value].containerDefinitions[0].image=$w.ExpectedImageUri
+  }
+  Invoke-InstanceCase 'image-current-worker-output-matches-before' 'Current G4dn outputs' {
+    Use-ImageFixture;$global:InstanceWorld.Outputs.gpu_smoke_worker_task_definition.value='arn:aws:ecs:us-east-1:851226124502:task-definition/strokesense-aws-dev-paid-gpu:9'
+  }
+  Invoke-InstanceCase 'image-applied-template-version-retained' 'Applied instance type' {
+    Use-ImageFixture;Use-AppliedImageFixture;$global:InstanceWorld.Outputs.gpu_smoke_launch_template_version.value='3'
+  }
+  Invoke-InstanceCase 'image-applied-revisions-must-advance' 'task revisions must advance' {
+    Use-ImageFixture;Use-AppliedImageFixture;$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value=$global:InstanceWorld.Outputs.gpu_smoke_task_definition.value.Replace(':3',':2')
+  }
+  Invoke-InstanceCase 'image-applied-digest-must-match' 'GPU container name or image' {
+    Use-ImageFixture;Use-AppliedImageFixture;$w=$global:InstanceWorld;$w.TaskDefinitions[$w.Outputs.gpu_smoke_worker_task_definition.value].containerDefinitions[0].image=$script:Image
+  }
+  Invoke-InstanceCase 'image-applied-launch-latch-removed' 'process suspensions' {
+    Use-ImageFixture;Use-AppliedImageFixture;$global:InstanceWorld.LiveAsg.SuspendedProcesses+=@{ProcessName='Launch'}
+  }
 } finally {
   foreach ($name in $script:EnvironmentNames) {
     if ($null -eq $script:SavedEnvironment[$name]) { Remove-Item -LiteralPath ("Env:"+$name) -ErrorAction SilentlyContinue }

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .gpu_preflight import GpuPreflightError
+from .gpu_errors import GpuPreflightError
 
 # These operations are structural bookkeeping; allowing them on CPU does not
 # authorize CPU execution of the pose network's convolutions.

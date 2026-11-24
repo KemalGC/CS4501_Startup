@@ -48,6 +48,8 @@ class CudaProfileAuditTests(unittest.TestCase):
             with self.subTest(reason=reason), self.assertRaises(GpuPreflightError) as error:
                 self.check(events)
             self.assertEqual(str(error.exception), reason)
+            if reason == "cuda_cpu_compute_fallback":
+                self.assertEqual(error.exception.diagnostics["cpu_ops"], ["Conv"])
 
     def test_missing_or_invalid_profiles_rejected(self):
         with self.assertRaisesRegex(GpuPreflightError, "cuda_profile_missing"):

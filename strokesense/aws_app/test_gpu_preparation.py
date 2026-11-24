@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stdout
 import io
+import runpy
 import json
 import os
 import tempfile
@@ -170,6 +171,35 @@ class GpuRuntimePreparationTests(unittest.TestCase):
                 end_profiling=end_profiling,
             ),
         )
+
+    def test_python_m_module_identity_and_bounded_cpu_operator_diagnostics(self):
+        # The real container invokes 'python -m aws_app.gpu_preflight'. Its
+        # __main__ class identity must match the imported audit exception.
+        from aws_app.gpu_provider_audit import GpuPreflightError as AuditError
+        alternate = runpy.run_module("aws_app.gpu_preflight",
+                                     run_name="gpu_preflight_as_main_test")
+        self.assertIs(alternate["GpuPreflightError"], AuditError)
+        events = [
+            {"cat": "Node", "name": "Conv_0_kernel_time",
+             "args": {"provider": "CUDAExecutionProvider", "op_name": "Conv"}},
+            {"cat": "Node", "name": "Add_0_kernel_time",
+             "args": {"provider": "CPUExecutionProvider", "op_name": "Add"}},
+        ]
+        ort = self.ort(["CUDAExecutionProvider", "CPUExecutionProvider"],
+                       ["CUDAExecutionProvider", "CPUExecutionProvider"],
+                       profile_events=events)
+        with self.assertRaises(AuditError) as caught:
+            alternate["validate_gpu_runtime"](
+                self.model, run=self.nvidia_memory(),
+                import_module=lambda _name: ort,
+            )
+        self.assertEqual(str(caught.exception), "cuda_cpu_compute_fallback")
+        self.assertEqual(caught.exception.stage, "provider_audit")
+        record = alternate["_failure_record"](caught.exception, "gpu_runtime")
+        self.assertEqual(record["error"], "cuda_cpu_compute_fallback")
+        self.assertEqual(record["cpu_ops"], ["Add"])
+        self.assertEqual(record["onnxruntime_version"], "1.20.2")
+        self.assertEqual(record["gpu_memory_total_mib"], 3072)
 
     def test_preflight_executes_cuda_inference_and_reports_metrics(self):
         calls = []

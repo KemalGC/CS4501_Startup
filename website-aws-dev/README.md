@@ -97,7 +97,10 @@ public coordinates into `dist/assets/aws-config.js`.
 | `STROKESENSE_COGNITO_DOMAIN` | `https://example.auth.us-east-1.amazoncognito.com` | Cognito managed login domain |
 | `STROKESENSE_COGNITO_CLIENT_ID` | Cognito **public** app client ID | Public SPA OAuth client |
 | `STROKESENSE_ENABLE_CPU_ANALYSIS` | `false` | Frontend safety switch: turn on only after AWS Batch and global admission guards are live and verified |
-| `STROKESENSE_ENABLE_DEEP_ANALYSIS` | `false` | Must remain false until payment and GPU testing are approved |
+| `STROKESENSE_ENABLE_PREMIUM_ANALYSIS` | `false` | Frontend rollout switch; server-confirmed Premium access and GPU availability are also required. Keep false during smoke-only preparation. |
+
+`STROKESENSE_ENABLE_DEEP_ANALYSIS` remains a compatibility alias for existing
+deployment settings. It does not bypass server permission or runtime checks.
 
 Do not put Google client secrets, AWS secret keys, AWS session credentials,
 Stripe API keys, or private tokens in these variables or in `NEXT_PUBLIC_*`
@@ -148,10 +151,11 @@ stable `strokesense-aws-dev.vercel.app` domain once established.
 
 - Free analysis: **100 MB max per video**, **300 MB cumulative over the
   account's lifetime**; only successful processing consumes quota.
-- Deep Analysis: **750 MB max per video**, paid credits required, GPU feature
-  disabled until separately approved.
+- Premium: **750 MB max per video**, access granted by an administrator.
+  Access is separate from GPU availability; this preparation release keeps
+  GPU analysis unavailable while hardware and job dispatch are validated.
 - All sizes are decimal MB (1 MB = 1,000,000 bytes).
-- Free reports: 72 hours; Deep Analysis reports: 30 days.
+- Free reports: 72 hours; Premium reports: 30 days.
 - Public-beta CPU analysis: **at most 5 job submissions per UTC day and
   50 per UTC month across all users**, enforced by DynamoDB transactions.
   The tested worker uses 2 vCPU and 4 GiB; 10 maximum Batch vCPUs supports
@@ -167,6 +171,9 @@ The client expects an authenticated AWS HTTP API:
 
 | Route | Description |
 | --- | --- |
+| `GET /me` | Server-confirmed `is_admin` and `premium_access` (`granted`, `available`, `reason`, `source`, `updated_at`, `owner_protected`); no account permission is inferred from a browser-decoded email |
+| `GET /admin/users?email=...` | Admin-only exact lookup of an existing verified Google/Cognito account; returns `users` with stable `user_id`, `email`, `email_verified`, and `premium_access` |
+| `POST /admin/users/{user_id}/premium` | Admin-only grant/revoke with `{"enabled":true,"reason":"Approved for the Premium pilot"}`; returns the updated verified user and records an audit event |
 | `POST /uploads/start` | Reserve quota; return `video_id`, `part_size_bytes`, `part_count` |
 | `POST /uploads/part` | Sign the PUT for an upload part |
 | `POST /uploads/complete` | Complete multipart upload using part ETags |
@@ -183,8 +190,42 @@ The client expects an authenticated AWS HTTP API:
 
 The AWS backend must authorize ownership of every video/job and charge/release
 quota atomically, including concurrent uploads, failed jobs and repeated
-requests. The web client does not create paid credits, authorize payments, or
-decide account eligibility.
+requests. The web client does not authorize payments or decide account eligibility.
+
+## Premium access in the admin UI
+
+1. The deployment operator first verifies the owner’s Google/Cognito account
+   and pins its immutable Cognito subject in the backend. The owner email is
+   not an allowlist shipped to the browser. See the infrastructure Premium
+   preparation guide for the operator step.
+2. Sign in on the analyzer with an authorized administrator account. Once
+   `GET /me` confirms administrator status, **Open admin** appears in the
+   account panel. The admin page is also available directly at `/admin/`.
+3. In **Premium members**, enter the exact Google email of an existing user.
+   A new user must sign in once before lookup can find their account.
+4. Check the returned verified email and account ID. Enter one line of 3–500
+   visible characters explaining the change, then choose **Grant Premium
+   access** or **Revoke Premium access**. Every lookup and mutation is checked
+   by the backend; hidden controls are not an authorization boundary.
+5. The user can choose **Refresh account access** on the analyzer to see their
+   current grant. **Premium access granted** and **GPU analysis available**
+   are separate states. A grant never starts an instance or enables dispatch.
+
+Owner access is protected from revocation in the web admin UI. Granting
+Premium to another user does not make them an administrator, change their
+Free Analysis allowance, or grant consent to review their videos. Consented
+video review stays in its separate admin section.
+
+The access form does not retry mutations automatically. If a response is lost,
+it hides the selected target and asks the administrator to look the account up
+again before another change. Identity, permission and audit failures fail
+closed. A failed `/me` capability request leaves the existing Free CPU flow
+usable while Premium stays unavailable.
+
+**Compatibility:** the visible GPU tier is named **Premium**. Existing AWS
+job records and uploads still use the internal `paid` tier value so the UI
+remains compatible with the deployed worker image and report paths. Existing
+resource names are not renamed as part of this interface change.
 
 ## Approval boundary
 

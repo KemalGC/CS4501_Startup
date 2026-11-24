@@ -6,6 +6,15 @@ untouched. **Do not run an unreviewed `terraform apply`.** Review the saved
 plan, expected billing, CPU admission controls, and the exact remote-state
 backend before changing the deployed stack.
 
+## Premium account access
+
+The AWS website calls the GPU tier **Premium**. See
+[PREMIUM_ACCESS.md](PREMIUM_ACCESS.md) for verified owner setup, administrator
+grant/revoke controls, deployment steps and the remaining GPU runtime rollout.
+Premium access is stored against a Cognito user ID and does not activate
+compute or billing. Finish any active hardware smoke test and its cleanup
+before deploying these API changes.
+
 ## Architecture
 
 1. **Vercel** (separate `strokesense-aws-dev.vercel.app` project): static SPA;

@@ -92,10 +92,11 @@ resource "aws_cognito_user_pool_domain" "login" {
 }
 
 # Provisioning the group does not grant access. A verified operator must
-# manually add the intended existing Cognito user, then allowlist that stable
-# user's sub through admin_cognito_subs. Email alone never grants this role.
+# add the intended existing Cognito user, then allowlist that stable user's
+# sub through admin_cognito_subs. prepare-premium-owner.ps1 can perform this
+# setup after fresh identity checks. Email alone never grants this role.
 resource "aws_cognito_user_group" "strokesense_admin" {
   name         = "strokesense-admin"
-  description  = "Opt-in private-video review, subject to immutable sub allowlist"
+  description  = "Premium access management and opt-in video review, subject to immutable sub allowlist"
   user_pool_id = aws_cognito_user_pool.users.id
 }

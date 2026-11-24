@@ -142,6 +142,9 @@ class Settings:
     cpu_global_daily_limit: int = DEFAULT_CPU_GLOBAL_DAILY_LIMIT
     cpu_global_monthly_limit: int = DEFAULT_CPU_GLOBAL_MONTHLY_LIMIT
     paid_billing_enabled: bool = False
+    # These flags default off; no paid dispatcher exists in the CPU-only stack.
+    paid_gpu_enabled: bool = False
+    gpu_dispatch_ready: bool = False
     free_lifetime_bytes: int = FREE_BYTES
     free_video_bytes: int = FREE_VIDEO_BYTES
     paid_video_bytes: int = PAID_VIDEO_BYTES
@@ -150,6 +153,8 @@ class Settings:
     raw_upload_ttl_seconds: int = DEFAULT_RAW_UPLOAD_TTL_SECONDS
     admin_audit_table: str = ""
     terminal_record_grace_seconds: int = TERMINAL_RECORD_GRACE_SECONDS
+    cognito_user_pool_id: str = ""
+    premium_owner_sub: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -166,6 +171,8 @@ class Settings:
             cpu_global_daily_limit=int(os.getenv("CPU_GLOBAL_DAILY_LIMIT", DEFAULT_CPU_GLOBAL_DAILY_LIMIT)),
             cpu_global_monthly_limit=int(os.getenv("CPU_GLOBAL_MONTHLY_LIMIT", DEFAULT_CPU_GLOBAL_MONTHLY_LIMIT)),
             paid_billing_enabled=os.getenv("PAID_BILLING_ENABLED", "false").lower() == "true",
+            paid_gpu_enabled=os.getenv("PAID_GPU_ENABLED", "false").lower() == "true",
+            gpu_dispatch_ready=os.getenv("GPU_DISPATCH_READY", "false").lower() == "true",
             free_lifetime_bytes=int(os.getenv("FREE_LIFETIME_BYTES", FREE_BYTES)),
             free_video_bytes=int(os.getenv("FREE_MAX_VIDEO_BYTES", FREE_VIDEO_BYTES)),
             paid_video_bytes=int(os.getenv("PAID_MAX_VIDEO_BYTES", PAID_VIDEO_BYTES)),
@@ -174,18 +181,21 @@ class Settings:
             raw_upload_ttl_seconds=int(os.getenv("RAW_UPLOAD_TTL_SECONDS", DEFAULT_RAW_UPLOAD_TTL_SECONDS)),
             admin_audit_table=os.getenv("ADMIN_AUDIT_TABLE", ""),
             terminal_record_grace_seconds=int(os.getenv("TERMINAL_RECORD_GRACE_SECONDS", TERMINAL_RECORD_GRACE_SECONDS)),
+            cognito_user_pool_id=os.getenv("COGNITO_USER_POOL_ID", "").strip(),
+            premium_owner_sub=os.getenv("PREMIUM_OWNER_SUB", "").strip(),
         )
 
 
 class AwsBackend:
     """Small synchronous API service; AWS clients are injected for unit tests."""
 
-    def __init__(self, settings: Settings, dynamodb: Any, s3: Any, batch: Any = None, clock: Any = time.time):
+    def __init__(self, settings: Settings, dynamodb: Any, s3: Any, batch: Any = None, clock: Any = time.time, cognito: Any = None):
         self.cfg = settings
         self.ddb = dynamodb
         self.s3 = s3
         self.batch = batch
         self.clock = clock
+        self.cognito = cognito
 
     def _now(self) -> int:
         return int(self.clock())
@@ -228,10 +238,23 @@ class AwsBackend:
             amount = 1  # One paid credit grants one video, independent of its byte size.
             available, reserved, used = "paid_credits_available", "paid_credits_reserved", "paid_credits_used"
         if operation == "reserve":
+            conditions = f"{available} >= :amount"
+            values = {":amount": _n(amount)}
+            if tier == "paid":
+                # Recheck entitlement *atomically* when reserving paid credit;
+                # an earlier strong read alone would race subscription expiry.
+                conditions += " AND paid_membership_status = :member AND paid_membership_expires_at > :now"
+                # An explicit administrator revocation also wins a race with
+                # the earlier entitlement read. Keep older membership records
+                # compatible; a new Premium grant never creates paid credits.
+                conditions += " AND (attribute_not_exists(premium_access_granted) OR premium_access_granted = :premium_granted)"
+                values[":member"] = _s("active")
+                values[":now"] = _n(self._now())
+                values[":premium_granted"] = {"BOOL": True}
             return {
                 "UpdateExpression": f"SET {available} = {available} - :amount, {reserved} = {reserved} + :amount",
-                "ConditionExpression": f"{available} >= :amount",
-                "ExpressionAttributeValues": {":amount": _n(amount)},
+                "ConditionExpression": conditions,
+                "ExpressionAttributeValues": values,
             }
         if operation == "consume":
             return {
@@ -261,7 +284,9 @@ class AwsBackend:
                 "ConditionExpression": "attribute_not_exists(job_id)",
             }})
         else:
-            expected_states = ("uploading", "uploaded") if operation == "refund" and next_state == "aborted" else ("submitted",)
+            expected_states = (("uploading", "uploaded") if operation == "refund" and next_state == "aborted"
+                               else ("gpu_submitted",) if record.get("tier") == "paid"
+                               else ("submitted",))
             values = {":uid": _s(record["user_id"]), ":next": _s(next_state), ":updated": _s(_utc_now())}
             clauses = []
             for idx, value in enumerate(expected_states):
@@ -304,14 +329,19 @@ class AwsBackend:
 
     def _validate_start(self, body: dict[str, Any]) -> tuple[str, str, int]:
         tier = body.get("tier", "free")
+        if tier == "premium":
+            tier = "paid"  # Existing private keys and worker contracts remain stable.
         if tier not in {"free", "paid"}:
-            raise ApiError(400, "invalid_request", "tier must be free or paid")
+            raise ApiError(400, "invalid_request", "tier must be free or premium")
         if tier == "paid" and not self.cfg.paid_billing_enabled:
-            raise ApiError(503, "billing_not_configured", "Paid analysis is not yet available")
+            raise ApiError(503, "billing_not_configured", "Premium analysis is not yet available")
+        if tier == "paid" and (not self.cfg.paid_gpu_enabled or not self.cfg.gpu_dispatch_ready):
+            raise ApiError(503, "gpu_not_configured", "Premium GPU processing is not yet available")
         size_bytes = _positive_int(body.get("size_bytes"), "size_bytes")
         cap = self.cfg.free_video_bytes if tier == "free" else self.cfg.paid_video_bytes
         if size_bytes > cap:
-            raise ApiError(413, "video_too_large", f"The {tier} video limit is {cap} bytes")
+            label = "Premium" if tier == "paid" else "free"
+            raise ApiError(413, "video_too_large", f"The {label} video limit is {cap} bytes")
         content_type = body.get("content_type", "")
         if content_type not in CONTENT_TYPES:
             raise ApiError(415, "unsupported_media_type", "Only MP4, MOV and WebM video types are supported")
@@ -354,6 +384,9 @@ class AwsBackend:
             raise ApiError(400, "invalid_consent", "Administrative video review consent must be true or false")
         self._account(user_id)
         self._expire_stale(user_id)
+        if tier == "paid":
+            from .paid_access import require_paid_membership
+            require_paid_membership(self, user_id)
         video_id = uuid.uuid4().hex
         key = f"uploads/{_user_hash(user_id)}/{video_id}/original{CONTENT_TYPES[content_type]}"
         expires_at = self._now() + UPLOAD_TTL_SECONDS
@@ -626,6 +659,10 @@ class AwsBackend:
         if not isinstance(video_id, str) or not video_id:
             raise ApiError(400, "invalid_request", "video_id is required")
         record = self._record(video_id, user_id)
+        # Never place a paid deep-analysis video on the free CPU Batch queue,
+        # even if flags or an operator-created paid record are misconfigured.
+        if record.get("tier") != "free":
+            raise ApiError(503, "gpu_dispatch_unavailable", "Premium GPU job dispatch is not yet configured")
         if record.get("status") != "uploaded":
             raise ApiError(409, "invalid_state", "Complete this upload before starting analysis")
         # One transaction enforces the job's one-shot state transition and

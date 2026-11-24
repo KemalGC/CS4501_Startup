@@ -33,6 +33,37 @@ jobs:
         working-directory: website-aws-dev
         run: npm run build
 
+  gpu-operator-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Exercise GPU launch and cleanup with fake AWS
+        run: ./infra/aws/test-gpu-smoke.ps1
+      - name: Read complete failed GPU logs with fake AWS
+        run: ./infra/aws/test-read-gpu-smoke-logs.ps1
+      - name: Exercise quota and image preparation with fake AWS
+        run: ./infra/aws/test-prepare-gpu-smoke.ps1
+      - name: Verify saved GPU plans with fake AWS and Terraform
+        run: ./infra/aws/test-confirm-gpu-smoke-plan.ps1
+      - name: Prepare a GPU capacity retry with fake AWS and Terraform
+        run: ./infra/aws/test-prepare-gpu-capacity-retry.ps1
+      - name: Verify a saved GPU capacity recovery plan
+        run: ./infra/aws/test-confirm-gpu-capacity-plan.ps1
+      - name: Verify idle G4dn migration and image-only update plans
+        run: ./infra/aws/test-confirm-gpu-instance-plan.ps1
+      - name: Exercise direct ECR publication with fake AWS
+        run: ./infra/aws/test-publish-gpu-artifact.ps1
+      - name: Verify Premium owner setup with fake AWS
+        run: ./infra/aws/test-prepare-premium-owner.ps1
+
   terraform-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -41,6 +72,13 @@ jobs:
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.10.5
+      - name: Parse GPU operator script (no AWS calls)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('infra/aws/gpu-smoke.ps1', [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
       - name: Check Terraform formatting
         working-directory: infra/aws
         run: terraform fmt -diff -check -recursive

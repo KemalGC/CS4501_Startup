@@ -4,7 +4,7 @@
 
   const config = window.STROKESENSE_AWS_CONFIG || {};
   const FREE_VIDEO_BYTES = 100_000_000;
-  const PAID_VIDEO_BYTES = 750_000_000;
+  const PREMIUM_VIDEO_BYTES = 750_000_000;
   const AUTH_KEY = 'strokesense-aws-dev-auth';
   const PKCE_KEY = 'strokesense-aws-dev-pkce';
   const ACTIVE_JOB_KEY = 'strokesense-aws-dev-active-job';
@@ -14,6 +14,8 @@
     backendStatus: $('backend-status'), backendDetail: $('backend-detail'),
     login: $('google-login'), logout: $('google-logout'), account: $('account-status'),
     authFeedback: $('auth-feedback'),
+    premiumAccess: $('premium-access-status'), premiumRuntime: $('premium-runtime-status'),
+    premiumRefresh: $('premium-refresh'), adminLink: $('admin-console-link'),
     tierFree: $('tier-free'), tierPaid: $('tier-paid'), fileLimit: $('file-limit'),
     input: $('video-upload'), dropzone: $('dropzone'), fileReview: $('file-review'),
     adminConsent: $('allow-admin-review'),
@@ -41,7 +43,7 @@
   const loginReady = Boolean(cognitoDomain && clientId);
   const backendReady = Boolean(loginReady && apiBase);
   const cpuAnalysisEnabled = config.cpuAnalysisEnabled === true;
-  const deepAnalysisEnabled = config.deepAnalysisEnabled === true;
+  const premiumFrontendEnabled = config.premiumAnalysisEnabled === true || config.deepAnalysisEnabled === true;
   const redirectUri = window.location.origin + '/demos/';
   let file = null;
   let localVideoUrl = '';
@@ -49,6 +51,11 @@
   let abortController = null;
   let activeVideoId = null;
   let downloadedReportUrl = '';
+  let accountCapabilities = null;
+  let accountLoading = false;
+  let accountError = false;
+  let accountGeneration = 0;
+  let returningToLibrary = false;
 
   function clearReport() {
     window.StrokeSenseMediaViewer?.clear();
@@ -78,7 +85,12 @@
     return [safe(code), safe(description)].filter(Boolean).join(': ');
   }
   function tier() { return ui.tierPaid.checked ? 'paid' : 'free'; }
-  function limit() { return tier() === 'paid' ? PAID_VIDEO_BYTES : FREE_VIDEO_BYTES; }
+  function limit() { return tier() === 'paid' ? PREMIUM_VIDEO_BYTES : FREE_VIDEO_BYTES; }
+  function premiumAvailable() {
+    return Boolean(readAuth() && premiumFrontendEnabled && !accountLoading && !accountError &&
+      accountCapabilities?.premium_access?.granted === true &&
+      accountCapabilities?.premium_access?.available === true);
+  }
   function formatMB(bytes) { return (bytes / 1_000_000).toFixed(1).replace(/\.0$/, '') + ' MB'; }
 
   function readAuth() {
@@ -128,6 +140,10 @@
     forgetActiveJob();
     clearReport();
     window.StrokeSenseRecentAnalyses?.signedOut();
+    accountGeneration += 1;
+    accountCapabilities = null;
+    accountLoading = false;
+    accountError = false;
   }
   function userLabel(auth) {
     if (!auth || !auth.idToken) return 'Signed in with Google.';
@@ -140,6 +156,12 @@
 
   function render() {
     const auth = readAuth();
+    const premiumReady = premiumAvailable();
+    // Selection is convenience only; the API independently authorizes every upload.
+    if (ui.tierPaid.checked && !premiumReady && !busy) {
+      ui.tierPaid.checked = false;
+      ui.tierFree.checked = true;
+    }
     const selectedTier = tier();
     document.querySelectorAll('.aws-tier-card').forEach(card => {
       card.classList.toggle('is-selected', card.querySelector('input').checked);
@@ -148,6 +170,22 @@
     ui.login.hidden = Boolean(auth);
     ui.login.disabled = !loginReady;
     ui.logout.hidden = !auth;
+    ui.premiumRefresh.hidden = !auth;
+    ui.premiumRefresh.disabled = accountLoading || busy;
+    ui.adminLink.hidden = !auth || accountCapabilities?.is_admin !== true;
+    ui.tierPaid.disabled = busy || !premiumReady;
+    ui.tierFree.disabled = busy;
+    const premiumGranted = accountCapabilities?.premium_access?.granted === true;
+    ui.premiumAccess.textContent = !auth ? 'Sign in to check Premium access' :
+      accountLoading ? 'Checking Premium access…' :
+      accountError ? 'Premium access could not be checked' :
+      premiumGranted ? 'Premium access granted' : 'Premium access has not been granted';
+    ui.premiumRuntime.textContent = !auth ? 'Premium is available to accounts approved by an administrator.' :
+      accountLoading ? 'Your account permissions are being checked.' :
+      accountError ? 'Refresh your account access to try again. Free Analysis is unaffected.' :
+      !premiumGranted ? 'Ask a StrokeSense administrator to enable Premium for your account.' :
+      premiumReady ? 'GPU analysis is available for your account.' :
+      'Your access is saved. GPU analysis is being prepared and is not available yet.';
     ui.account.textContent = auth ? userLabel(auth) :
       loginReady ? 'Sign in with Google to track your lifetime allowance and private reports.' :
         'Google sign-in is waiting for the Cognito user pool and OAuth client.';
@@ -166,15 +204,15 @@
     }
     const tooLarge = file && file.size > limit();
     const ready = backendReady && auth && file && !tooLarge && !busy &&
-      (selectedTier === 'free' ? cpuAnalysisEnabled : deepAnalysisEnabled);
+      (selectedTier === 'free' ? cpuAnalysisEnabled : premiumReady);
     ui.input.disabled = busy;
     ui.clear.disabled = busy;
     ui.run.disabled = !ready;
-    ui.run.textContent = busy ? 'Analysis in progress…' : selectedTier === 'paid' ? 'Start Deep Analysis' : 'Start Free Analysis';
+    ui.run.textContent = busy ? 'Analysis in progress…' : selectedTier === 'paid' ? 'Start Premium Analysis' : 'Start Free Analysis';
     if (tooLarge) {
       ui.helper.textContent = 'The selected video exceeds the ' + formatMB(limit()) + ' per-video limit.';
-    } else if (selectedTier === 'paid' && !deepAnalysisEnabled) {
-      ui.helper.textContent = 'Deep Analysis credit purchases and GPU processing remain disabled until billing and compute are approved.';
+    } else if (selectedTier === 'paid' && !premiumReady) {
+      ui.helper.textContent = 'Premium analysis is unavailable. Refresh your account access to check again.';
     } else if (selectedTier === 'free' && !cpuAnalysisEnabled) {
       ui.helper.textContent = 'Free Analysis is temporarily closed. The AWS site is public, but processing must pass the cost and capacity checks first.';
     } else if (!backendReady) {
@@ -184,7 +222,43 @@
     } else if (busy) {
       ui.helper.textContent = 'Your upload or analysis is in progress. The stages below show what AWS has confirmed.';
     } else {
-      ui.helper.textContent = 'Ready to submit a private ' + selectedTier + ' analysis job.';
+      ui.helper.textContent = 'Ready to submit a private ' + (selectedTier === 'paid' ? 'Premium' : 'Free') + ' analysis job.';
+    }
+  }
+
+  async function refreshAccount() {
+    const auth = readAuth();
+    if (!auth || !apiBase) { render(); return; }
+    const generation = ++accountGeneration;
+    accountLoading = true;
+    accountError = false;
+    accountCapabilities = null;
+    render();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(apiBase + '/me', {
+        method: 'GET', credentials: 'omit', cache: 'no-store',
+        headers: { Authorization: 'Bearer ' + auth.accessToken }, signal: controller.signal
+      });
+      if (generation !== accountGeneration || readAuth()?.accessToken !== auth.accessToken) return;
+      if (response.status === 401) {
+        clearAuth();
+        signInFeedback('Your sign-in expired. Sign in with Google again.', 'error');
+        return;
+      }
+      if (!response.ok) throw Error('Account access could not be checked.');
+      const result = await response.json();
+      if (generation !== accountGeneration || readAuth()?.accessToken !== auth.accessToken) return;
+      if (!result || typeof result.premium_access?.granted !== 'boolean' ||
+          typeof result.premium_access?.available !== 'boolean') throw Error('Unexpected account response.');
+      accountCapabilities = result;
+    } catch (_) {
+      if (generation === accountGeneration) accountError = true;
+    } finally {
+      clearTimeout(timeout);
+      if (generation === accountGeneration) accountLoading = false;
+      render();
     }
   }
 
@@ -289,6 +363,7 @@
       // supplied in a query string. The stored intent is used only after
       // OAuth state and PKCE verification have succeeded.
       if (pending.returnTo === LIBRARY_RETURN_PATH) {
+        returningToLibrary = true;
         window.location.replace(LIBRARY_RETURN_PATH);
         return;
       }
@@ -479,7 +554,7 @@
   async function startAnalysis() {
     if (busy || !backendReady || !readAuth() || !file || file.size > limit()) return;
     if (tier() === 'free' && !cpuAnalysisEnabled) return;
-    if (tier() === 'paid' && !deepAnalysisEnabled) return;
+    if (tier() === 'paid' && !premiumAvailable()) return;
     busy = true;
     activeVideoId = null;
     let jobSubmitted = false;
@@ -569,6 +644,7 @@
   ui.logout.addEventListener('click', () => { clearAuth(); signInFeedback('Signed out of this preview.'); render(); });
   ui.tierFree.addEventListener('change', render);
   ui.tierPaid.addEventListener('change', render);
+  ui.premiumRefresh.addEventListener('click', refreshAccount);
   ui.input.addEventListener('change', () => setFile(ui.input.files[0]));
   ui.clear.addEventListener('click', () => setFile(null));
   ui.dropzone.addEventListener('dragover', event => { event.preventDefault(); ui.dropzone.classList.add('is-dragover'); });
@@ -584,6 +660,7 @@
   const returnToLibrary = acceptLibraryLoginRequest();
   render();
   finishSignIn().then(() => {
+    if (returningToLibrary) return;
     // The recent-history script may have loaded before Cognito finished the
     // code exchange, so refresh its owner-only view once tokens are available.
     window.StrokeSenseRecentAnalyses?.refresh();
@@ -596,6 +673,8 @@
       }
       return signIn(LIBRARY_RETURN_PATH);
     }
+    // Account lookup must not delay restoring an existing private CPU report.
+    refreshAccount();
     return resumeAnalysis();
   });
 })();

@@ -68,3 +68,70 @@ output "cpu_worker_ecr_repository" {
 output "ops_sns_topic" {
   value = aws_sns_topic.ops.arn
 }
+
+output "gpu_worker_ecr_repository" {
+  value       = try(aws_ecr_repository.gpu_worker[0].repository_url, null)
+  description = "Private GPU CUDA ECR repository (optional bootstrap, never launches EC2)."
+}
+output "gpu_smoke_ecs_cluster" {
+  value       = try(aws_ecs_cluster.gpu[0].arn, null)
+  description = "Review-only ECS-on-EC2 GPU smoke cluster; null while disabled."
+}
+output "gpu_smoke_asg_name" {
+  value       = try(aws_autoscaling_group.gpu[0].name, null)
+  description = "Smoke ASG idle at min/max/desired=0; operator explicitly raises its maximum to one for a single host."
+}
+output "gpu_smoke_ami_id" {
+  value       = try(data.aws_ami.gpu_ecs[0].id, null)
+  description = "Reviewed official AL2023 ECS GPU AMI supporting the selected G6f or G4dn host."
+}
+output "gpu_smoke_ami_name" {
+  value       = try(data.aws_ami.gpu_ecs[0].name, null)
+  description = "Official GPU AMI release name, retained for the smoke evidence."
+}
+output "gpu_smoke_launch_template_id" {
+  value       = try(aws_launch_template.gpu[0].id, null)
+  description = "Launch template whose numeric version the operator verifies before scaling."
+}
+output "gpu_smoke_launch_template_version" {
+  value       = try(tostring(aws_launch_template.gpu[0].latest_version), null)
+  description = "Reviewed numeric launch-template version; never the mutable $Latest alias."
+}
+output "gpu_smoke_instance_type" {
+  value       = try(aws_launch_template.gpu[0].instance_type, null)
+  description = "Reviewed hardware from the managed launch template; updated with targeted capacity changes."
+}
+output "gpu_smoke_gpu_resource" {
+  value = try(one([
+    for requirement in jsondecode(aws_ecs_task_definition.gpu_preflight[0].container_definitions)[0].resourceRequirements :
+    requirement.value if requirement.type == "GPU"
+  ]), null)
+  description = "GPU resource units from the managed preflight task definition, matched to the reviewed hardware."
+}
+output "gpu_smoke_task_definition" {
+  value       = try(aws_ecs_task_definition.gpu_preflight[0].arn, null)
+  description = "No-customer-media CUDA preflight; requires a manually started EC2 host."
+}
+output "gpu_smoke_worker_task_definition" {
+  value       = try(aws_ecs_task_definition.gpu[0].arn, null)
+  description = "Inert worker task revision, retained to verify its GPU units during a hardware change."
+}
+output "gpu_smoke_capacity_provider" {
+  value       = try(aws_ecs_capacity_provider.gpu[0].name, null)
+  description = "Manual-scaling capacity provider for one-instance preflight."
+}
+output "gpu_smoke_task_security_group" {
+  value = try(aws_security_group.gpu_task[0].id, null)
+}
+
+output "gpu_smoke_log_group" {
+  value       = try(aws_cloudwatch_log_group.gpu_worker[0].name, null)
+  description = "Private CloudWatch log group holding the preflight evidence line."
+}
+
+output "gpu_smoke_subnet_id" {
+  # Depend on the managed ASG so a targeted capacity-recovery plan refreshes
+  # the host/task placement output together with its subnet change.
+  value       = var.enable_gpu && var.gpu_smoke_mode ? one(aws_autoscaling_group.gpu[0].vpc_zone_identifier) : null
+  description = "Reviewed one-instance GPU host/task subnet for operator-only smoke."
+}

@@ -8,7 +8,7 @@ const client = readFileSync(new URL('../assets/aws-client.js', import.meta.url),
 test('public CPU analysis stays unavailable until the explicit frontend switch is enabled', () => {
   assert.match(build, /cpuAnalysisEnabled: process\.env\.STROKESENSE_ENABLE_CPU_ANALYSIS === 'true'/);
   assert.match(client, /const cpuAnalysisEnabled = config\.cpuAnalysisEnabled === true/);
-  assert.match(client, /selectedTier === 'free' \? cpuAnalysisEnabled : deepAnalysisEnabled/);
+  assert.match(client, /selectedTier === 'free' \? cpuAnalysisEnabled : premiumReady/);
   assert.match(client, /if \(tier\(\) === 'free' && !cpuAnalysisEnabled\) return/);
 });
 

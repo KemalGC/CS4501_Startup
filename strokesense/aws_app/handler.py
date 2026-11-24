@@ -18,6 +18,7 @@ from .core import ApiError, AwsBackend, Settings
 from .feedback import MAX_FEEDBACK_BODY_BYTES, save_feedback, validate_feedback
 from .deletion import delete_owned_analysis
 from .library import admin_video_url, change_review_consent, list_owner_jobs, list_review_jobs, require_admin
+from .premium_access import account_access, change_premium_access, lookup_premium_user
 
 
 LOGGER = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ JOB_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})$")
 REVIEW_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/review$")
 DELETE_ROUTE = re.compile(r"^/analysis/jobs/([a-f0-9]{32})/delete$")
 ADMIN_VIDEO_ROUTE = re.compile(r"^/admin/videos/([a-f0-9]{32})$")
+ADMIN_PREMIUM_ROUTE = re.compile(r"^/admin/users/([^/]{1,256})/premium$")
 REPORT_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})$")
 REPORT_ARTIFACTS_ROUTE = re.compile(r"^/reports/([a-f0-9]{32})/artifacts$")
 
@@ -77,6 +79,7 @@ def _build_service() -> AwsBackend:
         dynamodb=boto3.client("dynamodb"),
         s3=boto3.client("s3"),
         batch=boto3.client("batch") if settings.batch_queue and settings.batch_definition else None,
+        cognito=boto3.client("cognito-idp") if settings.cognito_user_pool_id else None,
     )
 
 
@@ -122,6 +125,15 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
 
         user_id = _user_id(event)
         service = _build_service()
+        claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
+
+        if method == "GET" and path == "/me":
+            return _response(200, account_access(service, claims))
+        if method == "GET" and path == "/admin/users":
+            return _response(200, lookup_premium_user(service, claims, event.get("queryStringParameters") or {}))
+        match = ADMIN_PREMIUM_ROUTE.fullmatch(path)
+        if method == "POST" and match:
+            return _response(200, change_premium_access(service, claims, match.group(1), _body(event)))
 
         if method == "POST" and path == "/uploads/start":
             return _response(201, service.start_upload(user_id, _body(event)))

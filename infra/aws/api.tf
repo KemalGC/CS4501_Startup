@@ -27,6 +27,8 @@ resource "aws_lambda_function" "api" {
       ADMIN_AUDIT_TABLE                  = aws_dynamodb_table.admin_access_audit.name
       ADMIN_COGNITO_SUBS                 = join(",", var.admin_cognito_subs)
       ADMIN_AUDIT_TTL_DAYS               = tostring(var.admin_audit_retention_days)
+      COGNITO_USER_POOL_ID               = aws_cognito_user_pool.users.id
+      PREMIUM_OWNER_SUB                  = var.premium_owner_sub
       FEEDBACK_TABLE                     = aws_dynamodb_table.feedback.name
       CPU_BATCH_JOB_QUEUE                = var.enable_cpu_analysis ? aws_batch_job_queue.cpu.arn : ""
       CPU_BATCH_JOB_DEFINITION           = aws_batch_job_definition.cpu.arn
@@ -84,6 +86,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 # record ownership and signs a short-lived S3 URL only for the right user.
 locals {
   authenticated_routes = toset([
+    "GET /me",
     "POST /uploads/start",
     "POST /uploads/part",
     "POST /uploads/complete",
@@ -95,6 +98,8 @@ locals {
     "POST /analysis/jobs/{id}/delete",
     "GET /admin/jobs",
     "GET /admin/videos/{id}",
+    "GET /admin/users",
+    "POST /admin/users/{sub}/premium",
     "GET /reports/{id}",
     "GET /reports/{id}/artifacts",
   ])

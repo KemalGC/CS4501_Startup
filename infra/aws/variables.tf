@@ -132,7 +132,7 @@ variable "worker_image_tag" {
 variable "enable_cpu_analysis" {
   type        = bool
   default     = false
-  description = "Enable user-facing CPU submissions through the API and its Batch queue. Leave false during the operator-only smoke test."
+  description = "Enable user-facing CPU submissions through the API and its Batch queue. Preserve the deployed value during the isolated GPU smoke test."
 }
 
 variable "enable_cpu_smoke_queue" {
@@ -147,14 +147,30 @@ variable "worker_command" {
   description = "Container command to process one Batch job; the job input is passed through AWS Batch environment overrides."
 }
 
+
+variable "enable_paid_gpu_queue_scaffold" {
+  type        = bool
+  default     = false
+  description = "Explicit opt-in to create inert paid-GPU SQS FIFO/DLQ and disabled dispatcher Lambda plumbing. Never launches GPU compute or enables SQS consumption."
+}
+
 variable "enable_gpu" {
   type        = bool
   default     = false
-  description = "Safety gate for the unimplemented paid fractional-GPU lane; cannot be enabled in this CPU-only stack."
+  description = "Review-only GPU EC2 smoke infrastructure; requires separate smoke flags and explicit local acknowledgement. Never enables paid or production GPU."
 
   validation {
-    condition     = var.enable_gpu == false
-    error_message = "GPU Deep Analysis is not implemented or benchmarked; keep enable_gpu=false and follow GPU_PLAN.md."
+    condition = !var.enable_gpu || (
+      var.gpu_smoke_mode &&
+      var.gpu_smoke_approval == (var.gpu_smoke_instance_type == "g4dn.xlarge" ? "I_APPROVE_ONE_G4DN_SMOKE_INSTANCE" : "I_APPROVE_ONE_G6F_SMOKE_INSTANCE") &&
+      !var.enable_paid_gpu_queue_scaffold &&
+      !var.enable_cpu_smoke_queue &&
+      var.enable_gpu_image_repository
+    )
+    # enable_cpu_analysis is deliberately NOT required to be false: the smoke
+    # stack (own ECS cluster, ASG, SGs, roles, log group) is isolated from the
+    # live CPU Batch analyzer, and forcing it off would disable production CPU.
+    error_message = "To provision only the isolated GPU smoke infrastructure, set gpu_smoke_mode=true, enable_gpu_image_repository=true, and the matching gpu_smoke_approval: I_APPROVE_ONE_G6F_SMOKE_INSTANCE for g6f.xlarge or I_APPROVE_ONE_G4DN_SMOKE_INSTANCE for g4dn.xlarge; the paid GPU queue and CPU smoke queue must remain off."
   }
 }
 
@@ -247,7 +263,7 @@ variable "terminal_job_record_grace_days" {
 variable "admin_cognito_subs" {
   type        = list(string)
   default     = []
-  description = "Cognito user sub IDs allowed to review opted-in videos, additionally requiring strokesense-admin group membership. Empty denies every admin request; never use email."
+  description = "Cognito user sub IDs allowed to manage Premium access and review opted-in videos, additionally requiring strokesense-admin group membership. Empty denies every admin request; never use email."
   sensitive   = true
 
   validation {
@@ -256,10 +272,28 @@ variable "admin_cognito_subs" {
   }
 }
 
+variable "premium_owner_sub" {
+  type        = string
+  default     = ""
+  nullable    = false
+  sensitive   = true
+  description = "Verified Cognito sub for the initial Premium owner. Resolve with prepare-premium-owner.ps1; never use an email. This grants access only, without enabling GPU dispatch or billing."
+
+  validation {
+    condition     = var.premium_owner_sub == "" || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.premium_owner_sub))
+    error_message = "premium_owner_sub must be empty or an operator-verified Cognito UUID, not an email address."
+  }
+
+  validation {
+    condition     = var.premium_owner_sub == "" || contains(var.admin_cognito_subs, var.premium_owner_sub)
+    error_message = "The Premium owner must also be included in admin_cognito_subs so the existing administrator checks remain effective."
+  }
+}
+
 variable "admin_audit_retention_days" {
   type        = number
   default     = 90
-  description = "Security audit retention for admin video-link issuance; no raw URLs or emails are recorded."
+  description = "Security audit retention for admin video-link issuance and Premium access changes; raw video URLs are never recorded."
 
   validation {
     condition     = var.admin_audit_retention_days >= 30 && var.admin_audit_retention_days <= 365 && floor(var.admin_audit_retention_days) == var.admin_audit_retention_days
@@ -298,4 +332,63 @@ variable "daily_budget_usd" {
     condition     = var.daily_budget_usd > 0
     error_message = "daily_budget_usd must be positive."
   }
+}
+
+# Explicitly reviewed hardware network/image inputs. These remain inert while
+# enable_gpu=false; the guard above permits only the isolated GPU smoke mode.
+variable "gpu_subnet_id" {
+  type        = string
+  default     = ""
+  description = "One approved existing public subnet for the GPU EC2 host. Blank by default."
+  validation {
+    condition     = var.gpu_subnet_id == "" || can(regex("^subnet-[0-9a-f]{8,17}$", var.gpu_subnet_id))
+    error_message = "Use an AWS subnet ID; do not enable GPU without confirming its routing."
+  }
+}
+
+variable "gpu_s3_route_table_ids" {
+  type        = list(string)
+  default     = []
+  description = "Reviewed S3 Gateway VPC Endpoint route tables for a future real-data GPU task subnet. Leave empty for the blank-input GPU smoke; it never changes shared S3 routing."
+  validation {
+    condition     = length(var.gpu_s3_route_table_ids) <= 5 && alltrue([for id in var.gpu_s3_route_table_ids : can(regex("^rtb-[0-9a-f]{8,17}$", id))])
+    error_message = "Provide at most five valid route table IDs."
+  }
+}
+
+variable "gpu_worker_image_uri" {
+  type        = string
+  default     = ""
+  description = "ECR CUDA image URI pinned to an audited sha256 digest, never a mutable tag."
+  validation {
+    condition     = var.gpu_worker_image_uri == "" || can(regex("@sha256:[a-f0-9]{64}$", var.gpu_worker_image_uri))
+    error_message = "GPU worker image must use an immutable sha256 digest."
+  }
+}
+
+# Dual-gated, manually scaled, ONE-INSTANCE GPU smoke test; not production.
+variable "gpu_smoke_instance_type" {
+  type        = string
+  default     = "g6f.xlarge"
+  description = "Reviewed four-vCPU smoke hardware: fractional L4 g6f.xlarge or full T4 g4dn.xlarge. Requires the matching explicit gpu_smoke_approval."
+  validation {
+    condition     = contains(["g6f.xlarge", "g4dn.xlarge"], var.gpu_smoke_instance_type)
+    error_message = "GPU smoke hardware must be exactly g6f.xlarge or g4dn.xlarge."
+  }
+}
+
+variable "gpu_smoke_mode" {
+  type        = bool
+  default     = false
+  description = "When true, disable ECS managed scaling and use operator-controlled 0..1 ASG only."
+}
+variable "gpu_smoke_approval" {
+  type        = string
+  default     = ""
+  description = "Exact local acknowledgement for ONE GPU test environment. Never paste credentials in this variable."
+}
+variable "enable_gpu_image_repository" {
+  type        = bool
+  default     = false
+  description = "Create private GPU ECR repository independently, before uploading and digest-pinning an image. Does not create GPU compute."
 }

@@ -1,0 +1,41 @@
+# GPU prototype, does not launch AWS compute or enable paid billing.
+# Supply the reviewed CUDA 12.6.3 / cuDNN 9 image PINNED BY SHA256 digest, e.g.
+#   docker build --platform linux/amd64 -f Dockerfile.aws-gpu \
+#     --build-arg CUDA_BASE_IMAGE=nvidia/cuda@sha256:<digest> -t strokesense-aws-gpu:gpu-smoke-<ts> .
+# from the strokesense/ directory.
+ARG CUDA_BASE_IMAGE
+FROM ${CUDA_BASE_IMAGE}
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 MPLCONFIGDIR=/tmp/strokesense-mpl HOME=/tmp PYTHONPATH=/app PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+# Security: apply Ubuntu security updates from the base image's snapshot onward
+# (openssl, gnupg, apt, glibc, perl, ...). Distro ffmpeg is deliberately NOT
+# installed: it pulled in ~all libav*/codec CVEs, and the worker only uses an
+# ffmpeg binary to re-encode its own rendered overlay, which strokesense.render
+# resolves via the static imageio-ffmpeg build when none is on PATH.
+# Uploaded video is decoded by OpenCV's bundled FFmpeg (opencv-python-headless).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends python3 python3-pip libgomp1 libglib2.0-0 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-aws-gpu.txt ./
+RUN python3 -m pip install --no-cache-dir -r requirements-aws-gpu.txt
+# Fail the build if the CPU-only runtime slipped in (it would shadow the CUDA
+# build of the onnxruntime module) or if this ONNX Runtime lacks the CUDA EP.
+RUN if python3 -m pip show onnxruntime >/dev/null 2>&1; then echo "CPU onnxruntime must not be installed" >&2; exit 1; fi \
+    && if python3 -m pip show beautifulsoup4 soupsieve >/dev/null 2>&1; then echo "bs4/soupsieve are not used by the GPU worker" >&2; exit 1; fi \
+    && python3 -c "import onnxruntime as ort; p = ort.get_available_providers(); print('ONNX Runtime', ort.__version__, p); assert ort.get_device() == 'GPU' and 'CUDAExecutionProvider' in p, p" \
+    && python3 -m pip check
+# pip is only needed at build time; remove it from the runtime image.
+RUN apt-get purge -y python3-pip && rm -rf /var/lib/apt/lists/* /root/.cache
+COPY strokesense/ ./strokesense/
+COPY aws_app/ ./aws_app/
+RUN python3 -c "from strokesense.pose import ensure_model; from aws_app.gpu_model_integrity import verify_gpu_model; p = ensure_model(); verify_gpu_model(p)" && chmod -R a+rX /app/models
+# The render path must still produce browser H.264 without distro ffmpeg.
+RUN if command -v ffmpeg >/dev/null; then echo "distro ffmpeg must not be installed" >&2; exit 1; fi \
+    && python3 -c "import subprocess, tempfile, os; from strokesense.render import _ffmpeg; exe = _ffmpeg(); assert exe and 'imageio_ffmpeg' in exe, exe; out = os.path.join(tempfile.mkdtemp(), 'h264.mp4'); subprocess.run([exe, '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out], check=True); assert os.path.getsize(out) > 0; print('render encoder OK', exe)"
+USER 10001:10001
+# Load and run the real pinned model with the GPU wheel's explicit CPU provider.
+# This catches unsupported ONNX opsets during the build, including on hosts
+# without NVIDIA hardware. It does not satisfy the separate CUDA smoke gate.
+RUN python3 -m aws_app.gpu_model_compatibility --model /app/models/yolo11n-pose.onnx --check-cuda-libraries
+# Worker fails closed until ECS injects STROKESENSE_PAID_GPU_WORKER_ENABLED=true
+CMD ["python3", "-m", "aws_app.gpu_worker"]

@@ -18,20 +18,12 @@ from pathlib import Path
 import subprocess
 from typing import Any, Callable
 
+from .gpu_errors import GpuPreflightError
+
 LOGGER = logging.getLogger(__name__)
 GPU_PROVIDER = "CUDAExecutionProvider"
 GPU_MIN_TOTAL_MIB = 2800  # The target g6f.xlarge exposes approximately 3 GiB.
 GPU_MIN_FREE_MIB = 1800
-
-
-class GpuPreflightError(RuntimeError):
-    """Fixed categories with bounded diagnostic context kept out of str(exc)."""
-
-    def __init__(self, category: str, *, stage: str | None = None,
-                 diagnostics: dict[str, Any] | None = None) -> None:
-        super().__init__(category)
-        self.stage = stage
-        self.diagnostics = diagnostics or {}
 
 
 WARMUP_RUNS = 3
@@ -261,7 +253,8 @@ def validate_gpu_runtime(model: Path, *, run: Callable[..., Any] = subprocess.ru
             raise GpuPreflightError("cuda_provider_not_active")
     except GpuPreflightError as exc:
         exc.stage = stage
-        exc.diagnostics = _runtime_failure_context(ort, available, total, free, run)
+        exc.diagnostics = {**_runtime_failure_context(ort, available, total, free, run),
+                           **exc.diagnostics}
         raise
     except Exception as exc:
         raise GpuPreflightError("cuda_inference_failed", stage=stage,
